@@ -99,7 +99,7 @@ CLI / ChatOps / Local API / Agent Guard
   |
   v
 Command Router
-  - parses /account, /auth, /oauth aliases
+  - parses /account product commands and /auth manual compatibility commands
   - normalizes actor, reason, dryRun/apply
   - applies approval gates
   - redacts all responses
@@ -249,7 +249,7 @@ Compatibility aliases:
 
 ```text
 /auth ...
-/oauth ...
+/auth is the manual/chat compatibility command for the MVP.
 ```
 
 CLI should mirror ChatOps:
@@ -493,8 +493,9 @@ Exit criteria:
 ### Phase 5: Telegram/ChatOps Bridge
 
 - Build Telegram bridge as a command adapter over the local command API.
-- Register `/account` commands.
-- Support `/auth` and `/oauth` compatibility aliases.
+- Register `/account` product commands.
+- Support `/auth` as the manual/chat compatibility command.
+- Keep `/auth` as the manual/chat compatibility command in MVP docs and help text.
 - Implement two-step confirmation for backup-only/force operations.
 - Ensure chat replies use concise status metrics and receipt IDs.
 

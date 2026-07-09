@@ -116,7 +116,7 @@ Compatibility aliases:
 
 ```text
 /auth ...
-/oauth ...
+/auth is the manual/chat compatibility command for the MVP.
 ```
 
 Read-only commands:
@@ -283,7 +283,7 @@ Current blocker:
 2. Confirm local-first only for v0.
 3. Confirm OpenClaw adapter should be first mutating adapter.
 4. Confirm Hermes adapter should be second.
-5. Confirm Telegram command namespace should be `/account`, with `/auth` compatibility alias.
+5. Confirm product command namespace should be `/account`, with `/auth` as the manual/chat compatibility command.
 6. Confirm credential deletion is out of v0.
 7. Confirm Codex should implement once its auth/route is verified.
 

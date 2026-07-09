@@ -1,0 +1,169 @@
+{
+  "schemaVersion": "account-center.status.v1",
+  "generatedAt": "2026-07-09T00:00:00.000Z",
+  "noSecrets": true,
+  "source": "fixture",
+  "providers": [
+    { "key": "openai", "displayName": "OpenAI" }
+  ],
+  "runtimes": [
+    {
+      "key": "openclaw",
+      "displayName": "OpenClaw fixture adapter",
+      "capabilities": {
+        "readStatus": true,
+        "mutateRoutes": false,
+        "startReauth": false,
+        "mutateModels": false
+      }
+    },
+    {
+      "key": "hermes",
+      "displayName": "Hermes fixture adapter",
+      "capabilities": {
+        "readStatus": true,
+        "mutateRoutes": false,
+        "startReauth": false,
+        "mutateModels": false
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "openai:helper-1",
+      "provider": "openai",
+      "label": "helper-1",
+      "role": "primary",
+      "runtimeCompatibility": ["openclaw", "hermes", "codex"],
+      "models": ["openai/gpt-5.5", "openai/gpt-5.3-codex"],
+      "disabled": false,
+      "usage": {
+        "profileId": "openai:helper-1",
+        "provider": "openai",
+        "generatedAt": "2026-07-09T00:00:00.000Z",
+        "readable": true,
+        "health": "warn",
+        "windows": [
+          { "name": "five-hour", "remainingPct": 1 },
+          { "name": "weekly", "remainingPct": 68 }
+        ],
+        "auth": { "state": "ok" },
+        "warnings": ["five-hour low"]
+      }
+    },
+    {
+      "id": "openai:helper-2",
+      "provider": "openai",
+      "label": "helper-2",
+      "role": "secondary",
+      "runtimeCompatibility": ["openclaw", "hermes", "codex"],
+      "models": ["openai/gpt-5.5", "openai/gpt-5.3-codex"],
+      "disabled": false,
+      "usage": {
+        "profileId": "openai:helper-2",
+        "provider": "openai",
+        "generatedAt": "2026-07-09T00:00:00.000Z",
+        "readable": true,
+        "health": "ok",
+        "windows": [
+          { "name": "five-hour", "remainingPct": 97 },
+          { "name": "weekly", "remainingPct": 77 }
+        ],
+        "auth": { "state": "ok" },
+        "warnings": []
+      }
+    },
+    {
+      "id": "openai:business-backup",
+      "provider": "openai",
+      "label": "business-backup",
+      "role": "backup",
+      "runtimeCompatibility": ["openclaw", "hermes"],
+      "models": ["openai/gpt-5.5"],
+      "disabled": false,
+      "usage": {
+        "profileId": "openai:business-backup",
+        "provider": "openai",
+        "generatedAt": "2026-07-09T00:00:00.000Z",
+        "readable": true,
+        "health": "ok",
+        "windows": [
+          { "name": "five-hour", "remainingPct": 99 },
+          { "name": "weekly", "remainingPct": 90 }
+        ],
+        "auth": { "state": "ok" },
+        "warnings": ["backup-only"]
+      }
+    },
+    {
+      "id": "openai:reauth-needed",
+      "provider": "openai",
+      "label": "reauth-needed",
+      "role": "secondary",
+      "runtimeCompatibility": ["openclaw"],
+      "models": ["openai/gpt-5.5"],
+      "disabled": false,
+      "usage": {
+        "profileId": "openai:reauth-needed",
+        "provider": "openai",
+        "generatedAt": "2026-07-09T00:00:00.000Z",
+        "readable": false,
+        "health": "error",
+        "windows": [
+          { "name": "five-hour", "remainingPct": null },
+          { "name": "weekly", "remainingPct": null }
+        ],
+        "auth": { "state": "reauth-needed" },
+        "warnings": ["reauth needed"]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "provider": "openai",
+      "runtime": "openclaw",
+      "activeProfileId": "openai:helper-1",
+      "order": ["openai:helper-1", "openai:helper-2", "openai:business-backup", "openai:reauth-needed"],
+      "updatedAt": "2026-07-09T00:00:00.000Z"
+    }
+  ],
+  "policy": {
+    "minFiveHourRemainingPct": 5,
+    "minWeeklyRemainingPct": 5,
+    "allowBackupWhenNormalAvailable": false,
+    "disabledModels": ["openai/gpt-4.1"],
+    "staleAfterSeconds": 315360000
+  },
+  "leases": [
+    {
+      "id": "lease_fixture_codex",
+      "profileId": "openai:helper-2",
+      "holder": "codex",
+      "reason": "fixture smoke",
+      "expiresAt": "2026-07-10T00:00:00.000Z"
+    }
+  ],
+  "reauth": [
+    {
+      "id": "reauth_fixture",
+      "provider": "openai",
+      "profileHint": "reauth-needed",
+      "userCode": "ABCD-EFGH",
+      "verificationUri": "https://example.invalid/device",
+      "expiresAt": "2026-07-09T00:15:00.000Z",
+      "status": "pending"
+    }
+  ],
+  "audit": [
+    {
+      "id": "evt_fixture_status",
+      "action": "status.export",
+      "actor": "fixture",
+      "dryRun": true,
+      "createdAt": "2026-07-09T00:00:00.000Z",
+      "summary": "Fixture status export loaded",
+      "warnings": []
+    }
+  ],
+  "warnings": ["fixture data only", "backup protected"]
+}

@@ -4,19 +4,19 @@ Account Center should expose the same operations through CLI, HTTP, Telegram, an
 
 ## Naming
 
-Preferred public command namespace:
+Preferred product/CLI namespace:
 
 ```text
 /account ...
 ```
 
-Aliases can include:
+Manual chat compatibility command:
 
 ```text
 /auth ...
-/oauth ...
-/model-account ...
 ```
+
+Operator-facing chat docs should use `/auth` for compatibility and `/account` for the product namespace. Historical private scripts may still contain OAuth-related filenames internally.
 
 ## Chat commands
 
@@ -43,24 +43,31 @@ Aliases can include:
 | `/account audit` | Show recent switch/reauth events | yes |
 | `/account help` | Command help | yes |
 
+For MVP chat compatibility, the same high-value manual operations should be exposed through `/auth`, for example `/auth`, `/auth list`, `/auth auto`, `/auth <label>`, `/auth remove <label>`, and `/auth reauth <label>`.
+
 ## CLI equivalents
 
 ```bash
 account-center status
+account-center status --json
+account-center guard --provider openai --runtime openclaw --json
 account-center accounts list
 account-center routes next
-account-center routes auto --apply
-account-center routes use <profile> --apply
-account-center routes remove <profile> --apply
-account-center accounts disable <profile> --apply
-account-center accounts enable <profile> --apply
+account-center routes auto
+account-center routes use <profile>
+account-center routes remove <profile>
+account-center accounts disable <profile>
+account-center accounts enable <profile>
 account-center accounts reauth <profile>
 account-center accounts add --provider openai --label helper-1
 account-center models list
-account-center models disable openai/gpt-5.5 --apply
+account-center models disable openai/gpt-5.5
+account-center models enable openai/gpt-5.5
 account-center doctor
 account-center audit list --limit 20
 ```
+
+In the MVP, fixture mode is the default and route/account/model mutation-shaped commands are dry-run unless `--apply` is explicitly passed. OpenClaw apply support is limited to existing account-routing scripts/CLI with explicit arguments and receipts; Account Center does not directly edit sessions, prompts, memory, bootstrap, or credential stores.
 
 ## HTTP API sketch
 
@@ -96,7 +103,8 @@ All mutating routes should support:
 ### Check status
 
 ```text
-/account status
+/auth
+/auth list
 ```
 
 Expected response:
@@ -111,7 +119,7 @@ Warnings: jack-codex daily 1% left; adsaver backup protected
 ### Switch to next available account
 
 ```text
-/account auto
+/auth auto
 ```
 
 Expected response:
@@ -126,7 +134,7 @@ receipt: evt_...
 ### Switch to a specific account
 
 ```text
-/account use 49pushy
+/auth 49pushy
 ```
 
 If eligible:
@@ -139,25 +147,25 @@ Switched to openai:49pushy-simmers+link@icloud.com.
 If blocked:
 
 ```text
-Blocked by policy: account is backup-only. Use /account force 49pushy --confirm if you really want this.
+Blocked by policy: account is backup-only. Use a high-friction confirmed /account force operation if you really want this.
 ```
 
 ### Remove from routing without deleting credential
 
 ```text
-/account remove travis
+/auth remove travis
 ```
 
 Expected:
 
 ```text
-Removed openai:travis... from normal routing. Credential remains saved. Use /account enable travis to restore policy visibility.
+Removed openai:travis... from normal routing. Credential remains saved. Use /auth enable travis to restore policy visibility.
 ```
 
 ### Reauthenticate
 
 ```text
-/account reauth travis
+/auth reauth travis
 ```
 
 Expected:

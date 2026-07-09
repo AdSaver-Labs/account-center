@@ -2,7 +2,7 @@
 
 Open-source account routing, reauthentication, and usage-control center for AI agents.
 
-**Status:** planning-first seed repo. This repository starts from a working private Sentinel/OpenClaw/Hermes account-routing setup and generalizes it into an agent-agnostic product.
+**Status:** Phase 1 MVP scaffold. The repo now includes a TypeScript workspace with fixture-backed schemas, redaction, policy checks, checkpoint/gate files, and a dry-run `account-center` CLI.
 
 ## Problem
 
@@ -45,6 +45,22 @@ It should work with **any agent runtime**, not just Hermes or OpenClaw, by expos
 - `docs/ARCHITECTURE.md` — adapter-first architecture.
 - `docs/ROADMAP.md` — phased implementation roadmap.
 - `docs/RESEARCH.md` — current findings and local Sentinel lessons.
+- `packages/core` — schemas, redaction, file-backed status store, and routing policy.
+- `packages/cli` — fixture-backed read-only/dry-run CLI.
+
+## MVP CLI
+
+```bash
+npm install
+npm test
+npm run typecheck
+npm run build
+node packages/cli/dist/index.js status --json
+node packages/cli/dist/index.js guard --provider openai --runtime openclaw --json
+node packages/cli/dist/index.js routes auto
+```
+
+The CLI defaults to `tests/fixtures/status.fixture.json` and writes token-free local status files under `.account-center/`. Live OpenClaw reads are explicit with `--source openclaw` plus `ACCOUNT_CENTER_OPENCLAW_WORKSPACE`/`ACCOUNT_CENTER_OPENCLAW_CLI`; tests do not touch `/home/Alej/.openclaw`, and mutation-shaped commands remain dry-run unless `--apply` is passed.
 
 ## Non-goals for v0
 

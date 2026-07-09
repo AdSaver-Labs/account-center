@@ -98,7 +98,7 @@ Compatibility aliases:
 
 ```text
 /auth ...
-/oauth ...
+/auth is the manual/chat compatibility command for the MVP.
 ```
 
 CLI mirrors chat:
@@ -206,7 +206,7 @@ business-backup
 CLI / Telegram / Other Chat / HTTP / Dashboard / Agent Guard
   ↓
 Command Router
-  - parse /account, /auth, /oauth
+  - parse /account product commands and /auth manual compatibility commands
   - normalize actor/reason/dryRun/apply
   - enforce approval gates
   - redact all outputs
@@ -387,8 +387,9 @@ Exit criteria:
 ### Phase 5 — Telegram/ChatOps bridge
 
 - Telegram bridge over local command API.
-- Register `/account` commands.
-- Keep `/auth` and `/oauth` compatibility aliases.
+- Register `/account` product commands.
+- Keep `/auth` as the manual/chat compatibility command.
+- Keep `/auth` as the MVP manual command.
 - Two-step confirmation for backup-only/force operations.
 - Chat replies include metrics and receipt IDs.
 

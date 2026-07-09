@@ -1,0 +1,16 @@
+{
+  "name": "@account-center/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "account-center": "dist/index.js"
+  },
+  "dependencies": {
+    "@account-center/core": "file:../core"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  }
+}
