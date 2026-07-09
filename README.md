@@ -62,6 +62,10 @@ node packages/cli/dist/index.js auth /auth status --json
 node packages/cli/dist/index.js auth /auth next --source openclaw
 ACCOUNT_CENTER_GENERIC_COMMAND="node examples/generic-agent-status.mjs" \
   node packages/cli/dist/index.js status --source generic-command --json
+ACCOUNT_CENTER_GENERIC_COMMAND="node examples/pi-agent-status.mjs" \
+  node packages/cli/dist/index.js guard --source generic-command --runtime pi-agent --ensure-route --json
+ACCOUNT_CENTER_GENERIC_COMMAND="node examples/odysseus-status.mjs" \
+  node packages/cli/dist/index.js guard --source generic-command --runtime odysseus --ensure-route --json
 ```
 
 The CLI uses `tests/fixtures/status.fixture.json` by default and writes token-free local status files under `.account-center/`. Live OpenClaw reads require explicit `--source openclaw` or `ACCOUNT_CENTER_SOURCE=openclaw`. Mutation-shaped commands stay dry-run unless `--apply` is explicit and supported.
@@ -96,6 +100,8 @@ node packages/cli/dist/index.js auth /auth ensure --json
 ```
 
 Without `--apply`, this only plans the route change and returns a receipt-shaped dry-run result. With a configured adapter apply command and explicit `--apply`, the adapter may switch routes according to policy.
+
+First-class target examples are documented in `docs/ADAPTER_MATRIX.md`, including PI agent and Odysseus / PewDiePie harness. Both work through the generic adapter contract today and can become native adapters once their real runtime status/apply APIs are known.
 
 ## Non-goals for v0
 

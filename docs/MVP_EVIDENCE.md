@@ -36,6 +36,14 @@ Implemented Phase 1 plus MVP read-only/dry-run command surface and the first run
   - `ACCOUNT_CENTER_GENERIC_COMMAND` configures the read command.
   - `ACCOUNT_CENTER_GENERIC_APPLY_COMMAND` configures an optional explicit apply command.
   - `guard --ensure-route` / `/auth ensure` lets agents automatically request policy-based route selection while remaining dry-run unless `--apply` is explicit.
+- PI agent and Odysseus / PewDiePie harness target examples:
+  - `examples/pi-agent-status.mjs`
+  - `examples/odysseus-status.mjs`
+  - both use the generic adapter contract until native runtime APIs are identified.
+- Phase 4 OpenClaw mutation hardening foundation:
+  - live apply path now acquires a runtime lock;
+  - copies known routing/status state into `.account-center/backups/openclaw-routing/...`;
+  - writes rollback pointers and warnings into receipts.
 
 ## Safety
 
@@ -50,6 +58,7 @@ Implemented Phase 1 plus MVP read-only/dry-run command surface and the first run
 - Manual/chat docs emphasize `/auth` compatibility as the MVP manual command.
 - `/auth` bridge tests verify help text and bridge output do not promote the old manual command name.
 - Generic adapter tests use mocked commands; no real agent credentials or runtime trees are touched.
+- OpenClaw live apply tests use temp workspaces and mocked runners, not the real Dexter workspace.
 
 ## Verification
 
@@ -81,6 +90,8 @@ node packages/cli/dist/index.js auth /auth guard --json
 node packages/cli/dist/index.js auth /auth auto
 node packages/cli/dist/index.js guard --ensure-route --json
 ACCOUNT_CENTER_GENERIC_COMMAND="node examples/generic-agent-status.mjs" node packages/cli/dist/index.js status --source generic-command --json --no-write-export
+ACCOUNT_CENTER_GENERIC_COMMAND="node examples/pi-agent-status.mjs" node packages/cli/dist/index.js guard --source generic-command --runtime pi-agent --ensure-route --json
+ACCOUNT_CENTER_GENERIC_COMMAND="node examples/odysseus-status.mjs" node packages/cli/dist/index.js guard --source generic-command --runtime odysseus --ensure-route --json
 ```
 
 Live read-only OpenClaw smoke commands when OpenClaw is present:
@@ -113,6 +124,7 @@ Key observed outputs:
 npm test: 16 tests passed
 npm test after Phase 2: 23 tests passed
 npm test after Phase 3: 27 tests passed
+npm test after Phase 4 hardening: 28 tests passed
 npm run typecheck: account-center checkpoint typecheck: passed
 npm run build: account-center checkpoint build: passed
 routes next: Next eligible: openai:helper-2

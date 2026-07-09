@@ -81,8 +81,11 @@ test("OpenClaw route apply shells only to existing routing script and writes rec
   const cli = join(workspace, "oauth_routing_cli.py");
   const switchScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
   await mkdir(join(workspace, "3-Resources", "codex-account-ops", "scripts"), { recursive: true });
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops", "state"), { recursive: true });
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
   await writeFile(switchScript, "#!/usr/bin/env node\n", "utf8");
+  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
+  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"), JSON.stringify({ route: "before" }), "utf8");
   const calls: Array<{ command: string; args: string[] }> = [];
   const runner: CommandRunner = async (command, args) => {
     calls.push({ command, args });
@@ -105,6 +108,33 @@ test("OpenClaw route apply shells only to existing routing script and writes rec
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, true);
   assert.equal(receipt.liveRuntimeMutation, true);
+  assert.ok(receipt.rollback.backupDir.includes("openclaw-routing"));
+  assert.equal(receipt.rollback.files.length, 2);
+  assert.ok(receipt.receipt.warnings.includes("lock_acquired"));
+  assert.ok(receipt.receipt.warnings.includes("rollback_pointer_written"));
+});
+
+test("OpenClaw route apply refuses to run when runtime lock is already held", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-lock-"));
+  const cli = join(workspace, "oauth_routing_cli.py");
+  const switchScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops", "scripts"), { recursive: true });
+  await mkdir(join(workspace, ".account-center", "locks", "openclaw-route.lock"), { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(switchScript, "#!/usr/bin/env node\n", "utf8");
+  const runner: CommandRunner = async (_command, args) => {
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+    throw new Error("apply command should not run while locked");
+  };
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
+  await assert.rejects(() => adapter.mutate({
+    action: "route.use",
+    target: "openai:helper-2",
+    apply: true,
+    provider: "openai",
+    runtime: "openclaw",
+    receiptPath: join(workspace, "receipt.json")
+  }), /EEXIST|file already exists/);
 });
 
 test("Generic command adapter reads no-secret status from any agent command", async () => {

@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -158,18 +158,24 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       : input.action === "route.remove"
         ? [switchScript, "remove", requiredTarget(target, input.action), "--apply", "--agent", "all", "--no-refresh"]
         : [switchScript, requiredTarget(target, input.action), "--apply", "--agent", "all", "--no-refresh"];
-    const result = await this.runner(process.execPath, args, { cwd: this.workspace, timeoutMs: 60_000 });
-    const receipt = createReceipt({
-      action: input.action,
-      dryRun: false,
-      target,
-      summary: result.code === 0 ? `Applied through existing OpenClaw account-routing script: ${input.action}` : `OpenClaw account-routing script failed: ${input.action}`,
-      before: routeBefore(status),
-      after: { command: "codex-auth-switch.mjs", args: args.slice(1).map((item) => item.includes("@") ? redactProfileArg(item) : item), exitCode: result.code },
-      warnings: ["openclaw_account_routing_only", "sessions_prompts_memory_bootstrap_untouched"]
-    });
-    await writeReceipt(input.receiptPath, { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receipt, command: "codex-auth-switch.mjs", stderr: result.stderr.slice(0, 2000), stdout: result.stdout.slice(0, 2000) });
-    return { code: result.code, payload: { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receiptPath: input.receiptPath, receipt } };
+    const lock = await acquireRuntimeLock(this.workspace, "openclaw-route");
+    try {
+      const rollback = await backupOpenClawRoutingState(this.workspace);
+      const result = await this.runner(process.execPath, args, { cwd: this.workspace, timeoutMs: 60_000 });
+      const receipt = createReceipt({
+        action: input.action,
+        dryRun: false,
+        target,
+        summary: result.code === 0 ? `Applied through existing OpenClaw account-routing script: ${input.action}` : `OpenClaw account-routing script failed: ${input.action}`,
+        before: routeBefore(status),
+        after: { command: "codex-auth-switch.mjs", args: args.slice(1).map((item) => item.includes("@") ? redactProfileArg(item) : item), exitCode: result.code, rollback },
+        warnings: ["openclaw_account_routing_only", "sessions_prompts_memory_bootstrap_untouched", "lock_acquired", "rollback_pointer_written"]
+      });
+      await writeReceipt(input.receiptPath, { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receipt, command: "codex-auth-switch.mjs", rollback, stderr: result.stderr.slice(0, 2000), stdout: result.stdout.slice(0, 2000) });
+      return { code: result.code, payload: { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receiptPath: input.receiptPath, receipt, rollback } };
+    } finally {
+      await releaseRuntimeLock(lock);
+    }
   }
 
   private async tryReadCliStatus(): Promise<unknown | undefined> {
@@ -385,6 +391,45 @@ async function exists(path: string): Promise<boolean> {
 
 async function pathCheck(name: string, path: string): Promise<{ name: string; ok: boolean; detail: string }> {
   return { name, ok: await exists(path), detail: path };
+}
+
+async function acquireRuntimeLock(workspace: string, name: string): Promise<string> {
+  const lockRoot = join(workspace, ".account-center", "locks");
+  const lockDir = join(lockRoot, `${name}.lock`);
+  await mkdir(lockRoot, { recursive: true });
+  await mkdir(lockDir, { recursive: false });
+  await writeFile(join(lockDir, "owner.json"), `${JSON.stringify({ name, pid: process.pid, acquiredAt: nowIso() }, null, 2)}\n`, "utf8");
+  return lockDir;
+}
+
+async function releaseRuntimeLock(lockDir: string): Promise<void> {
+  await rm(lockDir, { recursive: true, force: true });
+}
+
+async function backupOpenClawRoutingState(workspace: string): Promise<{ backupDir: string; files: string[] }> {
+  const backupDir = join(workspace, ".account-center", "backups", "openclaw-routing", safeStamp());
+  await mkdir(backupDir, { recursive: true });
+  const candidates = [
+    join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"),
+    join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json")
+  ];
+  const files: string[] = [];
+  for (const source of candidates) {
+    if (!(await exists(source))) continue;
+    const destination = join(backupDir, source.replace(workspace, "").replace(/^\/+/, "").replace(/[\\/]/g, "__"));
+    await copyFile(source, destination);
+    files.push(destination);
+  }
+  await writeFile(join(backupDir, "ROLLBACK.md"), rollbackText(files), "utf8");
+  return { backupDir, files };
+}
+
+function rollbackText(files: string[]): string {
+  return [`# Account Center OpenClaw routing backup`, ``, `Created: ${nowIso()}`, ``, `Files copied:`, ...files.map((file) => `- ${file}`), ``, `Rollback is manual in v0: inspect these no-secret/state files, then restore through the OpenClaw/Sentinel native routing tools rather than editing unrelated session/prompt/memory/bootstrap files.`].join("\n") + "\n";
+}
+
+function safeStamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
 async function writeReceipt(path: string, payload: unknown): Promise<void> {

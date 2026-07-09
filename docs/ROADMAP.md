@@ -45,6 +45,7 @@ Work:
 - Formalize OpenClaw apply receipts and rollback pointers.
 - Add per-runtime locks so Telegram/Jack/Dexter/Codex cannot race account switches.
 - Back up auth-order/routing state before every live mutation.
+- Write rollback pointers into every live apply receipt.
 - Add dedicated test-runtime fixtures before touching real runtime state.
 - Support `routes auto/use/remove --source openclaw --apply` as the first real apply surface.
 
@@ -108,6 +109,8 @@ Work:
 
 - Hermes adapter: credential-pool status, active account, safe route apply where supported.
 - Codex adapter: standalone CLI/app auth health, selected profile, route/usage status.
+- PI agent adapter: native status/apply once the real PI runtime status and switch commands are identified.
+- Odysseus / PewDiePie harness adapter: native status/apply once the harness account/subscription APIs are identified.
 - Generic command adapter remains the SDK for future agents.
 - LiteLLM adapter maps virtual keys, budgets, model access, and rate limits.
 
