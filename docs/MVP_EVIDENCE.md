@@ -26,6 +26,11 @@ Implemented Phase 1 plus MVP read-only/dry-run command surface and the first run
   - dry-run `accounts disable/enable`
   - dry-run `models disable/enable`
 - Checkpoint/gate updater writes token-free `.account-center/status.json` and `.account-center/gate.json`.
+- Phase 2 `/auth` bridge over the CLI:
+  - `node packages/cli/dist/index.js auth /auth status --json`
+  - `node packages/cli/dist/index.js auth /auth guard --json`
+  - `node packages/cli/dist/index.js auth /auth next --source openclaw`
+  - rejects the old manual command name instead of promoting it.
 
 ## Safety
 
@@ -38,6 +43,7 @@ Implemented Phase 1 plus MVP read-only/dry-run command surface and the first run
 - `accounts disable/enable --apply` and `models disable/enable --apply` report unsupported unless a safe existing OpenClaw account-routing command is available; they do not edit runtime stores directly.
 - Account Center never edits sessions, prompts, memory, bootstrap, or unrelated OpenClaw runtime files.
 - Manual/chat docs emphasize `/auth` compatibility as the MVP manual command.
+- `/auth` bridge tests verify help text and bridge output do not promote the old manual command name.
 
 ## Verification
 
@@ -64,6 +70,9 @@ node packages/cli/dist/index.js accounts disable helper-1
 node packages/cli/dist/index.js accounts enable helper-1
 node packages/cli/dist/index.js models disable openai/gpt-5.3-codex
 node packages/cli/dist/index.js models enable openai/gpt-5.3-codex
+node packages/cli/dist/index.js auth /auth status --json --no-write-export
+node packages/cli/dist/index.js auth /auth guard --json
+node packages/cli/dist/index.js auth /auth auto
 ```
 
 Live read-only OpenClaw smoke commands when OpenClaw is present:
@@ -84,12 +93,17 @@ node packages/cli/dist/index.js routes next --source openclaw --no-write-export
 ACCOUNT_CENTER_OPENCLAW_WORKSPACE=/home/Alej/.openclaw/workspace \
 ACCOUNT_CENTER_OPENCLAW_CLI=/home/Alej/.openclaw/workspace/ops/scripts/oauth_routing_cli.py \
 node packages/cli/dist/index.js doctor --source openclaw --json --no-write-export
+
+ACCOUNT_CENTER_OPENCLAW_WORKSPACE=/home/Alej/.openclaw/workspace \
+ACCOUNT_CENTER_OPENCLAW_CLI=/home/Alej/.openclaw/workspace/ops/scripts/oauth_routing_cli.py \
+node packages/cli/dist/index.js auth /auth next --source openclaw --no-write-export
 ```
 
 Key observed outputs:
 
 ```text
 npm test: 16 tests passed
+npm test after Phase 2: 23 tests passed
 npm run typecheck: account-center checkpoint typecheck: passed
 npm run build: account-center checkpoint build: passed
 routes next: Next eligible: openai:helper-2

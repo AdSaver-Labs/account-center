@@ -58,9 +58,24 @@ npm run build
 node packages/cli/dist/index.js status --json
 node packages/cli/dist/index.js guard --provider openai --runtime openclaw --json
 node packages/cli/dist/index.js routes auto
+node packages/cli/dist/index.js auth /auth status --json
+node packages/cli/dist/index.js auth /auth next --source openclaw
 ```
 
-The CLI defaults to `tests/fixtures/status.fixture.json` and writes token-free local status files under `.account-center/`. Live OpenClaw reads are explicit with `--source openclaw` plus `ACCOUNT_CENTER_OPENCLAW_WORKSPACE`/`ACCOUNT_CENTER_OPENCLAW_CLI`; tests do not touch `/home/Alej/.openclaw`, and mutation-shaped commands remain dry-run unless `--apply` is passed.
+The CLI uses `tests/fixtures/status.fixture.json` by default and writes token-free local status files under `.account-center/`. Live OpenClaw reads require explicit `--source openclaw` or `ACCOUNT_CENTER_SOURCE=openclaw`. Mutation-shaped commands stay dry-run unless `--apply` is explicit and supported.
+
+## Manual chat bridge
+
+Phase 2 adds an actual `/auth` parser/bridge over the CLI:
+
+```bash
+node packages/cli/dist/index.js auth /auth status --json
+node packages/cli/dist/index.js auth /auth accounts
+node packages/cli/dist/index.js auth /auth next --source openclaw
+node packages/cli/dist/index.js auth /auth auto
+```
+
+`/auth` is the manual/chat command. The bridge rejects the old manual command name instead of promoting it.
 
 ## Non-goals for v0
 

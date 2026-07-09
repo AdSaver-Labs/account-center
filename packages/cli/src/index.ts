@@ -12,6 +12,7 @@ import {
   parseRuntimeSource,
   redactJson
 } from "@account-center/core";
+import { parseAuthCommand, renderAuthHelp } from "./auth-bridge.js";
 
 interface CliResult {
   code: number;
@@ -43,6 +44,15 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   const [command, subcommand, target] = positional;
 
   if (!command || command === "help" || command === "--help") return ok(helpText());
+  if (command === "auth") {
+    try {
+      const mapped = parseAuthCommand(argv.slice(1));
+      if (mapped[0] === "help") return ok(renderAuthHelp());
+      return runCli(mapped, cwd, deps);
+    } catch (error) {
+      return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
+    }
+  }
   const adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
   if (command === "doctor") {
     const report = await adapter.doctor();
@@ -231,6 +241,7 @@ function helpText(): string {
   models list
   doctor
   audit list [--limit 20]
+  auth "/auth ..." -- parse and execute manual /auth chat commands
 
 Manual chat compatibility command is /auth. /account is the product namespace.
 
