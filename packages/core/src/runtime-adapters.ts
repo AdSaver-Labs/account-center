@@ -8,7 +8,7 @@ import { createReceipt, nextEligible } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
 
-export type RuntimeSource = "fixture" | "openclaw";
+export type RuntimeSource = "fixture" | "openclaw" | "generic-command";
 
 export interface CommandResult {
   code: number;
@@ -43,6 +43,13 @@ export interface OpenClawAdapterConfig {
   workspace?: string;
   cli?: string;
   receiptDir?: string;
+  runner?: CommandRunner;
+}
+
+export interface GenericCommandAdapterConfig {
+  command?: string;
+  args?: string[];
+  applyCommand?: string;
   runner?: CommandRunner;
 }
 
@@ -178,15 +185,90 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   }
 }
 
+export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
+  readonly source = "generic-command" as const;
+  private readonly command: string;
+  private readonly args: string[];
+  private readonly applyCommand?: string;
+  private readonly runner: CommandRunner;
+
+  constructor(config: GenericCommandAdapterConfig = {}) {
+    const commandText = config.command ?? process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    if (!commandText) throw new Error("Generic command source requires ACCOUNT_CENTER_GENERIC_COMMAND or adapter command config.");
+    const commandParts = splitArgs(commandText);
+    this.command = commandParts[0] ?? commandText;
+    this.args = config.args ?? [...commandParts.slice(1), ...splitArgs(process.env.ACCOUNT_CENTER_GENERIC_ARGS ?? "--json")];
+    this.applyCommand = config.applyCommand ?? process.env.ACCOUNT_CENTER_GENERIC_APPLY_COMMAND;
+    this.runner = config.runner ?? execFileRunner;
+  }
+
+  async readStatus(): Promise<AccountCenterStatus> {
+    const result = await this.runner(this.command, this.args, { timeoutMs: 60_000 });
+    if (result.code !== 0) throw new Error(`Generic command status failed (${result.code}): ${result.stderr.slice(0, 500)}`);
+    return normalizeGenericCommandStatus(JSON.parse(result.stdout));
+  }
+
+  async doctor(): Promise<unknown> {
+    try {
+      const status = await this.readStatus();
+      return { ok: true, source: "generic-command", command: this.command, profiles: status.profiles.length, routes: status.routes.length, safety: ["adapter_contract_json", "no_secret_status_required"] };
+    } catch (error) {
+      return { ok: false, source: "generic-command", command: this.command, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async mutate(input: RuntimeMutationInput): Promise<RuntimeMutationResult> {
+    const status = await this.readStatus();
+    if (!input.apply) return { code: 0, payload: dryRunReceipt(input.action, input.target, status, "generic-command") };
+    if (!this.applyCommand) {
+      const receipt = createReceipt({ action: input.action, dryRun: true, target: input.target, summary: "Generic command apply requires ACCOUNT_CENTER_GENERIC_APPLY_COMMAND; no live mutation was attempted.", warnings: ["generic_apply_unconfigured", "no_live_mutation"] });
+      return { code: 2, payload: { applied: false, dryRun: true, liveRuntimeMutation: false, receipt } };
+    }
+    const target = input.action === "route.auto" ? nextEligible(status, input.provider, input.runtime)?.profile.id : input.target;
+    const result = await this.runner(this.applyCommand, [input.action, requiredTarget(target, input.action), "--json"], { timeoutMs: 60_000 });
+    const receipt = createReceipt({
+      action: input.action,
+      dryRun: false,
+      target,
+      summary: result.code === 0 ? `Applied through generic command adapter: ${input.action}` : `Generic command adapter failed: ${input.action}`,
+      before: routeBefore(status),
+      after: { command: this.applyCommand, action: input.action, exitCode: result.code },
+      warnings: ["generic_command_adapter", "external_command_contract"]
+    });
+    const payload = { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receipt, stdout: result.stdout.slice(0, 2000), stderr: result.stderr.slice(0, 2000) };
+    await writeReceipt(input.receiptPath, payload);
+    return { code: result.code, payload };
+  }
+}
+
 export function createRuntimeAdapter(source: RuntimeSource, options: { cwd?: string; runner?: CommandRunner } = {}): RuntimeAdapter {
   if (source === "openclaw") return new OpenClawRuntimeAdapter({ runner: options.runner });
+  if (source === "generic-command") return new GenericCommandRuntimeAdapter({ runner: options.runner });
   return new FixtureRuntimeAdapter(resolve(options.cwd ?? process.cwd(), "tests/fixtures/status.fixture.json"));
 }
 
 export function parseRuntimeSource(value: string | undefined): RuntimeSource {
   if (!value || value === "fixture") return "fixture";
   if (value === "openclaw") return "openclaw";
-  throw new Error(`Unsupported source: ${value}. Expected fixture or openclaw.`);
+  if (value === "generic-command") return "generic-command";
+  throw new Error(`Unsupported source: ${value}. Expected fixture, openclaw, or generic-command.`);
+}
+
+export function normalizeGenericCommandStatus(raw: unknown): AccountCenterStatus {
+  if (isRecord(raw) && raw.schemaVersion === "account-center.status.v1") {
+    const status = { ...raw, source: "generic-command", noSecrets: true };
+    assertAccountCenterStatus(status);
+    return redactJson(status) as AccountCenterStatus;
+  }
+  const normalized = normalizeOpenClawStatus(raw, "generic-command adapter status");
+  return redactJson({
+    ...normalized,
+    source: "generic-command",
+    runtimes: [{ key: "generic-command", displayName: "Generic command adapter", capabilities: { readStatus: true, mutateRoutes: true, startReauth: false, mutateModels: false } }],
+    profiles: normalized.profiles.map((profile) => ({ ...profile, runtimeCompatibility: ["generic-command"] })),
+    routes: normalized.routes.map((route) => ({ ...route, runtime: "generic-command" })),
+    warnings: [...normalized.warnings, "generic_command_contract"]
+  }) as AccountCenterStatus;
 }
 
 export function dryRunReceipt(action: AuditAction, target: string | undefined, status: AccountCenterStatus, source: RuntimeSource): unknown {
@@ -427,4 +509,8 @@ function millisToIso(value: unknown): string | undefined {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) return undefined;
   return new Date(number).toISOString();
+}
+
+function splitArgs(value: string): string[] {
+  return value.trim() ? value.trim().split(/\s+/) : [];
 }

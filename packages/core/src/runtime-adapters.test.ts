@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CommandRunner, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
+import { CommandRunner, GenericCommandRuntimeAdapter, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
 
 const routerStatus = {
   at: "2026-07-09T10:55:50.721Z",
@@ -102,6 +102,63 @@ test("OpenClaw route apply shells only to existing routing script and writes rec
   assert.equal(result.code, 0);
   assert.equal(calls[1]?.command, process.execPath);
   assert.deepEqual(calls[1]?.args, [switchScript, "openai:helper-2", "--apply", "--agent", "all", "--no-refresh"]);
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+  assert.equal(receipt.applied, true);
+  assert.equal(receipt.liveRuntimeMutation, true);
+});
+
+test("Generic command adapter reads no-secret status from any agent command", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const runner: CommandRunner = async (command, args) => {
+    calls.push({ command, args });
+    return { code: 0, stdout: JSON.stringify({ ...routerStatus, source: "generic-command" }), stderr: "" };
+  };
+  const adapter = new GenericCommandRuntimeAdapter({ command: "agent-status", args: ["--json"], runner });
+  const status = await adapter.readStatus();
+  assert.equal(status.source, "generic-command");
+  assert.equal(status.noSecrets, true);
+  assert.equal(status.profiles.length, 2);
+  assert.deepEqual(calls[0], { command: "agent-status", args: ["--json"] });
+});
+
+test("Generic command adapter dry-run mutation never calls apply command", async () => {
+  let calls = 0;
+  const runner: CommandRunner = async () => {
+    calls += 1;
+    return { code: 0, stdout: JSON.stringify({ ...routerStatus, source: "generic-command" }), stderr: "" };
+  };
+  const adapter = new GenericCommandRuntimeAdapter({ command: "agent-status", runner });
+  const result = await adapter.mutate({
+    action: "route.auto",
+    apply: false,
+    provider: "openai",
+    runtime: "generic-command",
+    receiptPath: "/tmp/not-written.json"
+  });
+  assert.equal(result.code, 0);
+  assert.equal(calls, 1, "only read status should run");
+  assert.equal((result.payload as { liveRuntimeMutation: boolean }).liveRuntimeMutation, false);
+});
+
+test("Generic command adapter apply shells to explicit apply command and writes receipt", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-generic-"));
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const runner: CommandRunner = async (command, args) => {
+    calls.push({ command, args });
+    if (command === "agent-status") return { code: 0, stdout: JSON.stringify({ ...routerStatus, source: "generic-command" }), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ applied: true }), stderr: "" };
+  };
+  const receiptPath = join(workspace, "receipt.json");
+  const adapter = new GenericCommandRuntimeAdapter({ command: "agent-status", applyCommand: "agent-route", runner });
+  const result = await adapter.mutate({
+    action: "route.auto",
+    apply: true,
+    provider: "openai",
+    runtime: "generic-command",
+    receiptPath
+  });
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls[1], { command: "agent-route", args: ["route.auto", "openai:helper-2", "--json"] });
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, true);
   assert.equal(receipt.liveRuntimeMutation, true);

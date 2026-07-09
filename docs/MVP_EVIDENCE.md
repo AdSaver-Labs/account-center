@@ -31,6 +31,11 @@ Implemented Phase 1 plus MVP read-only/dry-run command surface and the first run
   - `node packages/cli/dist/index.js auth /auth guard --json`
   - `node packages/cli/dist/index.js auth /auth next --source openclaw`
   - rejects the old manual command name instead of promoting it.
+- Phase 3 generic adapter foundation:
+  - `--source generic-command` reads any external no-secret status command.
+  - `ACCOUNT_CENTER_GENERIC_COMMAND` configures the read command.
+  - `ACCOUNT_CENTER_GENERIC_APPLY_COMMAND` configures an optional explicit apply command.
+  - `guard --ensure-route` / `/auth ensure` lets agents automatically request policy-based route selection while remaining dry-run unless `--apply` is explicit.
 
 ## Safety
 
@@ -44,6 +49,7 @@ Implemented Phase 1 plus MVP read-only/dry-run command surface and the first run
 - Account Center never edits sessions, prompts, memory, bootstrap, or unrelated OpenClaw runtime files.
 - Manual/chat docs emphasize `/auth` compatibility as the MVP manual command.
 - `/auth` bridge tests verify help text and bridge output do not promote the old manual command name.
+- Generic adapter tests use mocked commands; no real agent credentials or runtime trees are touched.
 
 ## Verification
 
@@ -73,6 +79,8 @@ node packages/cli/dist/index.js models enable openai/gpt-5.3-codex
 node packages/cli/dist/index.js auth /auth status --json --no-write-export
 node packages/cli/dist/index.js auth /auth guard --json
 node packages/cli/dist/index.js auth /auth auto
+node packages/cli/dist/index.js guard --ensure-route --json
+ACCOUNT_CENTER_GENERIC_COMMAND="node examples/generic-agent-status.mjs" node packages/cli/dist/index.js status --source generic-command --json --no-write-export
 ```
 
 Live read-only OpenClaw smoke commands when OpenClaw is present:
@@ -104,6 +112,7 @@ Key observed outputs:
 ```text
 npm test: 16 tests passed
 npm test after Phase 2: 23 tests passed
+npm test after Phase 3: 27 tests passed
 npm run typecheck: account-center checkpoint typecheck: passed
 npm run build: account-center checkpoint build: passed
 routes next: Next eligible: openai:helper-2

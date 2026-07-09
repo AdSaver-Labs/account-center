@@ -31,6 +31,16 @@ test("guard returns next usable account", async () => {
   assert.equal(parsed.next, "openai:helper-2");
 });
 
+test("guard --ensure-route plans automatic route switch without apply", async () => {
+  const result = await runCli(["guard", "--ensure-route", "--json"]);
+  assert.equal(result.code, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.ensured.applied, false);
+  assert.equal(parsed.ensured.liveRuntimeMutation, false);
+  assert.equal(parsed.ensured.receipt.action, "route.auto");
+});
+
 test("dry-run route and account commands produce non-mutating receipts", async () => {
   for (const argv of [
     ["routes", "auto"],

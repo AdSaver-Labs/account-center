@@ -29,8 +29,9 @@ interface CliOptions {
   statusPath: string;
   receiptPath: string;
   writeExport: boolean;
-  source: "fixture" | "openclaw";
+  source: "fixture" | "openclaw" | "generic-command";
   apply: boolean;
+  ensureRoute: boolean;
 }
 
 export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner?: CommandRunner } = {}): Promise<CliResult> {
@@ -66,7 +67,10 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   if (command === "guard") {
     const guarded = guardStatus(status, options.provider, options.runtime, options.model);
     const receipt = createReceipt({ action: "guard.check", dryRun: true, summary: guarded.reason, target: guarded.next });
-    const payload = { ...guarded, receipt };
+    const ensured = options.ensureRoute && guarded.ok
+      ? (await adapter.mutate({ action: "route.auto", target: guarded.next, apply: options.apply, provider: options.provider, runtime: options.runtime, receiptPath: options.receiptPath })).payload
+      : undefined;
+    const payload = { ...guarded, receipt, ...(ensured ? { ensured } : {}) };
     return { code: guarded.ok ? 0 : 2, stdout: options.json ? json(payload) : renderGuard(payload) };
   }
   if (command === "accounts" && subcommand === "list") return ok(options.json ? json(status.profiles) : renderAccounts(status));
@@ -124,7 +128,8 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     receiptPath: resolve(cwd, valueAfter(argv, "--receipt-path") ?? `.account-center/receipts/${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
     writeExport: !argv.includes("--no-write-export"),
     source: parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE),
-    apply: argv.includes("--apply")
+    apply: argv.includes("--apply"),
+    ensureRoute: argv.includes("--ensure-route")
   };
 }
 
@@ -227,8 +232,8 @@ function renderAudit(status: AccountCenterStatus, limit: number): string {
 function helpText(): string {
   return `account-center commands
   status [--json]
-  status --source fixture|openclaw [--json]
-  guard [--provider openai] [--runtime openclaw] [--model provider/model]
+  status --source fixture|openclaw|generic-command [--json]
+  guard [--provider openai] [--runtime openclaw] [--model provider/model] [--ensure-route] [--apply]
   accounts list
   accounts disable <profile> [--apply] -- dry-run unless apply is supported and explicit
   accounts enable <profile> [--apply] -- dry-run unless apply is supported and explicit
@@ -245,7 +250,7 @@ function helpText(): string {
 
 Manual chat compatibility command is /auth. /account is the product namespace.
 
-Runtime source defaults to fixture. OpenClaw live reads require --source openclaw or ACCOUNT_CENTER_SOURCE=openclaw.
+Runtime source defaults to fixture. Live reads require --source openclaw, --source generic-command, or ACCOUNT_CENTER_SOURCE.
 OpenClaw config: ACCOUNT_CENTER_OPENCLAW_WORKSPACE and ACCOUNT_CENTER_OPENCLAW_CLI.
 `;
 }

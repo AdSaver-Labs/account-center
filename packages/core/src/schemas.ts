@@ -112,7 +112,7 @@ export interface AccountCenterStatus {
   schemaVersion: "account-center.status.v1";
   generatedAt: string;
   noSecrets: true;
-  source: "fixture" | "file-store" | "openclaw";
+  source: "fixture" | "file-store" | "openclaw" | "generic-command";
   providers: Provider[];
   runtimes: Runtime[];
   profiles: Profile[];

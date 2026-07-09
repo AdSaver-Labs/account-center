@@ -60,6 +60,8 @@ node packages/cli/dist/index.js guard --provider openai --runtime openclaw --jso
 node packages/cli/dist/index.js routes auto
 node packages/cli/dist/index.js auth /auth status --json
 node packages/cli/dist/index.js auth /auth next --source openclaw
+ACCOUNT_CENTER_GENERIC_COMMAND="node examples/generic-agent-status.mjs" \
+  node packages/cli/dist/index.js status --source generic-command --json
 ```
 
 The CLI uses `tests/fixtures/status.fixture.json` by default and writes token-free local status files under `.account-center/`. Live OpenClaw reads require explicit `--source openclaw` or `ACCOUNT_CENTER_SOURCE=openclaw`. Mutation-shaped commands stay dry-run unless `--apply` is explicit and supported.
@@ -76,6 +78,24 @@ node packages/cli/dist/index.js auth /auth auto
 ```
 
 `/auth` is the manual/chat command. The bridge rejects the old manual command name instead of promoting it.
+
+## Generic adapter SDK
+
+Any agent can integrate before a native adapter exists by exposing a no-secret JSON status command:
+
+```bash
+ACCOUNT_CENTER_GENERIC_COMMAND="node examples/generic-agent-status.mjs" \
+node packages/cli/dist/index.js status --source generic-command --json
+```
+
+For automatic usage-based routing, agents can run:
+
+```bash
+node packages/cli/dist/index.js guard --ensure-route --json
+node packages/cli/dist/index.js auth /auth ensure --json
+```
+
+Without `--apply`, this only plans the route change and returns a receipt-shaped dry-run result. With a configured adapter apply command and explicit `--apply`, the adapter may switch routes according to policy.
 
 ## Non-goals for v0
 
