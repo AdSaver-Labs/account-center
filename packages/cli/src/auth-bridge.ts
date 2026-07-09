@@ -16,6 +16,9 @@ export function parseAuthCommand(input: string | string[]): string[] {
       return ["guard", "--ensure-route", ...rest];
     case "doctor":
       return ["doctor", ...rest];
+    case "probes":
+    case "probe":
+      return ["providers", "probe", ...rest];
     case "accounts":
     case "list":
       return ["accounts", "list", ...rest];
@@ -46,6 +49,7 @@ export function renderAuthHelp(): string {
   /auth status [--source fixture|openclaw|generic-command] [--json]
   /auth guard [--provider openai] [--runtime openclaw] [--json]
   /auth ensure [--source openclaw|generic-command] [--apply]
+  /auth probe [--provider openai|all] [--json]
   /auth accounts
   /auth next
   /auth auto [--apply]

@@ -61,6 +61,7 @@ Goal: understand usage across different subscription/account types without spend
 Work:
 
 - Probe contract for providers: OpenAI/Codex, Anthropic, OpenRouter, GitHub Copilot, LiteLLM-compatible gateways, custom subscriptions.
+- CLI/manual probe surface: `providers probe` and `/auth probe`.
 - Normalize usage windows: 5h, daily, weekly, monthly, credits, RPM/TPM, budget remaining, unknown.
 - Support no-token probes first; optional canary probes must be explicit and visible.
 - Add staleness, cooldown, and confidence scoring.
@@ -77,6 +78,7 @@ Goal: Alej can operate Account Center directly from Telegram through the same CL
 Work:
 
 - Telegram/Hermes command bridge that shells to or imports `account-center auth`.
+- Local raw-message wrapper `scripts/chatops.mjs` as the first integration seam.
 - Rich short replies with account metrics and receipt IDs.
 - Confirmation flow for `--apply`, backup-only accounts, and force operations.
 - Audit log delivery and rollback hints.

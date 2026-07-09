@@ -60,6 +60,8 @@ node packages/cli/dist/index.js guard --provider openai --runtime openclaw --jso
 node packages/cli/dist/index.js routes auto
 node packages/cli/dist/index.js auth /auth status --json
 node packages/cli/dist/index.js auth /auth next --source openclaw
+node packages/cli/dist/index.js providers probe --provider all --json
+node scripts/chatops.mjs "/auth status --json"
 ACCOUNT_CENTER_GENERIC_COMMAND="node examples/generic-agent-status.mjs" \
   node packages/cli/dist/index.js status --source generic-command --json
 ACCOUNT_CENTER_GENERIC_COMMAND="node examples/pi-agent-status.mjs" \
@@ -100,6 +102,19 @@ node packages/cli/dist/index.js auth /auth ensure --json
 ```
 
 Without `--apply`, this only plans the route change and returns a receipt-shaped dry-run result. With a configured adapter apply command and explicit `--apply`, the adapter may switch routes according to policy.
+
+Provider/subscription probes summarize no-token usage windows:
+
+```bash
+node packages/cli/dist/index.js providers probe --provider all --json
+node packages/cli/dist/index.js auth /auth probe --provider all --json
+```
+
+The local ChatOps wrapper accepts raw `/auth ...` messages and can be wired into Telegram/Hermes/OpenClaw bridges:
+
+```bash
+node scripts/chatops.mjs "/auth status --json"
+```
 
 First-class target examples are documented in `docs/ADAPTER_MATRIX.md`, including PI agent and Odysseus / PewDiePie harness. Both work through the generic adapter contract today and can become native adapters once their real runtime status/apply APIs are known.
 

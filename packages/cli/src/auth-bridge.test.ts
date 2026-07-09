@@ -10,6 +10,7 @@ test("/auth status maps to account-center status with JSON/no-write preserved", 
 test("/auth accounts and /auth next map to existing CLI commands", () => {
   assert.deepEqual(parseAuthCommand("/auth accounts"), ["accounts", "list"]);
   assert.deepEqual(parseAuthCommand("/auth next --source openclaw"), ["routes", "next", "--source", "openclaw"]);
+  assert.deepEqual(parseAuthCommand("/auth probe --provider all --json"), ["providers", "probe", "--provider", "all", "--json"]);
 });
 
 test("/auth auto/use/remove/disable/enable/model commands stay dry-run unless --apply is explicit", () => {
@@ -37,6 +38,14 @@ test("CLI auth bridge executes /auth guard against fixture status", async () => 
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.ok, true);
   assert.equal(parsed.next, "openai:helper-2");
+});
+
+test("CLI auth bridge executes /auth probe against fixture status", async () => {
+  const result = await runCli(["auth", "/auth", "probe", "--json"]);
+  assert.equal(result.code, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed[0].provider, "openai");
+  assert.equal(parsed[0].usableProfiles, 2);
 });
 
 test("CLI auth bridge rejects oauth manual command", async () => {

@@ -10,6 +10,7 @@ import {
   guardStatus,
   nextEligible,
   parseRuntimeSource,
+  probeProviders,
   redactJson
 } from "@account-center/core";
 import { parseAuthCommand, renderAuthHelp } from "./auth-bridge.js";
@@ -74,6 +75,10 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return { code: guarded.ok ? 0 : 2, stdout: options.json ? json(payload) : renderGuard(payload) };
   }
   if (command === "accounts" && subcommand === "list") return ok(options.json ? json(status.profiles) : renderAccounts(status));
+  if (command === "providers" && subcommand === "probe") {
+    const probes = await probeProviders(status, options.provider);
+    return ok(options.json ? json(probes) : renderProviderProbes(probes));
+  }
   if (command === "models" && subcommand === "list") return ok(options.json ? json(listModels(status)) : renderModels(status));
   if (command === "routes" && subcommand === "next") {
     const next = nextEligible(status, options.provider, options.runtime, options.model);
@@ -229,12 +234,17 @@ function renderAudit(status: AccountCenterStatus, limit: number): string {
   return status.audit.slice(0, limit).map((event) => `${event.id} ${event.action} dryRun=${event.dryRun} ${event.summary}`).join("\n") + "\n";
 }
 
+function renderProviderProbes(probes: Array<{ provider: string; ok: boolean; profiles: number; usableProfiles: number; lowestRemainingPct: number | null; highestRemainingPct: number | null; source: string }>): string {
+  return probes.map((probe) => `${probe.provider} ok=${probe.ok} usable=${probe.usableProfiles}/${probe.profiles} remaining=${probe.lowestRemainingPct ?? "unknown"}-${probe.highestRemainingPct ?? "unknown"}% source=${probe.source}`).join("\n") + "\n";
+}
+
 function helpText(): string {
   return `account-center commands
   status [--json]
   status --source fixture|openclaw|generic-command [--json]
   guard [--provider openai] [--runtime openclaw] [--model provider/model] [--ensure-route] [--apply]
   accounts list
+  providers probe [--provider openai|all] [--json]
   accounts disable <profile> [--apply] -- dry-run unless apply is supported and explicit
   accounts enable <profile> [--apply] -- dry-run unless apply is supported and explicit
   routes next
