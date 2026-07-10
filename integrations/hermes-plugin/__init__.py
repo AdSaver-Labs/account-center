@@ -59,7 +59,7 @@ def _account_center_root() -> Path:
 def _build_auth_message(raw_args: str) -> str:
     text = (raw_args or "").strip()
     if not text:
-        return "/auth help"
+        return "/auth"
     if text.lower().startswith("/oauth"):
         return "/auth help"
     if text.lower().startswith("/auth"):

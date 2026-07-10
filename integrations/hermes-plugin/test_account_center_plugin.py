@@ -17,7 +17,7 @@ def load_plugin_module():
 class AccountCenterHermesPluginTest(unittest.TestCase):
     def test_build_auth_message_normalizes_to_auth_namespace(self):
         plugin = load_plugin_module()
-        self.assertEqual(plugin._build_auth_message(""), "/auth help")
+        self.assertEqual(plugin._build_auth_message(""), "/auth")
         self.assertEqual(plugin._build_auth_message("status --json"), "/auth status --json")
         self.assertEqual(plugin._build_auth_message("/auth status"), "/auth status")
         self.assertEqual(plugin._build_auth_message("/oauth status"), "/auth help")
