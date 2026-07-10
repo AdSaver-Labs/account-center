@@ -17,6 +17,8 @@ test("/auth auto/use/remove/disable/enable/model commands stay dry-run unless --
   assert.deepEqual(parseAuthCommand("/auth auto"), ["routes", "auto"]);
   assert.deepEqual(parseAuthCommand("/auth use openai:helper-2"), ["routes", "use", "openai:helper-2"]);
   assert.deepEqual(parseAuthCommand("/auth remove helper-1"), ["routes", "remove", "helper-1"]);
+  assert.deepEqual(parseAuthCommand("/auth delete helper-1"), ["accounts", "delete", "helper-1"]);
+  assert.deepEqual(parseAuthCommand("/auth delete old@example.com --apply"), ["accounts", "delete", "old@example.com", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth disable helper-1"), ["accounts", "disable", "helper-1"]);
   assert.deepEqual(parseAuthCommand("/auth enable helper-1 --apply"), ["accounts", "enable", "helper-1", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth model disable openai/gpt-5.3-codex"), ["models", "disable", "openai/gpt-5.3-codex"]);

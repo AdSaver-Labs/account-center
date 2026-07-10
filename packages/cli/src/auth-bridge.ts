@@ -36,6 +36,8 @@ export function parseAuthCommand(input: string | string[]): string[] {
       return ["routes", "use", ...rest];
     case "remove":
       return ["routes", "remove", ...rest];
+    case "delete":
+      return ["accounts", "delete", ...rest];
     case "disable":
       return ["accounts", "disable", ...rest];
     case "enable":
@@ -62,6 +64,7 @@ export function renderAuthHelp(): string {
   /auth auto [--apply]
   /auth use <profile> [--apply]
   /auth remove <profile> [--apply]
+  /auth delete <email-or-profile> [--apply] -- fully delete credentials from Sentinel/OpenClaw auth store after backup
   /auth disable <profile> [--apply]
   /auth enable <profile> [--apply]
   /auth models

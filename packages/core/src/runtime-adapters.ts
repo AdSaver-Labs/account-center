@@ -42,6 +42,7 @@ export interface RuntimeAdapter {
 export interface OpenClawAdapterConfig {
   workspace?: string;
   cli?: string;
+  agentDir?: string;
   receiptDir?: string;
   runner?: CommandRunner;
 }
@@ -84,12 +85,14 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   readonly source = "openclaw" as const;
   private readonly workspace: string;
   private readonly cli: string;
+  private readonly agentDir: string;
   private readonly receiptDir: string;
   private readonly runner: CommandRunner;
 
   constructor(config: OpenClawAdapterConfig = {}) {
     this.workspace = resolve(config.workspace ?? process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE ?? join(homedir(), ".openclaw", "workspace"));
     this.cli = resolve(config.cli ?? process.env.ACCOUNT_CENTER_OPENCLAW_CLI ?? join(this.workspace, "ops", "scripts", "oauth_routing_cli.py"));
+    this.agentDir = resolve(config.agentDir ?? process.env.ACCOUNT_CENTER_OPENCLAW_AGENT_DIR ?? join(dirname(this.workspace), "agents", "main", "agent"));
     this.receiptDir = resolve(config.receiptDir ?? process.env.ACCOUNT_CENTER_RECEIPT_DIR ?? ".account-center/receipts");
     this.runner = config.runner ?? execFileRunner;
   }
@@ -130,6 +133,8 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     const status = await this.readStatus();
     if (!input.apply) return { code: 0, payload: dryRunReceipt(input.action, input.target, status, "openclaw") };
 
+    if (input.action === "account.delete") return this.deleteAccountCredentials(input, status);
+
     if (!["route.auto", "route.use", "route.remove"].includes(input.action)) {
       const receipt = createReceipt({
         action: input.action,
@@ -160,7 +165,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
         : [switchScript, requiredTarget(target, input.action), "--apply", "--agent", "all", "--no-refresh"];
     const lock = await acquireRuntimeLock(this.workspace, "openclaw-route");
     try {
-      const rollback = await backupOpenClawRoutingState(this.workspace);
+      const rollback = await backupOpenClawRoutingState(this.workspace, this.agentDir);
       const result = await this.runner(process.execPath, args, { cwd: this.workspace, timeoutMs: 60_000 });
       const receipt = createReceipt({
         action: input.action,
@@ -173,6 +178,31 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       });
       await writeReceipt(input.receiptPath, { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receipt, command: "codex-auth-switch.mjs", rollback, stderr: result.stderr.slice(0, 2000), stdout: result.stdout.slice(0, 2000) });
       return { code: result.code, payload: { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receiptPath: input.receiptPath, receipt, rollback } };
+    } finally {
+      await releaseRuntimeLock(lock);
+    }
+  }
+
+  private async deleteAccountCredentials(input: RuntimeMutationInput, status: AccountCenterStatus): Promise<RuntimeMutationResult> {
+    const target = requiredTarget(input.target, input.action);
+    const lock = await acquireRuntimeLock(this.workspace, "openclaw-credential-delete");
+    try {
+      const rollback = await backupOpenClawRoutingState(this.workspace, this.agentDir);
+      const result = await this.runner("python3", ["-c", credentialDeletePython(), this.agentDir, target], { cwd: this.workspace, timeoutMs: 60_000 });
+      let deletion: unknown = {};
+      try { deletion = result.stdout.trim() ? JSON.parse(result.stdout) : {}; } catch { deletion = { parseError: true }; }
+      const receipt = createReceipt({
+        action: "account.delete",
+        dryRun: false,
+        target,
+        summary: result.code === 0 ? `Deleted Sentinel/OpenClaw credentials for ${redactProfileArg(target)}` : `Credential delete failed for ${redactProfileArg(target)}`,
+        before: routeBefore(status),
+        after: { command: "python3 account-center credential-delete", exitCode: result.code, deleted: redactedDeletionSummary(deletion), rollback },
+        warnings: ["credential_delete_destructive", "openclaw_account_routing_only", "sessions_prompts_memory_bootstrap_untouched", "lock_acquired", "rollback_pointer_written"]
+      });
+      const payload = { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receiptPath: input.receiptPath, receipt, rollback, result: redactedDeletionSummary(deletion), stderr: result.stderr.slice(0, 2000) };
+      await writeReceipt(input.receiptPath, payload);
+      return { code: result.code, payload };
     } finally {
       await releaseRuntimeLock(lock);
     }
@@ -428,12 +458,17 @@ async function releaseRuntimeLock(lockDir: string): Promise<void> {
   await rm(lockDir, { recursive: true, force: true });
 }
 
-async function backupOpenClawRoutingState(workspace: string): Promise<{ backupDir: string; files: string[] }> {
+async function backupOpenClawRoutingState(workspace: string, agentDir?: string): Promise<{ backupDir: string; files: string[] }> {
   const backupDir = join(workspace, ".account-center", "backups", "openclaw-routing", safeStamp());
   await mkdir(backupDir, { recursive: true });
   const candidates = [
     join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"),
-    join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json")
+    join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"),
+    ...(agentDir ? [
+      join(agentDir, "openclaw-agent.sqlite"),
+      join(agentDir, "auth-profiles.json"),
+      join(agentDir, "auth-state.json")
+    ] : [])
   ];
   const files: string[] = [];
   for (const source of candidates) {
@@ -448,6 +483,103 @@ async function backupOpenClawRoutingState(workspace: string): Promise<{ backupDi
 
 function rollbackText(files: string[]): string {
   return [`# Account Center OpenClaw routing backup`, ``, `Created: ${nowIso()}`, ``, `Files copied:`, ...files.map((file) => `- ${file}`), ``, `Rollback is manual in v0: inspect these no-secret/state files, then restore through the OpenClaw/Sentinel native routing tools rather than editing unrelated session/prompt/memory/bootstrap files.`].join("\n") + "\n";
+}
+
+function credentialDeletePython(): string {
+  return String.raw`
+import json, os, sqlite3, sys, time
+from pathlib import Path
+agent_dir = Path(sys.argv[1])
+target = sys.argv[2]
+
+def ids_for(value):
+    raw = str(value).strip()
+    email = raw.split(':', 1)[1] if ':' in raw else raw
+    ids = {raw}
+    if '@' in email:
+        ids.add('openai:' + email)
+        ids.add('openai-codex:' + email)
+    return ids
+
+targets = ids_for(target)
+summary = {'deletedProfiles': [], 'removedFromOrder': [], 'clearedLastGood': [], 'filesTouched': []}
+
+def scrub_state(state):
+    order = state.get('order') if isinstance(state.get('order'), dict) else {}
+    for provider, values in list(order.items()):
+        if not isinstance(values, list):
+            continue
+        kept = [item for item in values if item not in targets]
+        removed = [item for item in values if item in targets]
+        if removed:
+            summary['removedFromOrder'].extend(removed)
+            order[provider] = kept
+    last = state.get('lastGood') if isinstance(state.get('lastGood'), dict) else {}
+    for provider, value in list(last.items()):
+        if value in targets:
+            summary['clearedLastGood'].append(value)
+            last.pop(provider, None)
+    usage = state.get('usageStats') if isinstance(state.get('usageStats'), dict) else {}
+    for key in list(usage.keys()):
+        if key in targets:
+            usage.pop(key, None)
+    return state
+
+def scrub_store(store):
+    profiles = store.get('profiles') if isinstance(store.get('profiles'), dict) else {}
+    for key, row in list(profiles.items()):
+        email = row.get('email') if isinstance(row, dict) else None
+        row_ids = ids_for(email) if email else set()
+        row_ids.add(key)
+        if row_ids & targets:
+            profiles.pop(key, None)
+            summary['deletedProfiles'].append(key)
+    return store
+
+def edit_json_file(path, editor):
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    new_data = editor(data)
+    path.write_text(json.dumps(new_data, indent=2, sort_keys=True) + '\n')
+    summary['filesTouched'].append(str(path))
+
+edit_json_file(agent_dir / 'auth-profiles.json', scrub_store)
+edit_json_file(agent_dir / 'auth-state.json', scrub_state)
+
+db = agent_dir / 'openclaw-agent.sqlite'
+if db.exists():
+    con = sqlite3.connect(db)
+    try:
+        cur = con.execute("SELECT store_json FROM auth_profile_store WHERE store_key='primary'")
+        row = cur.fetchone()
+        if row:
+            store = scrub_store(json.loads(row[0]))
+            con.execute("UPDATE auth_profile_store SET store_json=?, updated_at=? WHERE store_key='primary'", (json.dumps(store, separators=(',', ':')), int(time.time()*1000)))
+            summary['filesTouched'].append(str(db) + ':auth_profile_store')
+        cur = con.execute("SELECT state_json FROM auth_profile_state WHERE state_key='primary'")
+        row = cur.fetchone()
+        if row:
+            state = scrub_state(json.loads(row[0]))
+            con.execute("UPDATE auth_profile_state SET state_json=?, updated_at=? WHERE state_key='primary'", (json.dumps(state, separators=(',', ':')), int(time.time()*1000)))
+            summary['filesTouched'].append(str(db) + ':auth_profile_state')
+        con.commit()
+    finally:
+        con.close()
+
+if not summary['deletedProfiles'] and not summary['removedFromOrder'] and not summary['clearedLastGood']:
+    summary['warning'] = 'target_not_found'
+print(json.dumps(summary, sort_keys=True))
+`;
+}
+
+function redactedDeletionSummary(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const keep: Record<string, unknown> = {};
+  for (const key of ["deletedProfiles", "removedFromOrder", "clearedLastGood", "filesTouched", "warning", "parseError"]) {
+    if (key in value) keep[key] = value[key];
+  }
+  return keep;
 }
 
 function safeStamp(): string {

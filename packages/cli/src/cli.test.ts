@@ -48,6 +48,7 @@ test("dry-run route and account commands produce non-mutating receipts", async (
     ["routes", "remove", "helper-1"],
     ["accounts", "disable", "helper-1"],
     ["accounts", "enable", "helper-1"],
+    ["accounts", "delete", "helper-1"],
     ["models", "disable", "openai/gpt-5.3-codex"],
     ["models", "enable", "openai/gpt-5.3-codex"]
   ]) {

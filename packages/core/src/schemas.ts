@@ -8,6 +8,7 @@ export type AuditAction =
   | "route.remove"
   | "account.disable"
   | "account.enable"
+  | "account.delete"
   | "model.disable"
   | "model.enable"
   | "status.export"

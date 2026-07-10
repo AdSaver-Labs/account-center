@@ -98,7 +98,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     });
     return { code: mutation.code, stdout: json(mutation.payload) };
   }
-  if (command === "accounts" && ["disable", "enable"].includes(subcommand ?? "")) {
+  if (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) {
     const mutation = await adapter.mutate({
       action: accountAction(subcommand),
       target,
@@ -162,7 +162,9 @@ function routeAction(subcommand?: string): AuditAction {
 }
 
 function accountAction(subcommand?: string): AuditAction {
-  return subcommand === "enable" ? "account.enable" : "account.disable";
+  if (subcommand === "enable") return "account.enable";
+  if (subcommand === "delete") return "account.delete";
+  return "account.disable";
 }
 
 function modelAction(subcommand?: string): AuditAction {
@@ -219,6 +221,7 @@ function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): st
   lines.push("• /auth add <email> — start OpenAI Codex device-code login from Telegram; background worker attempts to save/refresh the OAuth profile and activates it when usable, then reports success/failure");
   lines.push("• /auth reauth <email> — same as /auth add <email>; use for expired/401 accounts");
   lines.push("• /auth remove <email> — remove from routing without deleting credentials");
+  lines.push("• /auth delete <email> --apply — permanently delete that account's Sentinel/OpenClaw credentials after backup");
   lines.push("• Fallback CLI only if Telegram commands are unavailable: node 3-Resources/codex-account-ops/scripts/codex-device-auth-telegram.mjs start --email <email>");
   lines.push("");
   for (const profile of orderCodexProfiles(status.profiles)) {
@@ -400,6 +403,7 @@ function helpText(): string {
   providers probe [--provider openai|all] [--json]
   accounts disable <profile> [--apply] -- dry-run unless apply is supported and explicit
   accounts enable <profile> [--apply] -- dry-run unless apply is supported and explicit
+  accounts delete <email-or-profile> [--apply] -- destructive credential deletion; backs up first; dry-run unless --apply
   routes next
   routes auto [--apply] -- dry-run unless --apply
   routes use <profile> [--apply] -- dry-run unless --apply

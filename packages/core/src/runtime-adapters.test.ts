@@ -93,7 +93,7 @@ test("OpenClaw route apply shells only to existing routing script and writes rec
     return { code: 0, stdout: "{\"status\":\"APPLIED\"}", stderr: "" };
   };
   const receiptPath = join(workspace, "receipt.json");
-  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, agentDir: join(workspace, "agent"), runner });
   const result = await adapter.mutate({
     action: "route.use",
     target: "openai:helper-2",
@@ -113,6 +113,44 @@ test("OpenClaw route apply shells only to existing routing script and writes rec
   assert.equal(receipt.rollback.files.length, 2);
   assert.ok(receipt.receipt.warnings.includes("lock_acquired"));
   assert.ok(receipt.receipt.warnings.includes("rollback_pointer_written"));
+});
+
+test("OpenClaw account delete apply backs up and invokes credential deletion script", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-"));
+  const agentDir = join(workspace, "..", "agents", "main", "agent");
+  const cli = join(workspace, "oauth_routing_cli.py");
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops", "state"), { recursive: true });
+  await mkdir(agentDir, { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
+  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"), JSON.stringify({ route: "before" }), "utf8");
+  await writeFile(join(agentDir, "openclaw-agent.sqlite"), "sqlite placeholder", "utf8");
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const runner: CommandRunner = async (command, args) => {
+    calls.push({ command, args });
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ deleted: ["openai:helper-2"], removedFromOrder: ["openai:helper-2"] }), stderr: "" };
+  };
+  const receiptPath = join(workspace, "receipt.json");
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
+  const result = await adapter.mutate({
+    action: "account.delete",
+    target: "helper-2@example.com",
+    apply: true,
+    provider: "openai",
+    runtime: "openclaw",
+    receiptPath
+  });
+  assert.equal(result.code, 0);
+  const deleteCall = calls.at(-1);
+  assert.equal(deleteCall?.command, "python3");
+  assert.equal(deleteCall?.args[0], "-c");
+  assert.ok(deleteCall?.args.includes("helper-2@example.com"));
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+  assert.equal(receipt.applied, true);
+  assert.equal(receipt.liveRuntimeMutation, true);
+  assert.ok(receipt.receipt.warnings.includes("credential_delete_destructive"));
+  assert.ok(receipt.rollback.files.some((file: string) => file.includes("openclaw-agent.sqlite")));
 });
 
 test("OpenClaw route apply refuses to run when runtime lock is already held", async () => {
