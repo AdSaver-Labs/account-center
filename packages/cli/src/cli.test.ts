@@ -52,7 +52,7 @@ test("dry-run route and account commands produce non-mutating receipts", async (
     ["models", "disable", "openai/gpt-5.3-codex"],
     ["models", "enable", "openai/gpt-5.3-codex"]
   ]) {
-    const result = await runCli(argv);
+    const result = await runCli([...argv, "--json"]);
     assert.equal(result.code, 0, argv.join(" "));
     const parsed = JSON.parse(result.stdout);
     assert.equal(parsed.dryRun, true);
@@ -60,6 +60,19 @@ test("dry-run route and account commands produce non-mutating receipts", async (
     assert.equal(parsed.liveRuntimeMutation, false);
     assert.match(parsed.receipt.id, /^evt_/);
   }
+});
+
+test("/auth delete dry-run renders a clear human no-deletion message", async () => {
+  const result = await runCli(["auth", "/auth", "delete", "helper-1"]);
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
+  assert.match(result.stdout, /Action: account\.delete/);
+  assert.match(result.stdout, /To actually delete it yourself, run:/);
+  assert.match(result.stdout, /\/auth delete helper-1 --apply/);
+
+  const jsonResult = await runCli(["auth", "/auth", "delete", "helper-1", "--json"]);
+  assert.equal(jsonResult.code, 0);
+  assert.equal(JSON.parse(jsonResult.stdout).receipt.action, "account.delete");
 });
 
 test("models list reports fixture model policy", async () => {

@@ -96,7 +96,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       runtime: options.runtime,
       receiptPath: options.receiptPath
     });
-    return { code: mutation.code, stdout: json(mutation.payload) };
+    return { code: mutation.code, stdout: options.json ? json(mutation.payload) : renderMutation(mutation.payload) };
   }
   if (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) {
     const mutation = await adapter.mutate({
@@ -107,7 +107,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       runtime: options.runtime,
       receiptPath: options.receiptPath
     });
-    return { code: mutation.code, stdout: json(mutation.payload) };
+    return { code: mutation.code, stdout: options.json ? json(mutation.payload) : renderMutation(mutation.payload) };
   }
   if (command === "models" && ["disable", "enable"].includes(subcommand ?? "")) {
     const mutation = await adapter.mutate({
@@ -118,7 +118,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       runtime: options.runtime,
       receiptPath: options.receiptPath
     });
-    return { code: mutation.code, stdout: json(mutation.payload) };
+    return { code: mutation.code, stdout: options.json ? json(mutation.payload) : renderMutation(mutation.payload) };
   }
   return { code: 1, stdout: "", stderr: `Unknown command. Run account-center help.\n` };
 }
@@ -331,6 +331,50 @@ function meta(profile: AccountCenterStatus["profiles"][number], key: string): un
 
 function renderGuard(payload: { ok: boolean; reason: string; next?: string }): string {
   return `Guard: ${payload.ok ? "OK" : "BLOCKED"}\nReason: ${payload.reason}\nNext: ${payload.next ?? "none"}\n`;
+}
+
+function renderMutation(payload: unknown): string {
+  if (!isReport(payload)) return `${json(payload)}\n`;
+  const receipt = isReport(payload.receipt) ? payload.receipt : {};
+  const action = String(receipt.action ?? "mutation");
+  const target = String(receipt.target ?? "unknown");
+  const summary = String(receipt.summary ?? "No summary returned.");
+  const applied = payload.applied === true;
+  const dryRun = payload.dryRun === true || receipt.dryRun === true;
+  const liveRuntimeMutation = payload.liveRuntimeMutation === true;
+  const receiptPath = typeof payload.receiptPath === "string" ? payload.receiptPath : undefined;
+  const rollback = typeof payload.rollback === "string" ? payload.rollback : undefined;
+  const lines: string[] = [];
+
+  if (dryRun || !applied || !liveRuntimeMutation) {
+    lines.push("DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.");
+    lines.push(`Action: ${action}`);
+    lines.push(`Target: ${target}`);
+    lines.push(`Result: ${summary}`);
+    if (action === "account.delete") {
+      lines.push("");
+      lines.push("To actually delete it yourself, run:");
+      lines.push(`/auth delete ${target} --apply`);
+      lines.push("");
+      lines.push("Then run /auth to confirm the account no longer appears.");
+    } else if (action === "route.remove") {
+      lines.push("");
+      lines.push("This is routing removal only. It does not delete credentials.");
+      lines.push("To delete credentials instead, use /auth delete <email> --apply.");
+    }
+    return `${lines.join("\n")}\n`;
+  }
+
+  lines.push(action === "account.delete"
+    ? "DELETED — account credentials were removed from the Sentinel/OpenClaw auth store."
+    : "APPLIED — live Sentinel/OpenClaw runtime store was changed.");
+  lines.push(`Action: ${action}`);
+  lines.push(`Target: ${target}`);
+  lines.push(`Result: ${summary}`);
+  if (rollback) lines.push(`Backup: ${rollback}`);
+  if (receiptPath) lines.push(`Receipt: ${receiptPath}`);
+  if (action === "account.delete") lines.push("Run /auth to confirm the account no longer appears.");
+  return `${lines.join("\n")}\n`;
 }
 
 function renderAccounts(status: AccountCenterStatus): string {
