@@ -46,8 +46,11 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
         ctx = Ctx()
         plugin.register(ctx)
         self.assertIn("auth", ctx.commands)
+        self.assertIn("off", ctx.commands)
         self.assertEqual(ctx.commands["auth"]["args_hint"], "")
+        self.assertEqual(ctx.commands["off"]["args_hint"], "")
         self.assertIn("Account Center", ctx.commands["auth"]["description"])
+        self.assertIn("/auth", ctx.commands["off"]["description"])
 
 
 if __name__ == "__main__":

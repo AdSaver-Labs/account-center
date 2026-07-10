@@ -113,10 +113,27 @@ def _run_auth(raw_args: str) -> str:
     return _redact_output(output or "Account Center returned no output.")[:3900]
 
 
+def _run_off_alias(raw_args: str) -> str:
+    """Compatibility alias for voice/STT confusion around `/auth`.
+
+    The canonical manual command remains `/auth`; `/off` exists only so a user
+    who hears or transcribes "auth" as "off" still reaches the same Account
+    Center command surface.
+    """
+    result = _run_auth(raw_args)
+    return "`/off` is an alias; canonical command is `/auth`.\n\n" + result
+
+
 def register(ctx: Any) -> None:
     ctx.register_command(
         "auth",
         _run_auth,
         description="Account Center status, routing, probes, and Sentinel controls",
+        args_hint="",
+    )
+    ctx.register_command(
+        "off",
+        _run_off_alias,
+        description="Alias for /auth Account Center commands",
         args_hint="",
     )
