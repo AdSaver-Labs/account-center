@@ -9,3 +9,6 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 .account-center/
+
+__pycache__/
+*.pyc

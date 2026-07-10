@@ -1,0 +1,4 @@
+name: account-center
+version: 0.1.0
+description: "Account Center /auth bridge for Hermes gateway and CLI sessions. Routes /auth messages to the Account Center ChatOps wrapper without exposing secrets."
+author: Ad Saver Labs

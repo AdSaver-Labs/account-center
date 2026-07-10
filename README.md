@@ -116,6 +116,14 @@ The local ChatOps wrapper accepts raw `/auth ...` messages and can be wired into
 node scripts/chatops.mjs "/auth status --json"
 ```
 
+A Hermes plugin is included under `integrations/hermes-plugin/`. It registers `/auth` as a real Hermes slash command and delegates to `scripts/chatops.mjs`:
+
+```bash
+python3 integrations/hermes-plugin/test_account_center_plugin.py
+```
+
+See `docs/HERMES_INTEGRATION.md` for the exact profile install/config and Telegram command-menu verification steps.
+
 First-class target examples are documented in `docs/ADAPTER_MATRIX.md`, including PI agent and Odysseus / PewDiePie harness. Both work through the generic adapter contract today and can become native adapters once their real runtime status/apply APIs are known.
 
 ## Non-goals for v0
