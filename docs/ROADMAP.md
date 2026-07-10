@@ -163,10 +163,12 @@ Work:
 - Reauth queue.
 - Audit log and receipts.
 - Adapter health panel.
+- Always-on account limit overlay: optional FPS-counter-style floating widget pinned above other apps/tabs to monitor active account, 5-hour/week windows, reset times, and warnings. See `docs/INTERFACE_NOTES.md`.
 
 Exit criteria:
 
-- dashboard performs no standalone mutation logic; it only calls the API/command router.
+- dashboard performs no standalone mutation logic; it only calls the API/command router;
+- interface planning explicitly revisits the always-on account limit overlay before scope is finalized.
 
 ### Phase 12 — production hardening and open-source release
 
