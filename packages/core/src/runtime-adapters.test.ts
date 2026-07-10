@@ -146,6 +146,7 @@ test("OpenClaw account delete apply backs up and invokes credential deletion scr
   assert.equal(deleteCall?.command, "python3");
   assert.equal(deleteCall?.args[0], "-c");
   assert.ok(deleteCall?.args.includes("helper-2@example.com"));
+  assert.ok(deleteCall?.args.includes(workspace));
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, true);
   assert.equal(receipt.liveRuntimeMutation, true);

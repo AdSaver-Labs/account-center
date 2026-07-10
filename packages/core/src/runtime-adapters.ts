@@ -194,7 +194,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     const lock = await acquireRuntimeLock(this.workspace, "openclaw-credential-delete");
     try {
       const rollback = await backupOpenClawRoutingState(this.workspace, this.agentDir);
-      const result = await this.runner("python3", ["-c", credentialDeletePython(), this.agentDir, target], { cwd: this.workspace, timeoutMs: 60_000 });
+      const result = await this.runner("python3", ["-c", credentialDeletePython(), this.agentDir, target, this.workspace], { cwd: this.workspace, timeoutMs: 60_000 });
       let deletion: unknown = {};
       try { deletion = result.stdout.trim() ? JSON.parse(result.stdout) : {}; } catch { deletion = { parseError: true }; }
       const receipt = createReceipt({
@@ -497,6 +497,7 @@ import json, os, sqlite3, sys, time
 from pathlib import Path
 agent_dir = Path(sys.argv[1])
 target = sys.argv[2]
+workspace = Path(sys.argv[3]) if len(sys.argv) > 3 else None
 
 def ids_for(value):
     raw = str(value).strip()
@@ -509,6 +510,11 @@ def ids_for(value):
 
 targets = ids_for(target)
 summary = {'deletedProfiles': [], 'removedFromOrder': [], 'clearedLastGood': [], 'filesTouched': []}
+
+def matches(value):
+    if value is None:
+        return False
+    return bool(ids_for(value) & targets)
 
 def scrub_state(state):
     order = state.get('order') if isinstance(state.get('order'), dict) else {}
@@ -542,6 +548,48 @@ def scrub_store(store):
             summary['deletedProfiles'].append(key)
     return store
 
+def scrub_status(status):
+    accounts = status.get('accounts')
+    if isinstance(accounts, list):
+        kept = []
+        for row in accounts:
+            if isinstance(row, dict) and (matches(row.get('profileId')) or matches(row.get('email')) or matches(row.get('id'))):
+                summary['deletedProfiles'].append(str(row.get('profileId') or row.get('email') or row.get('id')))
+            else:
+                kept.append(row)
+        status['accounts'] = kept
+    elif isinstance(accounts, dict):
+        for key, row in list(accounts.items()):
+            if matches(key) or (isinstance(row, dict) and (matches(row.get('profileId')) or matches(row.get('email')) or matches(row.get('id')))):
+                accounts.pop(key, None)
+                summary['deletedProfiles'].append(str(key))
+
+    for key in ['effectiveAuthOrder', 'currentAuthOrder']:
+        values = status.get(key)
+        if isinstance(values, list):
+            removed = [item for item in values if matches(item)]
+            if removed:
+                status[key] = [item for item in values if not matches(item)]
+                summary['removedFromOrder'].extend(map(str, removed))
+
+    route_policy = status.get('routePolicy') if isinstance(status.get('routePolicy'), dict) else {}
+    for key in ['primary', 'lastGood']:
+        if matches(route_policy.get(key)):
+            summary['clearedLastGood'].append(str(route_policy.get(key)))
+            route_policy.pop(key, None)
+    order = route_policy.get('order')
+    if isinstance(order, list):
+        removed = [item for item in order if matches(item)]
+        if removed:
+            route_policy['order'] = [item for item in order if not matches(item)]
+            summary['removedFromOrder'].extend(map(str, removed))
+    alerts = status.get('alerts')
+    if isinstance(alerts, dict):
+        for key in list(alerts.keys()):
+            if any(str(t) in str(key) for t in targets):
+                alerts.pop(key, None)
+    return status
+
 def edit_json_file(path, editor):
     if not path.exists():
         return
@@ -552,6 +600,9 @@ def edit_json_file(path, editor):
 
 edit_json_file(agent_dir / 'auth-profiles.json', scrub_store)
 edit_json_file(agent_dir / 'auth-state.json', scrub_state)
+if workspace:
+    edit_json_file(workspace / '3-Resources' / 'codex-account-ops' / 'CODEX-ACCOUNT-STATUS.json', scrub_status)
+    edit_json_file(workspace / '3-Resources' / 'codex-account-ops' / 'state' / 'sentinel-state.json', scrub_status)
 
 db = agent_dir / 'openclaw-agent.sqlite'
 if db.exists():

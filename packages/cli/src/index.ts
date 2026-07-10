@@ -221,7 +221,8 @@ function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): st
   lines.push("• /auth add <email> — start OpenAI Codex device-code login from Telegram; background worker attempts to save/refresh the OAuth profile and activates it when usable, then reports success/failure");
   lines.push("• /auth reauth <email> — same as /auth add <email>; use for expired/401 accounts");
   lines.push("• /auth remove <email> — remove from routing without deleting credentials");
-  lines.push("• /auth delete <email> --apply — permanently delete that account's Sentinel/OpenClaw credentials after backup");
+  lines.push("• /auth delete <email> — permanently delete that account's Sentinel/OpenClaw credentials after backup");
+  lines.push("• /auth delete <email> --dry-run — preview delete only; no deletion");
   lines.push("• Fallback CLI only if Telegram commands are unavailable: node 3-Resources/codex-account-ops/scripts/codex-device-auth-telegram.mjs start --email <email>");
   lines.push("");
   for (const profile of orderCodexProfiles(status.profiles)) {
