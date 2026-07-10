@@ -13,7 +13,8 @@ Add an optional always-on-top screen overlay for monitoring Account Center limit
 The desired behavior is similar to an FPS counter in games:
 
 - small overlay pinned to a screen corner, for example top-left;
-- visible above normal tabs, terminals, browsers, and applications;
+- can also behave like a macOS menu-bar/status item in the top-right area, similar to background apps that sit in the Mac menu bar;
+- visible above normal tabs, terminals, browsers, and applications when overlay mode is enabled;
 - continuously shows the currently active account and key limit windows;
 - lets Alej monitor account usage without opening the full dashboard or typing `/auth`;
 - should be easy to enable/disable and move between corners.
@@ -42,6 +43,7 @@ Minimum useful overlay content:
 ### Implementation ideas to evaluate later
 
 - Desktop floating window with always-on-top behavior.
+- macOS menu-bar/status item that lives in the top-right menu bar like other background utilities, with a compact live limit indicator and click-to-expand details.
 - Browser/PWA mini-window for systems where native always-on-top is not available.
 - Terminal/status-bar fallback for SSH/VPS-only usage.
 - Dashboard setting: “Enable account limits overlay”.
