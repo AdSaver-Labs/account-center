@@ -354,7 +354,7 @@ function renderMutation(payload: unknown): string {
     if (action === "account.delete") {
       lines.push("");
       lines.push("To actually delete it yourself, run:");
-      lines.push(`/auth delete ${target} --apply`);
+      lines.push(`/auth delete ${target}`);
       lines.push("");
       lines.push("Then run /auth to confirm the account no longer appears.");
     } else if (action === "route.remove") {

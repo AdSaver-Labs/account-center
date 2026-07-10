@@ -62,13 +62,13 @@ test("dry-run route and account commands produce non-mutating receipts", async (
   }
 });
 
-test("/auth delete dry-run renders a clear human no-deletion message", async () => {
-  const result = await runCli(["auth", "/auth", "delete", "helper-1"]);
+test("/auth delete --dry-run renders a clear human no-deletion message", async () => {
+  const result = await runCli(["auth", "/auth", "delete", "helper-1", "--dry-run"]);
   assert.equal(result.code, 0);
   assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
   assert.match(result.stdout, /Action: account\.delete/);
   assert.match(result.stdout, /To actually delete it yourself, run:/);
-  assert.match(result.stdout, /\/auth delete helper-1 --apply/);
+  assert.match(result.stdout, /\/auth delete helper-1/);
 
   const jsonResult = await runCli(["auth", "/auth", "delete", "helper-1", "--json"]);
   assert.equal(jsonResult.code, 0);

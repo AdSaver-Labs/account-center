@@ -37,7 +37,7 @@ export function parseAuthCommand(input: string | string[]): string[] {
     case "remove":
       return ["routes", "remove", ...rest];
     case "delete":
-      return ["accounts", "delete", ...rest];
+      return ["accounts", "delete", ...withApplyByDefault(rest)];
     case "disable":
       return ["accounts", "disable", ...rest];
     case "enable":
@@ -64,7 +64,8 @@ export function renderAuthHelp(): string {
   /auth auto [--apply]
   /auth use <profile> [--apply]
   /auth remove <profile> [--apply]
-  /auth delete <email-or-profile> [--apply] -- fully delete credentials from Sentinel/OpenClaw auth store after backup
+  /auth delete <email-or-profile> -- fully delete credentials from Sentinel/OpenClaw auth store after backup
+  /auth delete <email-or-profile> --dry-run -- preview only; no deletion
   /auth disable <profile> [--apply]
   /auth enable <profile> [--apply]
   /auth models
@@ -73,8 +74,13 @@ export function renderAuthHelp(): string {
   /auth doctor [--source openclaw]
   /auth audit [--limit 20]
 
-Defaults are safe: fixture source unless --source openclaw is explicit, and mutation-shaped commands are dry-run unless --apply is explicit and supported.
+Defaults are safe for most commands: fixture source unless --source openclaw is explicit, and mutation-shaped commands are dry-run unless --apply is explicit and supported. Exception: /auth delete is intentionally a live delete shortcut for manual Telegram use; add --dry-run to preview only.
 `;
+}
+
+function withApplyByDefault(rest: string[]): string[] {
+  if (rest.includes("--apply") || rest.includes("--dry-run")) return rest;
+  return [...rest, "--apply"];
 }
 
 function mapModelCommand(rest: string[]): string[] {
