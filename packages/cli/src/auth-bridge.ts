@@ -3,12 +3,15 @@ const MANUAL_COMMAND = "/auth";
 export function parseAuthCommand(input: string | string[]): string[] {
   const tokens = Array.isArray(input) ? input : tokenize(input);
   const [prefix, verb, ...rest] = tokens;
-  if (!prefix || prefix === "help" || prefix === MANUAL_COMMAND && (!verb || verb === "help")) return ["help"];
+  if (!prefix || prefix === "help") return ["help"];
   if (prefix === "/oauth") throw new Error("Manual command is /auth, not /oauth.");
   if (prefix !== MANUAL_COMMAND) throw new Error("Manual command is /auth.");
+  if (!verb) return ["status"];
+  if (verb === "help") return ["help"];
 
   switch (verb) {
     case "status":
+    case "list":
       return ["status", ...rest];
     case "guard":
       return ["guard", ...rest];
@@ -26,6 +29,9 @@ export function parseAuthCommand(input: string | string[]): string[] {
       return ["routes", "next", ...rest];
     case "auto":
       return ["routes", "auto", ...rest];
+    case "add":
+    case "reauth":
+      return ["reauth", "start", ...rest];
     case "use":
       return ["routes", "use", ...rest];
     case "remove":
@@ -40,6 +46,7 @@ export function parseAuthCommand(input: string | string[]): string[] {
     case "audit":
       return ["audit", "list", ...rest.filter((item) => item !== "list")];
     default:
+      if (verb.includes("@") || verb.includes(":")) return ["routes", "use", verb, ...rest];
       throw new Error(`Unknown /auth command: ${verb}. Run /auth help.`);
   }
 }

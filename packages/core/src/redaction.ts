@@ -33,5 +33,6 @@ function visit(value: unknown): unknown {
 
 function isSensitiveKey(key: string): boolean {
   if (key === "noSecrets") return false;
+  if (/^(tokenExpiresAt|tokenExpiresAtEEST)$/i.test(key)) return false;
   return /token|secret|password|apiKey|api_key|cookie|credential|authBlob|refresh/i.test(key);
 }

@@ -85,6 +85,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return next ? ok(options.json ? json(next) : `Next eligible: ${next.profile.id}\n`) : { code: 2, stdout: "", stderr: "No eligible account found\n" };
   }
   if (command === "audit" && subcommand === "list") return ok(options.json ? json(status.audit.slice(0, options.limit)) : renderAudit(status, options.limit));
+  if (command === "reauth" && subcommand === "start") return startReauth(target, status, options);
   if (command === "routes" && ["auto", "use", "remove"].includes(subcommand ?? "")) {
     const action = routeAction(subcommand);
     const mutation = await adapter.mutate({
@@ -185,6 +186,7 @@ function listModels(status: AccountCenterStatus): Array<{ model: string; disable
 }
 
 function renderStatus(status: AccountCenterStatus, options: CliOptions): string {
+  if (status.source === "openclaw") return renderCodexLimits(status, options);
   const route = status.routes.find((item) => item.provider === options.provider && item.runtime === options.runtime);
   const next = nextEligible(status, options.provider, options.runtime, options.model);
   return [
@@ -193,6 +195,135 @@ function renderStatus(status: AccountCenterStatus, options: CliOptions): string 
     `Next eligible: ${next?.profile.id ?? "none"}`,
     `Warnings: ${status.warnings.join("; ") || "none"}`
   ].join("\n") + "\n";
+}
+
+function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): string {
+  const route = status.routes.find((item) => item.provider === options.provider && item.runtime === options.runtime) ?? status.routes[0];
+  const active = status.profiles.find((profile) => profile.id === route?.activeProfileId) ?? status.profiles[0];
+  const nonAdsaverCount = nonAdsaverWeeklyUsableCount(status);
+  const lines: string[] = [];
+  lines.push("Codex account limits");
+  lines.push(`Snapshot: ${statusGeneratedAtEEST(status)} EEST`);
+  lines.push(`Current active account: ${profileEmail(active)}${active?.id ? ` (${active.id})` : ""}`);
+  lines.push("");
+  lines.push(`Non-AdSaver weekly-usable accounts: ${nonAdsaverCount ?? "unknown"}`);
+  if (nonAdsaverCount === 1) lines.push("⚠️ WARNING: only 1 non-AdSaver weekly-usable account remains. Keep AdSaver as backup.");
+  lines.push("");
+  lines.push(nextResetSummary(status));
+  lines.push("");
+  lines.push("No-token commands you can use here:");
+  lines.push("• /auth — show this status, current account, limits, next reset, and commands");
+  lines.push("• /auth list or /auth status — compact route list with active marker");
+  lines.push("• /auth <email> — switch active Codex route to that connected account");
+  lines.push("• /auth auto — run safe auto-switch to best readable non-AdSaver account");
+  lines.push("• /auth add <email> — start OpenAI Codex device-code login from Telegram; background worker attempts to save/refresh the OAuth profile and activates it when usable, then reports success/failure");
+  lines.push("• /auth reauth <email> — same as /auth add <email>; use for expired/401 accounts");
+  lines.push("• /auth remove <email> — remove from routing without deleting credentials");
+  lines.push("• Fallback CLI only if Telegram commands are unavailable: node 3-Resources/codex-account-ops/scripts/codex-device-auth-telegram.mjs start --email <email>");
+  lines.push("");
+  for (const profile of orderCodexProfiles(status.profiles)) {
+    lines.push("────────────────────────");
+    lines.push(`${profileEmail(profile)} — ${String(meta(profile, "plan") ?? "unknown").toUpperCase()}`);
+    lines.push(`Status: ${availability(profile)}`);
+    lines.push(`Routing: ${routingLabel(profile)}`);
+    const expires = meta(profile, "tokenExpiresAtEEST") ?? formatEest(profile.usage.auth.tokenExpiresAt) ?? profile.usage.auth.tokenExpiresAt;
+    if (expires) lines.push(`OAuth expires: ${expires}`);
+    lines.push(windowLine(profile, "five-hour", "5h"));
+    lines.push(windowLine(profile, "weekly", "Week"));
+    lines.push("");
+  }
+  lines.push("Notes: OpenAI returns 5-hour and weekly windows. This command reads provider usage endpoints/status JSON only — no LLM/model tokens.");
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+}
+
+function statusGeneratedAtEEST(status: AccountCenterStatus): string {
+  const first = status.profiles.find((profile) => meta(profile, "generatedAtEEST"));
+  if (first) return String(meta(first, "generatedAtEEST"));
+  return formatEest(status.generatedAt) ?? (status.generatedAt || "unknown");
+}
+
+function nonAdsaverWeeklyUsableCount(status: AccountCenterStatus): number | null {
+  const fromMeta = status.profiles.map((profile) => meta(profile, "nonAdsaverWeeklyUsableCount")).find((value) => value !== null && value !== undefined);
+  if (typeof fromMeta === "number") return fromMeta;
+  const count = status.profiles.filter((profile) => !isAdsaver(profile) && profile.usage.health === "ok" && profile.usage.auth.state === "ok" && remaining(profile, "weekly") !== null && Number(remaining(profile, "weekly")) > 0).length;
+  return Number.isFinite(count) ? count : null;
+}
+
+function nextResetSummary(status: AccountCenterStatus): string {
+  const usable = status.profiles.filter((profile) => profile.usage.health === "ok" && profile.usage.auth.state === "ok" && (remaining(profile, "five-hour") ?? 1) > 0 && (remaining(profile, "weekly") ?? 1) > 0);
+  if (usable.length > 0) return `Next available account: now — ${usable.map(profileEmail).join(", ")}`;
+  return "No account currently has both 5h + weekly capacity.";
+}
+
+function orderCodexProfiles(profiles: AccountCenterStatus["profiles"]): AccountCenterStatus["profiles"] {
+  return [...profiles].sort((a, b) => {
+    const ar = meta(a, "routingEnabled") === false ? 1 : 0;
+    const br = meta(b, "routingEnabled") === false ? 1 : 0;
+    if (ar !== br) return ar - br;
+    if (isAdsaver(a) && !isAdsaver(b)) return 1;
+    if (isAdsaver(b) && !isAdsaver(a)) return -1;
+    return profileEmail(a).localeCompare(profileEmail(b));
+  });
+}
+
+function availability(profile: AccountCenterStatus["profiles"][number]): string {
+  if (profile.usage.health !== "ok" || profile.usage.auth.state !== "ok") return `Needs reauthentication/check — couldn't read usage: ${profile.usage.warnings.join(", ") || profile.usage.health}`;
+  if (meta(profile, "routingEnabled") !== false) return "Available/readable — routing enabled";
+  if (isAdsaver(profile)) return "Available/readable — BACKUP ONLY / monitor-only";
+  return "Available/readable — monitor-only";
+}
+
+function routingLabel(profile: AccountCenterStatus["profiles"][number]): string {
+  const label = meta(profile, "routingRecommendation");
+  if (typeof label === "string" && label) return label;
+  if (isAdsaver(profile)) return "backup-of-backups; do not use unless all non-AdSaver accounts are blocked or Alej approves";
+  return meta(profile, "routingEnabled") !== false ? "normal-routing" : "monitor-only";
+}
+
+function windowLine(profile: AccountCenterStatus["profiles"][number], name: string, fallbackLabel: string): string {
+  const w = profile.usage.windows.find((window) => window.name === name || window.displayLabel === fallbackLabel);
+  if (!w || w.remainingPct === null || w.remainingPct === undefined) return `• ${fallbackLabel}: unknown`;
+  const used = typeof w.usedPct === "number" ? pct(w.usedPct) : pct(100 - Number(w.remainingPct));
+  const line = `• ${w.displayLabel ?? fallbackLabel}: ${used} used / ${pct(w.remainingPct)} left`;
+  return w.resetsAt ? `${line}\n  refresh: ${w.resetsAt}` : line;
+}
+
+function remaining(profile: AccountCenterStatus["profiles"][number], name: string): number | null {
+  return profile.usage.windows.find((window) => window.name === name)?.remainingPct ?? null;
+}
+
+function pct(value: number): string {
+  return `${Number(value).toFixed(0)}%`;
+}
+
+function formatEest(value?: string): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Sofia",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${Number(pick("day"))} ${pick("month")} ${pick("year")}, ${pick("hour")}:${pick("minute")}`;
+}
+
+function profileEmail(profile?: AccountCenterStatus["profiles"][number]): string {
+  if (!profile) return "unknown";
+  return String(meta(profile, "email") ?? profile.label ?? profile.id.replace(/^[^:]+:/, ""));
+}
+
+function isAdsaver(profile: AccountCenterStatus["profiles"][number]): boolean {
+  return /adsaver/i.test(profileEmail(profile)) || profile.role === "backup";
+}
+
+function meta(profile: AccountCenterStatus["profiles"][number], key: string): unknown {
+  return profile.metadata?.[key];
 }
 
 function renderGuard(payload: { ok: boolean; reason: string; next?: string }): string {
@@ -232,6 +363,28 @@ function renderModels(status: AccountCenterStatus): string {
 
 function renderAudit(status: AccountCenterStatus, limit: number): string {
   return status.audit.slice(0, limit).map((event) => `${event.id} ${event.action} dryRun=${event.dryRun} ${event.summary}`).join("\n") + "\n";
+}
+
+function startReauth(target: string | undefined, status: AccountCenterStatus, options: CliOptions): CliResult {
+  if (!target) return { code: 1, stdout: "", stderr: "Usage: /auth add <email> or /auth reauth <email>\n" };
+  const script = "/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-device-auth-telegram.mjs";
+  const payload = {
+    started: false,
+    dryRun: !options.apply,
+    noLlmTokens: true,
+    target,
+    command: `node ${script} start --email ${target}`,
+    note: options.apply
+      ? "Live device-code auth start is reserved for the native Telegram bridge in this build; run the printed fallback command if Account Center cannot start it in this chat."
+      : "Dry-run only. Add --apply to request a live device-code auth start, or run the printed fallback command."
+  };
+  if (options.json) return ok(json(payload));
+  return ok([
+    `OpenAI Codex device-code auth for ${target}`,
+    `No LLM/model tokens are used by this command.`,
+    payload.note,
+    `Fallback CLI: ${payload.command}`
+  ].join("\n") + "\n");
 }
 
 function renderProviderProbes(probes: Array<{ provider: string; ok: boolean; profiles: number; usableProfiles: number; lowestRemainingPct: number | null; highestRemainingPct: number | null; source: string }>): string {

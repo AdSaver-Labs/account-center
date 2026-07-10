@@ -32,7 +32,9 @@ export interface Runtime {
 export interface UsageWindow {
   name: "five-hour" | "daily" | "weekly" | string;
   remainingPct: number | null;
+  usedPct?: number | null;
   resetsAt?: string;
+  displayLabel?: string;
 }
 
 export interface UsageSnapshot {
@@ -59,6 +61,7 @@ export interface Profile {
   disabled: boolean;
   cooldownUntil?: string;
   usage: UsageSnapshot;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RouteState {

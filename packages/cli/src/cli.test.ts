@@ -114,3 +114,91 @@ test("OpenClaw source can be selected with a mocked read-only runner", async () 
     else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = previousCli;
   }
 });
+
+test("/auth default output matches Dexter-style Codex account limits without JSON", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "account-center-openclaw-limits-"));
+  const cli = join(dir, "oauth_routing_cli.py");
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  const previousWorkspace = process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+  const previousCli = process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+  const previousSource = process.env.ACCOUNT_CENTER_SOURCE;
+  process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = dir;
+  process.env.ACCOUNT_CENTER_OPENCLAW_CLI = cli;
+  process.env.ACCOUNT_CENTER_SOURCE = "openclaw";
+  try {
+    const result = await runCli(["auth", "/auth"], process.cwd(), {
+      runner: async () => ({
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          generatedAt: "2026-07-10T09:25:00.000Z",
+          generatedAtEEST: "10 Jul 2026, 12:25",
+          provider: "openai",
+          routePolicy: {
+            primary: "openai:travis@example.com",
+            nonAdsaverWeeklyUsableCount: 1
+          },
+          accounts: [
+            {
+              email: "travis@example.com",
+              profileId: "openai:travis@example.com",
+              plan: "free",
+              ok: true,
+              routingEnabled: true,
+              routingRecommendation: "normal-routing",
+              tokenExpiresAtEEST: "17 Jul 2026, 16:33",
+              windows: []
+            },
+            {
+              email: "49pushy@example.com",
+              profileId: "openai:49pushy@example.com",
+              plan: "plus",
+              ok: true,
+              routingEnabled: true,
+              routingRecommendation: "normal-routing",
+              tokenExpiresAtEEST: "18 Jul 2026, 23:28",
+              windows: [
+                { label: "5h", usedPercent: 1, leftPercent: 99, resetAtEEST: "10 Jul 2026, 17:25" },
+                { label: "Week", usedPercent: 0, leftPercent: 100, resetAtEEST: "17 Jul 2026, 12:25" }
+              ]
+            },
+            {
+              email: "info@adsaveragency.com",
+              profileId: "openai:info@adsaveragency.com",
+              plan: "plus",
+              ok: true,
+              routingEnabled: true,
+              routingRecommendation: "normal-routing",
+              tokenExpiresAtEEST: "16 Jul 2026, 19:32",
+              windows: [
+                { label: "5h", usedPercent: 1, leftPercent: 99, resetAtEEST: "10 Jul 2026, 17:25" },
+                { label: "Week", usedPercent: 0, leftPercent: 100, resetAtEEST: "17 Jul 2026, 12:25" }
+              ]
+            }
+          ]
+        })
+      })
+    });
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /^Codex account limits/);
+    assert.match(result.stdout, /Snapshot: 10 Jul 2026, 12:25 EEST/);
+    assert.match(result.stdout, /Current active account: travis@example.com \(openai:travis@example.com\)/);
+    assert.match(result.stdout, /Non-AdSaver weekly-usable accounts: 1/);
+    assert.match(result.stdout, /⚠️ WARNING: only 1 non-AdSaver weekly-usable account remains/);
+    assert.match(result.stdout, /No-token commands you can use here:/);
+    assert.match(result.stdout, /• \/auth add <email> — start OpenAI Codex device-code login from Telegram/);
+    assert.match(result.stdout, /49pushy@example.com — PLUS/);
+    assert.match(result.stdout, /OAuth expires: 18 Jul 2026, 23:28/);
+    assert.match(result.stdout, /• 5h: 1% used \/ 99% left\n  refresh: 10 Jul 2026, 17:25/);
+    assert.match(result.stdout, /travis@example.com — FREE/);
+    assert.match(result.stdout, /• 5h: unknown/);
+    assert.doesNotMatch(result.stdout, /\[REDACTED\]/);
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;
+    if (previousCli === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = previousCli;
+    if (previousSource === undefined) delete process.env.ACCOUNT_CENTER_SOURCE;
+    else process.env.ACCOUNT_CENTER_SOURCE = previousSource;
+  }
+});

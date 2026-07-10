@@ -178,6 +178,18 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     }
   }
 
+  private async tryRefreshSentinelStatus(): Promise<unknown | undefined> {
+    const sentinel = join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-account-sentinel.mjs");
+    if (!(await exists(sentinel))) return undefined;
+    const result = await this.runner(process.execPath, [sentinel, "--print"], {
+      cwd: this.workspace,
+      timeoutMs: 60_000,
+      env: { ...process.env, CODEX_SENTINEL_NO_SEND: "1" }
+    });
+    if (result.code !== 0 || !result.stdout.trim()) return undefined;
+    return JSON.parse(result.stdout);
+  }
+
   private async tryReadCliStatus(): Promise<unknown | undefined> {
     if (!(await exists(this.cli))) return undefined;
     const result = await this.runner("python3", [this.cli, "status", "--workspace", this.workspace, "--json"], { cwd: this.workspace, timeoutMs: 60_000 });
@@ -301,6 +313,7 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
   const accounts = accountRecords(raw);
   const order = routeOrder(raw, accounts.map((account) => account.id));
   const activeProfileId = activeProfile(raw, order) ?? order[0] ?? accounts[0]?.id ?? "unknown";
+  const routePolicy = isRecord(raw) && isRecord(raw.routePolicy) ? raw.routePolicy : {};
   const profiles: Profile[] = accounts.map((account, index) => ({
     id: account.id,
     provider: provider as Profile["provider"],
@@ -317,11 +330,20 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
       readable: account.readable,
       health: account.health,
       windows: [
-        { name: "five-hour", remainingPct: account.fiveHourRemaining, resetsAt: account.fiveHourResetAt },
-        { name: "weekly", remainingPct: account.weekRemaining, resetsAt: account.weekResetAt }
+        { name: "five-hour", displayLabel: "5h", usedPct: account.fiveHourUsed, remainingPct: account.fiveHourRemaining, resetsAt: account.fiveHourResetAt },
+        { name: "weekly", displayLabel: "Week", usedPct: account.weekUsed, remainingPct: account.weekRemaining, resetsAt: account.weekResetAt }
       ],
       auth: { state: account.authState, tokenExpiresAt: account.tokenExpiresAt },
       warnings: account.warnings
+    },
+    metadata: {
+      email: account.email,
+      plan: account.plan,
+      routingEnabled: account.routingEnabled,
+      routingRecommendation: account.routingRecommendation,
+      tokenExpiresAtEEST: account.tokenExpiresAtEEST,
+      nonAdsaverWeeklyUsableCount: numberOrNull(routePolicy.nonAdsaverWeeklyUsableCount),
+      generatedAtEEST: stringFrom(raw, ["generatedAtEEST"])
     }
   }));
   const status: AccountCenterStatus = {
@@ -461,10 +483,17 @@ function accountRecords(raw: unknown): Array<{
   weekRemaining: number | null;
   fiveHourResetAt?: string;
   weekResetAt?: string;
+  fiveHourUsed: number | null;
+  weekUsed: number | null;
   observedAt?: string;
   tokenExpiresAt?: string;
+  tokenExpiresAtEEST?: string;
   cooldownUntil?: string;
   warnings: string[];
+  email: string;
+  plan: string;
+  routingEnabled: boolean;
+  routingRecommendation: string;
 }> {
   const rawAccounts = isRecord(raw) && isRecord(raw.accounts)
     ? Object.values(raw.accounts).filter(isRecord)
@@ -491,16 +520,23 @@ function accountRecords(raw: unknown): Array<{
       authState: expired ? "expired" : healthy ? "ok" : readable ? "unknown" : "reauth-needed",
       fiveHourRemaining: numberOrNull(usage.fiveHourRemaining ?? fiveWindow?.leftPercent ?? account.fiveHourRemaining),
       weekRemaining: numberOrNull(usage.weekRemaining ?? weekWindow?.leftPercent ?? account.weekRemaining),
-      fiveHourResetAt: stringFrom(fiveWindow, ["resetAt", "resetsAt"]),
-      weekResetAt: stringFrom(weekWindow, ["resetAt", "resetsAt"]),
+      fiveHourResetAt: firstString(fiveWindow, ["resetAtEEST", "resetAt", "resetsAt"]),
+      weekResetAt: firstString(weekWindow, ["resetAtEEST", "resetAt", "resetsAt"]),
+      fiveHourUsed: numberOrNull(fiveWindow?.usedPercent),
+      weekUsed: numberOrNull(weekWindow?.usedPercent),
       observedAt: stringFrom(usage, ["observedAt"]) ?? stringFrom(health, ["observedAt"]),
       tokenExpiresAt: millisToIso(account.tokenExpiresAt ?? health.expiresAt),
+      tokenExpiresAtEEST: stringFrom(account, ["tokenExpiresAtEEST"]),
       cooldownUntil: stringFrom(account.throttleHealth, ["cooldownUntil"]),
       warnings: [
         !readable ? "status_unreadable" : undefined,
         expired ? "auth_expired" : undefined,
         quarantine.active ? `quarantined:${String(quarantine.reason ?? "unknown")}` : undefined
-      ].filter((item): item is string => Boolean(item))
+      ].filter((item): item is string => Boolean(item)),
+      email: String(account.email ?? id.replace(/^[^:]+:/, "")),
+      plan: String(account.plan ?? inferredPlan(String(account.email ?? id))),
+      routingEnabled: Boolean(account.routingEnabled ?? account.enabled ?? true),
+      routingRecommendation: String(account.routingRecommendation ?? (account.routingEnabled ? "normal-routing" : "monitor-only"))
     };
   });
 }
@@ -520,6 +556,7 @@ function activeProfile(raw: unknown, order: string[]): string | undefined {
     ?? stringFrom(raw, ["orderPresentation", "activeHead"])
     ?? stringFrom(raw, ["orderPresentation", "policyHead"])
     ?? stringFrom(raw, ["routePolicy", "lastGood"])
+    ?? stringFrom(raw, ["routePolicy", "primary"])
     ?? stringFrom(raw, ["route", "lastGood"])
     ?? stringFrom(raw, ["route", "primary"])
     ?? order[0];
@@ -529,6 +566,12 @@ function roleFor(id: string, active: string, index: number): Profile["role"] {
   if (/adsaver|backup/i.test(id)) return "backup";
   if (id === active || index === 0) return "primary";
   return "secondary";
+}
+
+function inferredPlan(emailOrId: string): string {
+  if (/travis86242339651/i.test(emailOrId)) return "free";
+  if (/49pushy|adsaveragency/i.test(emailOrId)) return "plus";
+  return "unknown";
 }
 
 function nestedArray(raw: unknown, path: string[]): string[] {
@@ -542,6 +585,14 @@ function stringFrom(raw: unknown, path: string[]): string | undefined {
   for (const segment of path) cursor = isRecord(cursor) ? cursor[segment] : undefined;
   if (typeof cursor === "string" && cursor) return cursor;
   if (typeof cursor === "number") return millisToIso(cursor);
+  return undefined;
+}
+
+function firstString(raw: unknown, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = stringFrom(raw, [key]);
+    if (value) return value;
+  }
   return undefined;
 }
 

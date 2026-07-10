@@ -103,8 +103,9 @@ test("OpenClaw route apply shells only to existing routing script and writes rec
     receiptPath
   });
   assert.equal(result.code, 0);
-  assert.equal(calls[1]?.command, process.execPath);
-  assert.deepEqual(calls[1]?.args, [switchScript, "openai:helper-2", "--apply", "--agent", "all", "--no-refresh"]);
+  const applyCall = calls.at(-1);
+  assert.equal(applyCall?.command, process.execPath);
+  assert.deepEqual(applyCall?.args, [switchScript, "openai:helper-2", "--apply", "--agent", "all", "--no-refresh"]);
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, true);
   assert.equal(receipt.liveRuntimeMutation, true);
