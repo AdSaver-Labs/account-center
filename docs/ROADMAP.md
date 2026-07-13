@@ -111,6 +111,7 @@ Work:
 
 - Hermes adapter: credential-pool status, active account, safe route apply where supported.
 - Codex adapter: standalone CLI/app auth health, selected profile, route/usage status.
+- Codex `/auth` parity bridge: Codex agent shell tools can call Account Center today, but the Codex TUI/app currently rejects native `/auth`; add a Codex plugin/skill/MCP/app bridge so `/auth` renders the same Account Center status as Hermes/OpenClaw chats.
 - PI agent adapter: native status/apply once the real PI runtime status and switch commands are identified.
 - Odysseus / PewDiePie harness adapter: native status/apply once the harness account/subscription APIs are identified.
 - Generic command adapter remains the SDK for future agents.
