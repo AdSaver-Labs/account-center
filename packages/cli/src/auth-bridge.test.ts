@@ -27,6 +27,25 @@ test("manual /auth route/delete commands apply by default and support explicit d
   assert.deepEqual(parseAuthCommand("/auth model disable openai/gpt-5.3-codex"), ["models", "disable", "openai/gpt-5.3-codex"]);
 });
 
+test("/auth add and reauth preserve guided-auth mode", () => {
+  assert.deepEqual(parseAuthCommand("/auth add new@example.com"), ["reauth", "start", "new@example.com", "--mode", "add", "--apply"]);
+  assert.deepEqual(parseAuthCommand("/auth reauth old@example.com"), ["reauth", "start", "old@example.com", "--mode", "reauth", "--apply"]);
+  const addDryRun = parseAuthCommand("/auth add new@example.com --dry-run");
+  assert.equal(addDryRun[0], "reauth");
+  assert.equal(addDryRun[1], "start");
+  assert.equal(addDryRun[2], "new@example.com");
+  assert.equal(addDryRun.includes("--mode"), true);
+  assert.equal(addDryRun[addDryRun.indexOf("--mode") + 1], "add");
+  assert.equal(addDryRun.includes("--dry-run"), true);
+  const reauthDryRun = parseAuthCommand("/auth reauth old@example.com --dry-run");
+  assert.equal(reauthDryRun[0], "reauth");
+  assert.equal(reauthDryRun[1], "start");
+  assert.equal(reauthDryRun[2], "old@example.com");
+  assert.equal(reauthDryRun.includes("--mode"), true);
+  assert.equal(reauthDryRun[reauthDryRun.indexOf("--mode") + 1], "reauth");
+  assert.equal(reauthDryRun.includes("--dry-run"), true);
+});
+
 test("/auth help promotes auth and never promotes oauth", () => {
   const help = renderAuthHelp();
   assert.match(help, /^\/auth commands/m);

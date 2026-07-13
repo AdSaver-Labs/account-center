@@ -30,8 +30,9 @@ export function parseAuthCommand(input: string | string[]): string[] {
     case "auto":
       return ["routes", "auto", ...withApplyByDefault(rest)];
     case "add":
+      return ["reauth", "start", ...withModeAndApplyByDefault(rest, "add")];
     case "reauth":
-      return ["reauth", "start", ...rest];
+      return ["reauth", "start", ...withModeAndApplyByDefault(rest, "reauth")];
     case "use":
       return ["routes", "use", ...withApplyByDefault(rest)];
     case "remove":
@@ -81,6 +82,11 @@ Manual /auth commands use the recovery/operator defaults Alej requested: /auth a
 function withApplyByDefault(rest: string[]): string[] {
   if (rest.includes("--apply") || rest.includes("--dry-run")) return rest;
   return [...rest, "--apply"];
+}
+
+function withModeAndApplyByDefault(rest: string[], mode: "add" | "reauth"): string[] {
+  const withMode = rest.includes("--mode") ? rest : [...rest, "--mode", mode];
+  return withApplyByDefault(withMode);
 }
 
 function mapModelCommand(rest: string[]): string[] {

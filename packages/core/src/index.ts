@@ -1,3 +1,5 @@
+export * from "./auth-challenges.js";
+export * from "./command-executor.js";
 export * from "./fixtures.js";
 export * from "./policy.js";
 export * from "./provider-probes.js";

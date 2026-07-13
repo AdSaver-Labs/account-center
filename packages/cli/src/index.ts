@@ -7,6 +7,7 @@ import {
   CommandRunner,
   createReceipt,
   createRuntimeAdapter,
+  executeAccountCenterCommand,
   guardStatus,
   nextEligible,
   parseRuntimeSource,
@@ -60,7 +61,8 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const report = await adapter.doctor();
     return ok(options.json ? json(report) : renderDoctorReport(report));
   }
-  const status = await adapter.readStatus();
+  const statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
+  const status = statusExecution.status!;
   if (command === "status") {
     await maybeWriteStatus(status, options);
     return ok(options.json ? json(status) : renderStatus(status, options));
@@ -88,15 +90,15 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   if (command === "reauth" && subcommand === "start") return startReauth(target, status, options);
   if (command === "routes" && ["auto", "use", "remove"].includes(subcommand ?? "")) {
     const action = routeAction(subcommand);
-    const mutation = await adapter.mutate({
-      action,
+    const execution = await executeAccountCenterCommand({
+      command: action,
       target: action === "route.auto" ? target ?? nextEligible(status, options.provider, options.runtime)?.profile.id : target,
       apply: options.apply,
       provider: options.provider,
       runtime: options.runtime,
       receiptPath: options.receiptPath
-    });
-    return { code: mutation.code, stdout: options.json ? json(mutation.payload) : renderMutation(mutation.payload) };
+    }, { adapter });
+    return { code: execution.code, stdout: options.json ? json(execution.mutation) : renderMutation(execution.mutation) };
   }
   if (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) {
     const mutation = await adapter.mutate({
@@ -155,7 +157,7 @@ async function maybeWriteStatus(status: AccountCenterStatus, options: CliOptions
   await writeFile(options.statusPath, `${json({ ...status, generatedAt: new Date().toISOString(), source: options.source })}\n`, "utf8");
 }
 
-function routeAction(subcommand?: string): AuditAction {
+function routeAction(subcommand?: string): "route.auto" | "route.use" | "route.remove" {
   if (subcommand === "use") return "route.use";
   if (subcommand === "remove") return "route.remove";
   return "route.auto";
