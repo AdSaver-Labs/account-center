@@ -236,7 +236,7 @@ function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): st
     lines.push(windowLine(profile, "weekly", "Week"));
     lines.push("");
   }
-  lines.push("Notes: OpenAI returns 5-hour and weekly windows. This command reads provider usage endpoints/status JSON only — no LLM/model tokens.");
+  lines.push("Notes: OpenAI may report 5-hour and/or weekly windows; if the 5h window is not present, routing uses readable weekly capacity instead. This command reads provider usage endpoints/status JSON only — no LLM/model tokens.");
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 }
 
