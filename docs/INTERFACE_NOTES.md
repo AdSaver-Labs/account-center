@@ -13,11 +13,14 @@ Add an optional always-on-top screen overlay for monitoring Account Center limit
 The desired behavior is similar to an FPS counter in games:
 
 - small overlay pinned to a screen corner, for example top-left;
-- can also behave like a macOS menu-bar/status item in the top-right area, similar to background apps that sit in the Mac menu bar;
+- can also behave like a macOS menu-bar/status node/icon in the top-right area, similar to background apps that indicate they are running in the Mac menu bar;
+- in menu-bar mode, hovering the embedded widget should reveal a compact limits panel for the active account(s);
+- the hover panel should include an **Always on** button/toggle;
+- pressing **Always on** should pop the widget out into a movable FPS-counter-style overlay that stays above all screens/apps;
 - visible above normal tabs, terminals, browsers, and applications when overlay mode is enabled;
 - continuously shows the currently active account and key limit windows;
 - lets Alej monitor account usage without opening the full dashboard or typing `/auth`;
-- should be easy to enable/disable and move between corners.
+- should be easy to enable/disable, move between corners, and collapse back into the menu-bar node.
 
 ### Useful display fields
 
@@ -43,7 +46,10 @@ Minimum useful overlay content:
 ### Implementation ideas to evaluate later
 
 - Desktop floating window with always-on-top behavior.
-- macOS menu-bar/status item that lives in the top-right menu bar like other background utilities, with a compact live limit indicator and click-to-expand details.
+- macOS menu-bar/status node that lives in the top-right menu bar like other background utilities, with a compact live limit indicator.
+- Hover panel from the menu-bar node showing active account limits and key reset times.
+- Hover-panel **Always on** button/toggle that pops the status widget out into a movable always-on-top FPS-counter-style overlay.
+- Collapse action that returns the floating overlay back into the menu-bar node.
 - Browser/PWA mini-window for systems where native always-on-top is not available.
 - Terminal/status-bar fallback for SSH/VPS-only usage.
 - Dashboard setting: “Enable account limits overlay”.

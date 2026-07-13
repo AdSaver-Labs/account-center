@@ -163,7 +163,7 @@ Work:
 - Reauth queue.
 - Audit log and receipts.
 - Adapter health panel.
-- Always-on account limit overlay: optional FPS-counter-style floating widget pinned above other apps/tabs to monitor active account, 5-hour/week windows, reset times, and warnings. See `docs/INTERFACE_NOTES.md`.
+- Always-on account limit overlay: optional FPS-counter-style floating widget pinned above other apps/tabs to monitor active account, 5-hour/week windows, reset times, and warnings. It should also support a macOS top-right menu-bar/status node: hover reveals a compact active-account limits panel, and an **Always on** button pops it out into the movable overlay. See `docs/INTERFACE_NOTES.md`.
 
 Exit criteria:
 
