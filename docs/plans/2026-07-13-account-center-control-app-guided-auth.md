@@ -1031,3 +1031,180 @@ Replace the initial build order with this stricter sequence:
 
 - `add`, `reauth`, `use`, `auto`, `remove`, and `delete` return `verified`, `unproven`, or `failed` proof state.
 - UI and CLI never show success when proof is missing.
+
+
+---
+
+## 16. Model selection per runtime/scope/account
+
+### 16.1 Product decision
+
+Account Center should also manage **which model a runtime/scope uses**, not only which account/credential route it uses.
+
+This is viable and useful, but it must be modeled separately from account routing:
+
+- **Account routing** answers: "Which credential/account should this runtime use?"
+- **Model selection** answers: "Which model should this runtime/scope request?"
+- **Eligibility policy** answers: "Is this account allowed/able to use this model right now?"
+
+Account Center should expose both controls in the same app because they affect the same operational outcome: Jack/Dexter/Codex using the best available account + best available model for the task.
+
+### 16.2 Scope model
+
+Model selection should use the same `RuntimeScope` abstraction from Section 3.
+
+Examples:
+
+| Runtime | Scope | Model target behavior |
+|---|---|---|
+| Hermes / Jack | `profile:default` | Set Hermes default model/provider for the selected profile. |
+| Hermes / Jack | `session:<id>` | Prefer read-only until Hermes exposes safe per-session model mutation from Account Center. |
+| OpenClaw / Dexter | `agent:qa-manager` | Set model for only that named OpenClaw agent. |
+| OpenClaw / Dexter | `all` | Set all OpenClaw named agents after explicit confirmation. |
+| Codex | `default` | Set Codex default model in Codex config/profile. |
+| Codex | `chat:<id>` / `session:<id>` | Read-only until Codex exposes safe per-chat/session write capability. |
+
+### 16.3 Required model-management commands
+
+Add terminal/API/app equivalents for:
+
+```text
+/auth model list
+/auth model status
+/auth model use <model> [--runtime hermes|openclaw|codex] [--scope <scope>] [--dry-run]
+/auth model auto [--runtime ...] [--scope ...] [--dry-run]
+/auth model fallback add <model> [--runtime ...] [--scope ...]
+/auth model fallback remove <model> [--runtime ...] [--scope ...]
+/auth model fallback clear [--runtime ...] [--scope ...]
+/auth model disable <provider/model> [--apply]
+/auth model enable <provider/model> [--apply]
+```
+
+Keep existing `disable/enable` semantics, but add `use/auto/fallback` as model-routing operations.
+
+### 16.4 Model catalog and validation
+
+Account Center must not blindly write a user-provided model string into every runtime.
+
+Before persistent changes:
+
+1. Read runtime model catalog/cache where available.
+2. Probe candidate model with a tiny smoke test when safe.
+3. Mark models as:
+   - `supported`
+   - `unsupported_by_account`
+   - `not_in_catalog`
+   - `unknown`
+   - `read_only_runtime`
+4. Only allow persistent `model use` when support is proven or Alej explicitly forces it.
+
+Recent live evidence from 2026-07-13:
+
+```text
+gpt-5.6-sol   unsupported for this ChatGPT/Codex account
+gpt-5.6-terra supported; smoke returned MODEL_OK
+```
+
+Therefore Account Center should store desired model intent separately from applied model state:
+
+```ts
+interface ModelPreference {
+  runtime: RuntimeKind;
+  scope: RuntimeScope;
+  desiredModel: string;
+  appliedModel?: string;
+  status: 'applied' | 'pending' | 'unsupported' | 'unproven' | 'failed';
+  proof?: PostOperationProof;
+  warnings: string[];
+}
+```
+
+### 16.5 Adapter responsibilities
+
+Every runtime adapter should implement required model methods returning structured unsupported results when not available:
+
+```ts
+listModels(scope): Promise<ModelCatalogResult>;
+getModel(scope): Promise<ModelSelectionResult>;
+setModel(input): Promise<ModelMutationResult>;
+setFallbacks(input): Promise<ModelMutationResult>;
+probeModel(input): Promise<ModelProbeResult>;
+```
+
+#### Hermes adapter
+
+Expected MVP capabilities:
+
+- list current config model/provider;
+- set profile/default model with `hermes config set model.default <model>` and provider/base URL if needed;
+- verify with `hermes status --all`;
+- restart gateway only when explicitly requested/approved, because model config changes may require fresh sessions/restarts.
+
+#### OpenClaw adapter
+
+Expected MVP capabilities:
+
+- list configured models through OpenClaw model catalog/status;
+- set default model with `openclaw models set <provider/model>`;
+- set per-agent model by safely editing or invoking OpenClaw-supported commands when available;
+- manage fallbacks with `openclaw models fallbacks ...` where global fallback support is enough;
+- for named-agent model changes, back up `openclaw.json`, edit only model fields, preserve sessions/prompts/memory/bootstrap, then verify with `openclaw agents list` / `openclaw models list`.
+
+#### Codex adapter
+
+Expected MVP capabilities:
+
+- read `~/.codex/config.toml` default model;
+- validate against `~/.codex/models_cache.json` and/or tiny `codex exec -m <model>` smoke;
+- set default model only after validation;
+- keep chat/session model mutation read-only until Codex exposes safe app-server/remote-control write capability.
+
+### 16.6 App UI impact
+
+Add a **Model** column/control to the Account Center control panel:
+
+- current model;
+- desired model;
+- support/proof badge;
+- fallback chain;
+- model health/probe status;
+- per-runtime/scope selector.
+
+Buttons/actions:
+
+- `Use model`
+- `Auto-pick best model`
+- `Add fallback`
+- `Remove fallback`
+- `Probe model`
+- `Revert model change`
+
+Danger/confirmation:
+
+- changing one OpenClaw agent's model: normal confirmation;
+- changing all OpenClaw agents: stronger confirmation;
+- changing Hermes/Jack default: normal confirmation plus note that existing sessions may keep old model until restart/new session;
+- changing Codex default: normal confirmation plus note that existing chats/sessions may keep old model.
+
+### 16.7 Acceptance criteria
+
+- Account Center can show model state for Hermes, OpenClaw, and Codex.
+- Account Center can set model defaults for Hermes profile/default, OpenClaw named agents/global default, and Codex default after validation.
+- Account Center never claims a model is applied unless post-operation proof confirms it.
+- Unsupported models such as `gpt-5.6-sol` for the current ChatGPT/Codex account are shown as unsupported, not written into persistent config by default.
+- Supported models such as `gpt-5.6-terra` can be applied where runtime adapters support it.
+- Model selection changes never mutate OpenClaw sessions/prompts/memory/bootstrap.
+
+### 16.8 Inserted implementation tasks
+
+Add these tasks after runtime/scope model and before UI MVP:
+
+1. `docs: define model selection contract`
+2. `feat: add model catalog/probe result types`
+3. `feat: add model preference state and proof contract`
+4. `feat: add codex default model adapter`
+5. `feat: add hermes default/profile model adapter`
+6. `feat: add openclaw global and named-agent model adapter`
+7. `feat: add /auth model use auto fallback commands`
+8. `feat: expose model controls in local API`
+9. `feat: add model controls to control panel UI`
