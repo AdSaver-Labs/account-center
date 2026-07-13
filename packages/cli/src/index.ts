@@ -256,7 +256,7 @@ function nonAdsaverWeeklyUsableCount(status: AccountCenterStatus): number | null
 function nextResetSummary(status: AccountCenterStatus): string {
   const usable = status.profiles.filter((profile) => profile.usage.health === "ok" && profile.usage.auth.state === "ok" && (remaining(profile, "five-hour") ?? 1) > 0 && (remaining(profile, "weekly") ?? 1) > 0);
   if (usable.length > 0) return `Next available account: now — ${usable.map(profileEmail).join(", ")}`;
-  return "No account currently has both 5h + weekly capacity.";
+  return "No account currently has readable provider capacity.";
 }
 
 function orderCodexProfiles(profiles: AccountCenterStatus["profiles"]): AccountCenterStatus["profiles"] {
