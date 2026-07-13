@@ -28,14 +28,14 @@ export function parseAuthCommand(input: string | string[]): string[] {
     case "next":
       return ["routes", "next", ...rest];
     case "auto":
-      return ["routes", "auto", ...rest];
+      return ["routes", "auto", ...withApplyByDefault(rest)];
     case "add":
     case "reauth":
       return ["reauth", "start", ...rest];
     case "use":
-      return ["routes", "use", ...rest];
+      return ["routes", "use", ...withApplyByDefault(rest)];
     case "remove":
-      return ["routes", "remove", ...rest];
+      return ["routes", "remove", ...withApplyByDefault(rest)];
     case "delete":
       return ["accounts", "delete", ...withApplyByDefault(rest)];
     case "disable":
@@ -61,9 +61,9 @@ export function renderAuthHelp(): string {
   /auth probe [--provider openai|all] [--json]
   /auth accounts
   /auth next
-  /auth auto [--apply]
-  /auth use <profile> [--apply]
-  /auth remove <profile> [--apply]
+  /auth auto [--dry-run]
+  /auth use <profile> [--dry-run]
+  /auth remove <profile> [--dry-run]
   /auth delete <email-or-profile> -- fully delete credentials from Sentinel/OpenClaw auth store after backup
   /auth delete <email-or-profile> --dry-run -- preview only; no deletion
   /auth disable <profile> [--apply]
@@ -74,7 +74,7 @@ export function renderAuthHelp(): string {
   /auth doctor [--source openclaw]
   /auth audit [--limit 20]
 
-Defaults are safe for most commands: fixture source unless --source openclaw is explicit, and mutation-shaped commands are dry-run unless --apply is explicit and supported. Exception: /auth delete is intentionally a live delete shortcut for manual Telegram use; add --dry-run to preview only.
+Manual /auth commands use the recovery/operator defaults Alej requested: /auth auto, /auth use <target>, /auth remove <target>, and /auth delete <target> apply live when the target/route is valid; add --dry-run to preview. Delete is credential deletion, requires an exact connected target, and backs up first. Remove is routing-only and does not delete credentials. Other mutation-shaped lower-level commands remain dry-run unless --apply is explicit and supported.
 `;
 }
 

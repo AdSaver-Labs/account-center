@@ -50,31 +50,22 @@ node /home/Alej/account-center-draft/scripts/account-center-mcp.mjs
 
 ## Safety
 
-The bridge is safe-by-default:
+The bridge now follows Alej's Account Center operating policy: Codex is allowed to request live Account Center mutations because Account Center is the local recovery/control plane for Codex accounts. Safety belongs in the Account Center command contract and runtime adapters, not in a permanent MCP-level refusal.
 
-- status/help/list/dry-run commands are allowed;
-- live mutating commands are blocked by default;
-- email addresses and token-shaped values are redacted from tool output;
-- live mutations require a deliberate controlled session with `ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1`.
+Required guardrails remain:
 
-Blocked examples by default:
+- status/help/list/dry-run commands are always allowed;
+- live mutating commands require exact targets where applicable;
+- delete means credential deletion and must exactly match a connected account email/profile id before any destructive helper runs;
+- remove means routing removal only and does not delete credentials;
+- Account Center writes backups/receipts for live runtime mutations;
+- email addresses and token-shaped values are redacted from MCP output.
 
-```text
-/auth delete <email>
-/auth remove <email>
-/auth use <email>
-/auth add <email>
-/auth reauth <email>
-```
-
-Allowed examples:
+The current VPS registration intentionally includes:
 
 ```text
-/auth
-/auth list
-/auth help
-/auth auto
-/auth delete nobody@example.invalid --dry-run
+ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1
+ACCOUNT_CENTER_SOURCE=openclaw
 ```
 
 ## Verification
@@ -84,7 +75,8 @@ Direct MCP JSON-RPC smoke passed:
 - `initialize` returned server info;
 - `tools/list` returned Account Center tools;
 - `account_center_status` returned `Codex account limits`;
-- live delete without dry-run was blocked.
+- live mutation mode is enabled in Codex MCP registration;
+- fake live delete against a nonexistent account is blocked by Account Center exact-match logic and returns nonzero/no live deletion.
 
 Codex agent smoke passed:
 

@@ -190,25 +190,45 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   }
 
   private async deleteAccountCredentials(input: RuntimeMutationInput, status: AccountCenterStatus): Promise<RuntimeMutationResult> {
-    const target = requiredTarget(input.target, input.action);
+    const requestedTarget = requiredTarget(input.target, input.action);
+    const resolvedTarget = resolveExactDeleteTarget(requestedTarget, status);
+    if (!resolvedTarget) {
+      const receipt = createReceipt({
+        action: "account.delete",
+        dryRun: true,
+        target: requestedTarget,
+        summary: `Blocked credential delete: target must exactly match a connected account email or profile id.`,
+        before: routeBefore(status),
+        warnings: ["target_not_found", "no_live_mutation", "exact_match_required"]
+      });
+      const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason: "target_not_found_exact_match_required" };
+      await writeReceipt(input.receiptPath, payload);
+      return { code: 2, payload };
+    }
+    const target = resolvedTarget.id;
     const lock = await acquireRuntimeLock(this.workspace, "openclaw-credential-delete");
     try {
       const rollback = await backupOpenClawRoutingState(this.workspace, this.agentDir);
       const result = await this.runner("python3", ["-c", credentialDeletePython(), this.agentDir, target, this.workspace], { cwd: this.workspace, timeoutMs: 60_000 });
       let deletion: unknown = {};
       try { deletion = result.stdout.trim() ? JSON.parse(result.stdout) : {}; } catch { deletion = { parseError: true }; }
+      const deletionSummary = redactedDeletionSummary(deletion);
+      const targetNotFound = isRecord(deletion) && deletion.warning === "target_not_found";
+      const applied = result.code === 0 && !targetNotFound;
       const receipt = createReceipt({
         action: "account.delete",
-        dryRun: false,
-        target,
-        summary: result.code === 0 ? `Deleted Sentinel/OpenClaw credentials for ${redactProfileArg(target)}` : `Credential delete failed for ${redactProfileArg(target)}`,
+        dryRun: !applied,
+        target: requestedTarget,
+        summary: applied ? `Deleted Sentinel/OpenClaw credentials for ${redactProfileArg(requestedTarget)}` : `Credential delete did not find an exact connected target for ${redactProfileArg(requestedTarget)}; no live delete was applied.`,
         before: routeBefore(status),
-        after: { command: "python3 account-center credential-delete", exitCode: result.code, deleted: redactedDeletionSummary(deletion), rollback },
-        warnings: ["credential_delete_destructive", "openclaw_account_routing_only", "sessions_prompts_memory_bootstrap_untouched", "lock_acquired", "rollback_pointer_written"]
+        after: { command: "python3 account-center credential-delete", exitCode: result.code, deleted: deletionSummary, rollback, resolvedProfileId: redactProfileArg(target) },
+        warnings: applied
+          ? ["credential_delete_destructive", "openclaw_account_routing_only", "sessions_prompts_memory_bootstrap_untouched", "lock_acquired", "rollback_pointer_written", "exact_match_verified"]
+          : ["target_not_found", "no_live_mutation", "exact_match_required", "rollback_pointer_written"]
       });
-      const payload = { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receiptPath: input.receiptPath, receipt, rollback, result: redactedDeletionSummary(deletion), stderr: result.stderr.slice(0, 2000) };
+      const payload = { applied, dryRun: !applied, liveRuntimeMutation: applied, receiptPath: input.receiptPath, receipt, rollback, result: deletionSummary, stderr: result.stderr.slice(0, 2000) };
       await writeReceipt(input.receiptPath, payload);
-      return { code: result.code, payload };
+      return { code: applied ? result.code : 2, payload };
     } finally {
       await releaseRuntimeLock(lock);
     }
@@ -651,6 +671,32 @@ async function writeReceipt(path: string, payload: unknown): Promise<void> {
 function requiredTarget(target: string | undefined, action: AuditAction): string {
   if (!target) throw new Error(`${action} requires a target profile`);
   return target;
+}
+
+function normalizeProfileTarget(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function profileEmail(profile: Profile): string | undefined {
+  const email = profile.metadata?.email;
+  if (typeof email === "string" && email.trim()) return email;
+  const idEmail = profile.id.includes(":") ? profile.id.slice(profile.id.indexOf(":") + 1) : profile.id;
+  return idEmail.includes("@") ? idEmail : undefined;
+}
+
+function resolveExactDeleteTarget(target: string, status: AccountCenterStatus): Profile | undefined {
+  const raw = target.trim();
+  const normalized = normalizeProfileTarget(raw);
+  return status.profiles.find((profile) => {
+    const candidates = [
+      profile.id,
+      profile.label,
+      profileEmail(profile),
+      profile.id.startsWith("openai:") ? profile.id.slice("openai:".length) : undefined,
+      profile.id.startsWith("openai-codex:") ? `openai:${profile.id.slice("openai-codex:".length)}` : undefined,
+    ].filter((item): item is string => Boolean(item));
+    return candidates.some((candidate) => normalizeProfileTarget(candidate) === normalized);
+  });
 }
 
 function routeBefore(status: AccountCenterStatus): unknown {

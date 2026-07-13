@@ -353,11 +353,18 @@ function renderMutation(payload: unknown): string {
     lines.push(`Target: ${target}`);
     lines.push(`Result: ${summary}`);
     if (action === "account.delete") {
-      lines.push("");
-      lines.push("To actually delete it yourself, run:");
-      lines.push(`/auth delete ${target}`);
-      lines.push("");
-      lines.push("Then run /auth to confirm the account no longer appears.");
+      const warnings = Array.isArray(receipt.warnings) ? receipt.warnings.map(String) : [];
+      if (warnings.includes("target_not_found") || warnings.includes("exact_match_required")) {
+        lines.push("");
+        lines.push("No matching connected account was found. Nothing was deleted.");
+        lines.push("Run /auth list, copy the exact email/profile shown there, then run /auth delete <exact-email-or-profile> only if you really want credential deletion.");
+      } else {
+        lines.push("");
+        lines.push("To actually delete it yourself, run:");
+        lines.push(`/auth delete ${target}`);
+        lines.push("");
+        lines.push("Then run /auth to confirm the account no longer appears.");
+      }
     } else if (action === "route.remove") {
       lines.push("");
       lines.push("This is routing removal only. It does not delete credentials.");
@@ -450,9 +457,9 @@ function helpText(): string {
   accounts enable <profile> [--apply] -- dry-run unless apply is supported and explicit
   accounts delete <email-or-profile> [--apply] -- destructive credential deletion; backs up first; dry-run unless --apply
   routes next
-  routes auto [--apply] -- dry-run unless --apply
-  routes use <profile> [--apply] -- dry-run unless --apply
-  routes remove <profile> [--apply] -- dry-run unless --apply
+  routes auto [--apply] -- lower-level CLI dry-run unless --apply; manual /auth auto applies by default
+  routes use <profile> [--apply] -- lower-level CLI dry-run unless --apply; manual /auth use applies by default
+  routes remove <profile> [--apply] -- lower-level CLI dry-run unless --apply; manual /auth remove applies by default
   models disable <provider/model> [--apply] -- dry-run unless apply is supported and explicit
   models enable <provider/model> [--apply] -- dry-run unless apply is supported and explicit
   models list

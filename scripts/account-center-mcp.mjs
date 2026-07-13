@@ -29,7 +29,7 @@ const tools = [
   {
     name: 'account_center_auth',
     description:
-      'Run Account Center /auth commands. Defaults to safe read-only/dry-run behavior; destructive commands are blocked unless ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1.',
+      'Run Account Center /auth commands for status, routing, account add/reauth/remove/use/delete, and recovery flows. Live mutations are allowed only through Account Center guardrails: exact targets, backups/receipts, and redacted output.',
     inputSchema: {
       type: 'object',
       properties: {
