@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -486,7 +486,8 @@ async function releaseRuntimeLock(lockDir: string): Promise<void> {
 
 async function backupOpenClawRoutingState(workspace: string, agentDir?: string): Promise<{ backupDir: string; files: string[] }> {
   const backupDir = join(workspace, ".account-center", "backups", "openclaw-routing", safeStamp());
-  await mkdir(backupDir, { recursive: true });
+  await mkdir(backupDir, { recursive: true, mode: 0o700 });
+  await chmod(backupDir, 0o700);
   const candidates = [
     join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"),
     join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"),
@@ -501,14 +502,15 @@ async function backupOpenClawRoutingState(workspace: string, agentDir?: string):
     if (!(await exists(source))) continue;
     const destination = join(backupDir, source.replace(workspace, "").replace(/^\/+/, "").replace(/[\\/]/g, "__"));
     await copyFile(source, destination);
+    await chmod(destination, 0o600);
     files.push(destination);
   }
-  await writeFile(join(backupDir, "ROLLBACK.md"), rollbackText(files), "utf8");
+  await writeFile(join(backupDir, "ROLLBACK.md"), rollbackText(files), { encoding: "utf8", mode: 0o600 });
   return { backupDir, files };
 }
 
 function rollbackText(files: string[]): string {
-  return [`# Account Center OpenClaw routing backup`, ``, `Created: ${nowIso()}`, ``, `Files copied:`, ...files.map((file) => `- ${file}`), ``, `Rollback is manual in v0: inspect these no-secret/state files, then restore through the OpenClaw/Sentinel native routing tools rather than editing unrelated session/prompt/memory/bootstrap files.`].join("\n") + "\n";
+  return [`# Account Center OpenClaw routing backup`, ``, `Created: ${nowIso()}`, ``, `Files copied (may contain credentials; directory and files are owner-only):`, ...files.map((file) => `- ${file}`), ``, `Rollback is manual in v0: restore only through the OpenClaw/Sentinel native routing tools. Do not edit unrelated session, prompt, memory, or bootstrap files.`].join("\n") + "\n";
 }
 
 function credentialDeletePython(): string {
@@ -664,8 +666,9 @@ function safeStamp(): string {
 }
 
 async function writeReceipt(path: string, payload: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(redactJson(payload), null, 2)}\n`, "utf8");
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${JSON.stringify(redactJson(payload), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await chmod(path, 0o600);
 }
 
 function requiredTarget(target: string | undefined, action: AuditAction): string {

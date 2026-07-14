@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandRunner, GenericCommandRuntimeAdapter, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
@@ -152,6 +152,10 @@ test("OpenClaw account delete apply backs up and invokes credential deletion scr
   assert.equal(receipt.liveRuntimeMutation, true);
   assert.ok(receipt.receipt.warnings.includes("credential_delete_destructive"));
   assert.ok(receipt.rollback.files.some((file: string) => file.includes("openclaw-agent.sqlite")));
+  const backupDir = receipt.rollback.backupDir as string;
+  assert.equal((await stat(backupDir)).mode & 0o777, 0o700);
+  for (const file of receipt.rollback.files as string[]) assert.equal((await stat(file)).mode & 0o777, 0o600);
+  assert.equal((await stat(receiptPath)).mode & 0o777, 0o600);
 });
 
 test("OpenClaw account delete blocks targets that do not exactly match a connected account", async () => {
