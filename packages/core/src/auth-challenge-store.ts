@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { AuthChallenge, AuthChallengeInput, cancelAuthChallenge, createAuthChallenge, getAuthChallenge } from "./auth-challenges.js";
+import { AuthChallenge, AuthChallengeInput, cancelAuthChallenge, createAuthChallenge, expireAuthChallenge, getAuthChallenge } from "./auth-challenges.js";
 
 export class AuthChallengeStore {
   constructor(private readonly path: string) {}
@@ -16,8 +16,9 @@ export class AuthChallengeStore {
     try {
       const value: unknown = JSON.parse(await readFile(this.path, "utf8"));
       if (!Array.isArray(value)) return [];
-      const challenges = value.filter(isChallenge).map(redactChallenge);
-      if (value.some(hasRawTarget)) await this.write(challenges);
+      const redacted = value.filter(isChallenge).map(redactChallenge);
+      const challenges = redacted.map((challenge) => expireAuthChallenge(challenge));
+      if (value.some(hasRawTarget) || challenges.some((challenge, index) => challenge.status !== redacted[index]?.status)) await this.write(challenges);
       return challenges;
     } catch (error: unknown) {
       if (isMissing(error)) return [];

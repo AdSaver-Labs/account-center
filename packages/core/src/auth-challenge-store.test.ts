@@ -25,3 +25,11 @@ test("challenge store removes raw account targets from legacy records on read", 
   assert.equal("target" in challenges[0], false);
   assert.equal((await readFile(path, "utf8")).includes("legacy@example.com"), false);
 });
+
+test("challenge store expires elapsed pending challenges durably when read", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
+  await writeFile(path, JSON.stringify([{ id: "auth_expired", key: "key", mode: "add", status: "pending", provider: "openai", runtime: "openclaw", scope: "agent:main", expiresAt: "2020-01-01T00:00:00.000Z", createdAt: "2019-12-31T00:00:00.000Z", updatedAt: "2019-12-31T00:00:00.000Z" }]));
+  const challenges = await new AuthChallengeStore(path).list();
+  assert.equal(challenges[0]?.status, "expired");
+  assert.equal(JSON.parse(await readFile(path, "utf8"))[0].status, "expired");
+});
