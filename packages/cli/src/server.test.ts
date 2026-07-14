@@ -29,11 +29,17 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     const accepted = await request(address.port, "/api/capabilities", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
-    const body = await accepted.json() as { schemaVersion: string; target: string; actions: Array<{ id: string; mode: string; state: string; requires: string[] }> };
+    const body = await accepted.json() as { schemaVersion: string; target: string; actions: Array<{ id: string; mode: string; state: string; requires: string[]; reason?: string }> };
     assert.equal(body.schemaVersion, "account-center.agent-capabilities.v1");
     assert.equal(body.target, "account-center");
     assert.deepEqual(body.actions.find((action) => action.id === "status"), { id: "status", mode: "read", state: "available", requires: ["bearer_token"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), { id: "account.delete", mode: "mutation", state: "blocked", requires: ["bearer_token", "canonical_target", "atomic_transaction"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), {
+      id: "account.delete",
+      mode: "mutation",
+      state: "blocked",
+      reason: "no_stable_native_exact_profile_delete_api",
+      requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"]
+    });
     assert.equal(JSON.stringify(body).match(/secret|password|accessToken|refreshToken/i), null);
   } finally {
     await app.close();
