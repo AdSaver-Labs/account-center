@@ -39,5 +39,5 @@ export function getAuthChallenge(challenges: AuthChallenge[], id: string): AuthC
 }
 
 function challengeKey(input: AuthChallengeInput): string {
-  return createHash("sha256").update([input.provider, input.runtime, input.target.trim().toLowerCase(), input.scope].join("\0")).digest("hex");
+  return createHash("sha256").update([input.mode, input.provider, input.runtime, input.target.trim().toLowerCase(), input.scope].join("\0")).digest("hex");
 }

@@ -10,6 +10,14 @@ test("guided auth challenge preserves add mode and de-duplicates active target",
   assert.equal(second.id, first.id);
 });
 
+test("guided add and reauth challenges for the same target never collapse into one operation", () => {
+  const add = createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "same@example.com", scope: "agent:main" });
+  const reauth = createAuthChallenge({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "same@example.com", scope: "agent:main" }, [add]);
+  assert.notEqual(reauth.id, add.id);
+  assert.notEqual(reauth.key, add.key);
+  assert.equal(reauth.mode, "reauth");
+});
+
 test("guided auth challenge can be cancelled without exposing credentials", () => {
   const challenge = createAuthChallenge({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "old@example.com", scope: "agent:main" });
   const cancelled = cancelAuthChallenge(challenge);
