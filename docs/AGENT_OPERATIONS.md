@@ -52,7 +52,7 @@ The action catalog is authoritative for the running server. Agents must not assu
 | CLI | `status`, `guard`, provider probes | Available | Prefer `--json` for machine handling. |
 | CLI/chat | `/auth ... --dry-run` | Available where adapter supports it | Preview only; no mutation. |
 | Credential delete | `account.delete` | Blocked | Do not work around this. The installed OpenClaw CLI has no stable exact-profile deletion API; Account Center will not call private bundled internals or edit SQLite. A native exact-profile API, atomic transaction/recovery, and authoritative post-delete proof are required. |
-| Routing/model/guided auth mutation | Planned / `UNPROVEN` | Not available through the API yet | Do not invoke private scripts as a substitute. |
+| Routing/model/guided auth mutation | Planned / `UNPROVEN` | Not available through the API yet | Do not invoke private scripts as a substitute. Durable challenge lifecycle metadata is redacted and excludes raw account targets, but that persistence proof does not make a runtime mutation available. |
 | Update Center apply | Blocked | Not available | Release provenance, packaging, backup, supervisor, and health proof are prerequisites. |
 
 ## Result-state handling

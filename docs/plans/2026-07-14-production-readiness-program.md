@@ -18,7 +18,7 @@
 - [ ] Confirm no runtime mutation uses direct credential-store edits, browser scraping, private bundled APIs, arbitrary shell, arbitrary Git ref, or arbitrary URL input.
 - [ ] Maintain capability discovery so agents stop on `blocked`, `unsupported`, `failed`, and `UNPROVEN`.
 
-**Current status:** In progress. Exact OpenClaw credential deletion is blocked because no stable native exact-profile deletion API exists.
+**Current status:** In progress. Guided-auth lifecycle records persist only redacted metadata and scrub legacy raw account targets on read. Exact OpenClaw credential deletion is blocked because no stable native exact-profile deletion API exists; protected guided-auth start/cancel endpoints remain `UNPROVEN` until their review, idempotency, and runtime-proof contracts exist.
 
 ### Gate P1 — Protected mutation control plane
 

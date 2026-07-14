@@ -15,7 +15,10 @@ export class AuthChallengeStore {
   async list(): Promise<AuthChallenge[]> {
     try {
       const value: unknown = JSON.parse(await readFile(this.path, "utf8"));
-      return Array.isArray(value) ? value.filter(isChallenge) : [];
+      if (!Array.isArray(value)) return [];
+      const challenges = value.filter(isChallenge).map(redactChallenge);
+      if (value.some(hasRawTarget)) await this.write(challenges);
+      return challenges;
     } catch (error: unknown) {
       if (isMissing(error)) return [];
       throw error;
@@ -44,5 +47,13 @@ function isMissing(error: unknown): boolean { return typeof error === "object" &
 function isChallenge(value: unknown): value is AuthChallenge {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const candidate = value as Partial<AuthChallenge>;
-  return typeof candidate.id === "string" && typeof candidate.key === "string" && typeof candidate.mode === "string" && typeof candidate.status === "string" && typeof candidate.target === "string" && typeof candidate.provider === "string" && typeof candidate.runtime === "string" && typeof candidate.scope === "string";
+  return typeof candidate.id === "string" && typeof candidate.key === "string" && typeof candidate.mode === "string" && typeof candidate.status === "string" && typeof candidate.provider === "string" && typeof candidate.runtime === "string" && typeof candidate.scope === "string" && typeof candidate.createdAt === "string" && typeof candidate.updatedAt === "string";
+}
+
+function hasRawTarget(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && "target" in value;
+}
+
+function redactChallenge({ id, key, mode, status, provider, runtime, scope, expiresAt, createdAt, updatedAt }: AuthChallenge): AuthChallenge {
+  return { id, key, mode, status, provider, runtime, scope, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
 }

@@ -12,7 +12,7 @@ export interface AuthChallengeInput {
   expiresAt?: string;
 }
 
-export interface AuthChallenge extends AuthChallengeInput {
+export interface AuthChallenge extends Omit<AuthChallengeInput, "target"> {
   id: string;
   key: string;
   status: AuthChallengeStatus;
@@ -27,7 +27,8 @@ export function createAuthChallenge(input: AuthChallengeInput, existing: AuthCha
   const active = existing.map((item) => expireAuthChallenge(item, now)).find((item) => item.key === key && item.status === "pending");
   if (active) return active;
   const timestamp = now.toISOString();
-  return { ...normalized, id: `auth_${randomUUID()}`, key, status: "pending", createdAt: timestamp, updatedAt: timestamp };
+  const { target: _target, ...redacted } = normalized;
+  return { ...redacted, id: `auth_${randomUUID()}`, key, status: "pending", createdAt: timestamp, updatedAt: timestamp };
 }
 
 export function expireAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
