@@ -152,41 +152,17 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       return { code: 2, payload: { applied: false, dryRun: true, liveRuntimeMutation: false, receipt } };
     }
 
-    const switchScript = join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
-    if (!(await exists(switchScript))) {
-      const receipt = createReceipt({
-        action: input.action,
-        dryRun: true,
-        target: input.target,
-        summary: `OpenClaw account-routing switch script is missing; no live mutation was attempted.`,
-        warnings: ["openclaw_apply_unsupported", "missing_existing_routing_script", "no_live_mutation"]
-      });
-      return { code: 2, payload: { applied: false, dryRun: true, liveRuntimeMutation: false, receipt } };
-    }
-    const target = input.action === "route.auto" ? nextEligible(status, input.provider, input.runtime)?.profile.id : input.target;
-    const args = input.action === "route.auto"
-      ? [switchScript, "--auto", "--apply", "--agent", "all", "--no-refresh"]
-      : input.action === "route.remove"
-        ? [switchScript, "remove", requiredTarget(target, input.action), "--apply", "--agent", "all", "--no-refresh"]
-        : [switchScript, requiredTarget(target, input.action), "--apply", "--agent", "all", "--no-refresh"];
-    const lock = await acquireRuntimeLock(this.workspace, "openclaw-route");
-    try {
-      const rollback = await backupOpenClawRoutingState(this.workspace, this.agentDir);
-      const result = await this.runner(process.execPath, args, { cwd: this.workspace, timeoutMs: 60_000 });
-      const receipt = createReceipt({
-        action: input.action,
-        dryRun: false,
-        target,
-        summary: result.code === 0 ? `Applied through existing OpenClaw account-routing script: ${input.action}` : `OpenClaw account-routing script failed: ${input.action}`,
-        before: routeBefore(status),
-        after: { command: "codex-auth-switch.mjs", args: args.slice(1).map((item) => item.includes("@") ? redactProfileArg(item) : item), exitCode: result.code, rollback },
-        warnings: ["openclaw_account_routing_only", "sessions_prompts_memory_bootstrap_untouched", "lock_acquired", "rollback_pointer_written"]
-      });
-      await writeReceipt(input.receiptPath, { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receipt, command: "codex-auth-switch.mjs", rollback, stderr: result.stderr.slice(0, 2000), stdout: result.stdout.slice(0, 2000) });
-      return { code: result.code, payload: { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receiptPath: input.receiptPath, receipt, rollback } };
-    } finally {
-      await releaseRuntimeLock(lock);
-    }
+    const routeApplyReceipt = createReceipt({
+      action: input.action,
+      dryRun: true,
+      target: input.target,
+      summary: "Live OpenClaw route apply is unavailable until Account Center has a scoped confirmation contract and authoritative read-after-write verification; no routing script was invoked.",
+      before: routeBefore(status),
+      warnings: ["route_apply_requires_verified_mutation_contract", "no_implicit_all_scope", "no_live_mutation"]
+    });
+    const routeApplyPayload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt: routeApplyReceipt, reason: "route_apply_requires_verified_mutation_contract" };
+    await writeReceipt(input.receiptPath, routeApplyPayload);
+    return { code: 2, payload: routeApplyPayload };
   }
 
   private async deleteAccountCredentials(input: RuntimeMutationInput, status: AccountCenterStatus): Promise<RuntimeMutationResult> {
