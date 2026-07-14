@@ -6,6 +6,7 @@ export * from "./fixtures.js";
 export * from "./idempotency-store.js";
 export * from "./model-selection.js";
 export * from "./mutation-contract.js";
+export * from "./mutation-repository.js";
 export * from "./policy.js";
 export * from "./provider-probes.js";
 export * from "./redaction.js";
