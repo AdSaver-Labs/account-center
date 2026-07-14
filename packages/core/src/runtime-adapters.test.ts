@@ -115,7 +115,7 @@ test("OpenClaw route apply shells only to existing routing script and writes rec
   assert.ok(receipt.receipt.warnings.includes("rollback_pointer_written"));
 });
 
-test("OpenClaw account delete apply backs up and invokes credential deletion script", async () => {
+test("OpenClaw account delete remains blocked until atomic transaction support exists", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-"));
   const agentDir = join(workspace, "..", "agents", "main", "agent");
   const cli = join(workspace, "oauth_routing_cli.py");
@@ -129,7 +129,7 @@ test("OpenClaw account delete apply backs up and invokes credential deletion scr
   const runner: CommandRunner = async (command, args) => {
     calls.push({ command, args });
     if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
-    return { code: 0, stdout: JSON.stringify({ deleted: ["openai:helper-2"], removedFromOrder: ["openai:helper-2"] }), stderr: "" };
+    throw new Error("credential deletion helper must not run before atomic transaction support exists");
   };
   const receiptPath = join(workspace, "receipt.json");
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
@@ -141,21 +141,55 @@ test("OpenClaw account delete apply backs up and invokes credential deletion scr
     runtime: "openclaw",
     receiptPath
   });
-  assert.equal(result.code, 0);
-  const deleteCall = calls.at(-1);
-  assert.equal(deleteCall?.command, "python3");
-  assert.equal(deleteCall?.args[0], "-c");
-  assert.ok(deleteCall?.args.includes("openai:helper-2"));
-  assert.ok(deleteCall?.args.includes(workspace));
+  assert.equal(result.code, 2);
+  assert.equal(calls.length, 0, "fail-closed destructive delete must not invoke any external helper");
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
-  assert.equal(receipt.applied, true);
-  assert.equal(receipt.liveRuntimeMutation, true);
-  assert.ok(receipt.receipt.warnings.includes("credential_delete_destructive"));
-  assert.ok(receipt.rollback.files.some((file: string) => file.includes("openclaw-agent.sqlite")));
-  const backupDir = receipt.rollback.backupDir as string;
-  assert.equal((await stat(backupDir)).mode & 0o777, 0o700);
-  for (const file of receipt.rollback.files as string[]) assert.equal((await stat(file)).mode & 0o777, 0o600);
-  assert.equal((await stat(receiptPath)).mode & 0o777, 0o600);
+  assert.equal(receipt.applied, false);
+  assert.equal(receipt.liveRuntimeMutation, false);
+  assert.ok(receipt.receipt.warnings.includes("atomic_delete_transaction_not_implemented"));
+});
+
+test("OpenClaw account delete blocks profile labels rather than treating them as canonical identities", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-label-"));
+  const cli = join(workspace, "oauth_routing_cli.py");
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops"), { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
+  let deleteHelperCalled = false;
+  const runner: CommandRunner = async (command, args) => {
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+    if (command === "python3" && args[0] === "-c") deleteHelperCalled = true;
+    return { code: 0, stdout: "{}", stderr: "" };
+  };
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
+  const result = await adapter.mutate({ action: "account.delete", target: "helper-2", apply: true, provider: "openai", runtime: "openclaw", receiptPath: join(workspace, "receipt.json") });
+  assert.equal(result.code, 2);
+  assert.equal(deleteHelperCalled, false);
+});
+
+test("OpenClaw account delete blocks an ambiguous exact connected email", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-ambiguous-"));
+  const cli = join(workspace, "oauth_routing_cli.py");
+  const ambiguousStatus = {
+    ...routerStatus,
+    accounts: {
+      "openai:helper-1": { ...routerStatus.accounts["openai:helper-1"], email: "duplicate@example.test" },
+      "openai:helper-2": { ...routerStatus.accounts["openai:helper-2"], email: "duplicate@example.test" }
+    }
+  };
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops"), { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(ambiguousStatus), "utf8");
+  let deleteHelperCalled = false;
+  const runner: CommandRunner = async (command, args) => {
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(ambiguousStatus), stderr: "" };
+    if (command === "python3" && args[0] === "-c") deleteHelperCalled = true;
+    return { code: 0, stdout: "{}", stderr: "" };
+  };
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
+  const result = await adapter.mutate({ action: "account.delete", target: "duplicate@example.test", apply: true, provider: "openai", runtime: "openclaw", receiptPath: join(workspace, "receipt.json") });
+  assert.equal(result.code, 2);
+  assert.equal(deleteHelperCalled, false);
 });
 
 test("OpenClaw account delete blocks targets that do not exactly match a connected account", async () => {

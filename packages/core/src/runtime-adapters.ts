@@ -191,47 +191,45 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
 
   private async deleteAccountCredentials(input: RuntimeMutationInput, status: AccountCenterStatus): Promise<RuntimeMutationResult> {
     const requestedTarget = requiredTarget(input.target, input.action);
-    const resolvedTarget = resolveExactDeleteTarget(requestedTarget, status);
-    if (!resolvedTarget) {
+    const resolution = resolveExactDeleteTarget(requestedTarget, status);
+    if (resolution.kind !== "resolved") {
+      const reason = resolution.kind;
       const receipt = createReceipt({
         action: "account.delete",
         dryRun: true,
         target: requestedTarget,
-        summary: `Blocked credential delete: target must exactly match a connected account email or profile id.`,
+        summary: reason === "target_ambiguous"
+          ? "Blocked credential delete: the target matches more than one connected account."
+          : "Blocked credential delete: target must exactly match one connected account email or canonical profile id.",
         before: routeBefore(status),
-        warnings: ["target_not_found", "no_live_mutation", "exact_match_required"]
+        warnings: [reason, "no_live_mutation", "exact_match_required"]
       });
-      const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason: "target_not_found_exact_match_required" };
+      const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason };
       await writeReceipt(input.receiptPath, payload);
       return { code: 2, payload };
     }
-    const target = resolvedTarget.id;
-    const lock = await acquireRuntimeLock(this.workspace, "openclaw-credential-delete");
-    try {
-      const rollback = await backupOpenClawRoutingState(this.workspace, this.agentDir);
-      const result = await this.runner("python3", ["-c", credentialDeletePython(), this.agentDir, target, this.workspace], { cwd: this.workspace, timeoutMs: 60_000 });
-      let deletion: unknown = {};
-      try { deletion = result.stdout.trim() ? JSON.parse(result.stdout) : {}; } catch { deletion = { parseError: true }; }
-      const deletionSummary = redactedDeletionSummary(deletion);
-      const targetNotFound = isRecord(deletion) && deletion.warning === "target_not_found";
-      const applied = result.code === 0 && !targetNotFound;
-      const receipt = createReceipt({
-        action: "account.delete",
-        dryRun: !applied,
-        target: requestedTarget,
-        summary: applied ? `Deleted Sentinel/OpenClaw credentials for ${redactProfileArg(requestedTarget)}` : `Credential delete did not find an exact connected target for ${redactProfileArg(requestedTarget)}; no live delete was applied.`,
-        before: routeBefore(status),
-        after: { command: "python3 account-center credential-delete", exitCode: result.code, deleted: deletionSummary, rollback, resolvedProfileId: redactProfileArg(target) },
-        warnings: applied
-          ? ["credential_delete_destructive", "openclaw_account_routing_only", "sessions_prompts_memory_bootstrap_untouched", "lock_acquired", "rollback_pointer_written", "exact_match_verified"]
-          : ["target_not_found", "no_live_mutation", "exact_match_required", "rollback_pointer_written"]
-      });
-      const payload = { applied, dryRun: !applied, liveRuntimeMutation: applied, receiptPath: input.receiptPath, receipt, rollback, result: deletionSummary, stderr: result.stderr.slice(0, 2000) };
-      await writeReceipt(input.receiptPath, payload);
-      return { code: applied ? result.code : 2, payload };
-    } finally {
-      await releaseRuntimeLock(lock);
-    }
+    const target = resolution.profile.id;
+    // The previous helper edits several JSON and SQLite stores sequentially.
+    // Until its journaled atomic transaction and recovery verifier exist, fail
+    // closed rather than risking a partial credential deletion.
+    const receipt = createReceipt({
+      action: "account.delete",
+      dryRun: true,
+      target: requestedTarget,
+      summary: "Credential deletion is temporarily unavailable until Account Center's atomic transaction and recovery verification are implemented; no live mutation was attempted.",
+      before: routeBefore(status),
+      warnings: ["atomic_delete_transaction_not_implemented", "no_live_mutation", "exact_match_verified", "sessions_prompts_memory_bootstrap_untouched"]
+    });
+    const payload = {
+      applied: false,
+      dryRun: true,
+      liveRuntimeMutation: false,
+      receipt,
+      reason: "atomic_delete_transaction_not_implemented",
+      resolvedTarget: redactProfileArg(target)
+    };
+    await writeReceipt(input.receiptPath, payload);
+    return { code: 2, payload };
   }
 
   private async tryRefreshSentinelStatus(): Promise<unknown | undefined> {
@@ -682,24 +680,29 @@ function normalizeProfileTarget(value: string): string {
 
 function profileEmail(profile: Profile): string | undefined {
   const email = profile.metadata?.email;
-  if (typeof email === "string" && email.trim()) return email;
+  // Normalized status may use a non-email display label as a fallback value.
+  // It is never a credential identity unless it is an actual email address.
+  if (typeof email === "string" && email.includes("@") && email.trim()) return email;
   const idEmail = profile.id.includes(":") ? profile.id.slice(profile.id.indexOf(":") + 1) : profile.id;
   return idEmail.includes("@") ? idEmail : undefined;
 }
 
-function resolveExactDeleteTarget(target: string, status: AccountCenterStatus): Profile | undefined {
-  const raw = target.trim();
-  const normalized = normalizeProfileTarget(raw);
-  return status.profiles.find((profile) => {
-    const candidates = [
-      profile.id,
-      profile.label,
-      profileEmail(profile),
-      profile.id.startsWith("openai:") ? profile.id.slice("openai:".length) : undefined,
-      profile.id.startsWith("openai-codex:") ? `openai:${profile.id.slice("openai-codex:".length)}` : undefined,
-    ].filter((item): item is string => Boolean(item));
-    return candidates.some((candidate) => normalizeProfileTarget(candidate) === normalized);
+type DeleteTargetResolution =
+  | { kind: "resolved"; profile: Profile }
+  | { kind: "target_not_found" | "target_ambiguous" };
+
+function resolveExactDeleteTarget(target: string, status: AccountCenterStatus): DeleteTargetResolution {
+  const normalized = normalizeProfileTarget(target);
+  const matches = status.profiles.filter((profile) => {
+    // A destructive delete accepts only the immutable profile id or the
+    // explicitly connected email. Labels and derived provider aliases are
+    // intentionally excluded: they are presentation/routing hints, not a
+    // canonical credential identity.
+    return normalizeProfileTarget(profile.id) === normalized
+      || normalizeProfileTarget(profileEmail(profile) ?? "") === normalized;
   });
+  if (matches.length === 1) return { kind: "resolved", profile: matches[0]! };
+  return { kind: matches.length === 0 ? "target_not_found" : "target_ambiguous" };
 }
 
 function routeBefore(status: AccountCenterStatus): unknown {
