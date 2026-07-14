@@ -85,6 +85,21 @@ node packages/cli/dist/index.js auth /auth auto
 
 `/auth` is the manual/chat command. The bridge rejects the old manual command name instead of promoting it.
 
+## Agent-safe operation
+
+Account Center is intended to be safely operated by self-hosted or bridged agents as well as through the local dashboard. Agents use the protected loopback API and CLI JSON contracts — never browser scraping or direct credential-store edits.
+
+Start every automated workflow with the bearer-protected capability document:
+
+```bash
+curl -H "Authorization: Bearer $ACCOUNT_CENTER_LAUNCH_TOKEN" \
+  http://127.0.0.1:4317/api/capabilities
+```
+
+The running server declares which actions are genuinely available, blocked, unsupported, or `UNPROVEN`. Agents must treat anything other than verified `available`/`applied` results as non-success, use dry-runs and explicit confirmation for mutations, preserve scope isolation, use idempotency keys, and retain only redacted receipt/audit IDs.
+
+See [Agent Operations Contract](docs/AGENT_OPERATIONS.md) for the complete integration, safety, and recovery rules.
+
 ## Generic adapter SDK
 
 Any agent can integrate before a native adapter exists by exposing a no-secret JSON status command:

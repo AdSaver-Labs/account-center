@@ -16,7 +16,25 @@ test("local API requires bearer token and returns no-store status", async () => 
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
     const body = await accepted.json() as { schemaVersion: string };
-    assert.equal(body.schemaVersion, "account-center.status.v1");
+  } finally {
+    await app.close();
+  }
+});
+
+test("agent capability contract is bearer-protected, redacted, and explicit about unavailable mutations", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/capabilities")).status, 401);
+    const accepted = await request(address.port, "/api/capabilities", "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as { schemaVersion: string; target: string; actions: Array<{ id: string; mode: string; state: string; requires: string[] }> };
+    assert.equal(body.schemaVersion, "account-center.agent-capabilities.v1");
+    assert.equal(body.target, "account-center");
+    assert.deepEqual(body.actions.find((action) => action.id === "status"), { id: "status", mode: "read", state: "available", requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), { id: "account.delete", mode: "mutation", state: "blocked", requires: ["bearer_token", "canonical_target", "atomic_transaction"] });
+    assert.equal(JSON.stringify(body).match(/secret|password|accessToken|refreshToken/i), null);
   } finally {
     await app.close();
   }

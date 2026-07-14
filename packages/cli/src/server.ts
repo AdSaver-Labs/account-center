@@ -13,6 +13,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
+    if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
     if (request.url === "/api/status") {
       const adapter = createRuntimeAdapter(options.source ?? "fixture");
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
@@ -26,6 +27,28 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return { port: (server.address() as AddressInfo).port };
     },
     async close(): Promise<void> { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+  };
+}
+
+function agentCapabilities(): unknown {
+  return {
+    schemaVersion: "account-center.agent-capabilities.v1",
+    target: "account-center",
+    transport: { loopbackOnly: true, authentication: "bearer_token", cacheControl: "no-store" },
+    actions: [
+      { id: "status", mode: "read", state: "available", requires: ["bearer_token"] },
+      { id: "account.delete", mode: "mutation", state: "blocked", requires: ["bearer_token", "canonical_target", "atomic_transaction"] },
+      { id: "routes", mode: "mutation", state: "unproven", requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"] },
+      { id: "guided_auth", mode: "mutation", state: "unproven", requires: ["bearer_token", "explicit_confirmation", "idempotency_key"] },
+      { id: "models", mode: "mutation", state: "unproven", requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"] },
+      { id: "updates", mode: "mutation", state: "blocked", requires: ["bearer_token", "verified_release", "backup", "narrow_supervisor", "health_proof"] }
+    ],
+    rules: [
+      "Agents must discover capabilities before attempting an operation.",
+      "Agents must treat blocked, unsupported, failed, and UNPROVEN as non-success.",
+      "Agents must not scrape the browser UI, supply shell commands, branches, URLs, tokens, or credential material.",
+      "Mutations become available only through protected endpoints with explicit confirmation and idempotency handling."
+    ]
   };
 }
 
