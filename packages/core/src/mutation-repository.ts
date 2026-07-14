@@ -23,6 +23,14 @@ export interface MutationReceipt {
   completedAt: string;
   audit: MutationAudit & { warningCodes: string[] };
 }
+export interface MutationOperationView {
+  operationId: string;
+  state: "pending" | "completed";
+  createdAt: string;
+  completedAt?: string;
+  outcome?: MutationOutcome;
+  audit: Pick<MutationAudit, "action" | "provider" | "runtime" | "scopeKind"> & { warningCodes: string[] };
+}
 export type MutationClaim =
   | { kind: "execute"; operationId: string }
   | { kind: "replay"; operationId: string; outcome: MutationOutcome; receipt: MutationReceipt }
@@ -80,6 +88,10 @@ export class MutationRepository {
     });
   }
 
+  async list(): Promise<MutationOperationView[]> {
+    return this.withLock(async () => (await this.read()).operations.map(operationView));
+  }
+
   private async withLock<T>(work: () => Promise<T>): Promise<T> {
     await mkdir(this.root, { recursive: true, mode: 0o700 }); await chmod(this.root, 0o700); await assertPrivateDirectory(this.root);
     try { await mkdir(this.lockPath, { mode: 0o700 }); } catch (error: unknown) { if (isExists(error)) throw new Error("repository_locked"); throw error; }
@@ -102,6 +114,14 @@ function operationKeyDigest(operation: Operation): string { return isCompleted(o
 function operationRequestDigest(operation: Operation): string { return isCompleted(operation) ? operation.receipt.requestDigest : operation.requestDigest; }
 function operationId(operation: Operation): string { return isCompleted(operation) ? operation.receipt.operationId : operation.operationId; }
 function isCompleted(operation: Operation): operation is CompletedOperation { return "receipt" in operation; }
+function operationView(operation: Operation): MutationOperationView {
+  if (isCompleted(operation)) {
+    const { operationId, state, outcome, createdAt, completedAt, audit } = operation.receipt;
+    return { operationId, state, outcome, createdAt, completedAt, audit: { action: audit.action, provider: audit.provider, runtime: audit.runtime, scopeKind: audit.scopeKind, warningCodes: [...audit.warningCodes] } };
+  }
+  const { operationId, state, createdAt, audit } = operation;
+  return { operationId, state, createdAt, audit: { action: audit.action, provider: audit.provider, runtime: audit.runtime, scopeKind: audit.scopeKind, warningCodes: [] } };
+}
 function assertKey(value: string): void { if (!/^[A-Za-z0-9_-]{22,128}$/.test(value)) throw new Error("invalid_idempotency_key"); }
 function assertDigest(value: string): void { if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("invalid_digest"); }
 function assertIdentifier(value: string): void { if (!/^op_[A-Za-z0-9_-]{1,100}$/.test(value)) throw new Error("invalid_operation_id"); }

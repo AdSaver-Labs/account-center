@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuditStore, AuthChallengeStore } from "@account-center/core";
+import { AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
@@ -101,6 +101,36 @@ test("audit history is bearer-protected, bounded, and redacted", async () => {
     assert.deepEqual(Object.keys(body.records[0]).sort(), ["action", "createdAt", "id", "outcome", "proofState", "summary", "warnings"]);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
     assert.equal(JSON.stringify(body).includes("request-digest"), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test("mutation operation history is bearer-protected and exposes only redacted terminal evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const repository = new MutationRepository(join(root, "mutations"), { operationId: () => "op_test" });
+  const claim = await repository.claim({
+    idempotencyKey: "s3ZMdvUKp3wnaAq8EKUla9B1",
+    requestDigest: "a".repeat(64),
+    audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", scopeIdDigest: "b".repeat(64), targetDigest: "c".repeat(64) }
+  });
+  if (claim.kind !== "execute") throw new Error("expected executable test operation");
+  await repository.complete({ operationId: claim.operationId, outcome: "blocked", warningCodes: ["runtime_unavailable"] });
+  const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/mutation-operations")).status, 401);
+    const accepted = await request(address.port, "/api/mutation-operations", "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as { schemaVersion: string; operations: Array<Record<string, unknown>> };
+    assert.equal(body.schemaVersion, "account-center.mutation-operations.v1");
+    assert.deepEqual(body.operations, [{
+      operationId: "op_test", state: "completed", outcome: "blocked", createdAt: body.operations[0]?.createdAt,
+      completedAt: body.operations[0]?.completedAt,
+      audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", warningCodes: ["runtime_unavailable"] }
+    }]);
+    assert.equal(JSON.stringify(body).match(/[abc]{64}|s3ZMdvUKp3wnaAq8EKUla9B1/), null);
   } finally {
     await app.close();
   }

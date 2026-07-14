@@ -1,12 +1,13 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, RuntimeSource } from "@account-center/core";
+import { AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
   source?: RuntimeSource;
   auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
+  mutationRepository?: MutationRepository;
 }
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
@@ -24,6 +25,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
     if (request.url === "/api/audit") return send(response, 200, await auditHistory(options.auditStore));
+    if (request.url === "/api/mutation-operations") return send(response, 200, await mutationOperationHistory(options.mutationRepository));
     if (request.method === "GET" && request.url === "/api/auth-challenges") return send(response, 200, await authChallengeInventory(options.challengeStore));
     const challengeId = authChallengeId(request.url);
     if (challengeId) {
@@ -60,6 +62,13 @@ async function auditHistory(store?: AuditStore): Promise<unknown> {
   return {
     schemaVersion: "account-center.audit-history.v1",
     records: records.map(auditRecordView)
+  };
+}
+
+async function mutationOperationHistory(repository?: MutationRepository): Promise<unknown> {
+  return {
+    schemaVersion: "account-center.mutation-operations.v1",
+    operations: repository ? await repository.list() : []
   };
 }
 

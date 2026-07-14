@@ -16,6 +16,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [x] Durable guided-auth challenge records exclude raw account targets; legacy records are redacted on read before reuse, elapsed pending records transition durably to `expired` when read, and protected inventory responses expose only redacted lifecycle metadata plus an optional expiry timestamp.
 - [x] Existing durable guided-auth challenges can be cancelled only through the bearer-protected, same-origin `POST /api/auth-challenges/:id/cancel` endpoint; its versioned response and persisted state expose redacted metadata only.
 - [x] Durable Account Center audit history is available through the bearer-protected `GET /api/audit` endpoint as bounded, newest-first, redacted records; request digests and unsafe context are not returned.
+- [x] Durable protected-operation history is available through the bearer-protected `GET /api/mutation-operations` endpoint with redacted lifecycle/outcome evidence only; request, target, scope, and idempotency digests are not returned.
 - [ ] Reauth follows `stage → verify identity/health → optional route switch → receipt`; previous working auth remains usable until verified.
 - [ ] `/auth remove` changes routing only.
 - [ ] `/auth delete` requires an exact normalized connected identity, takes a runtime backup, returns a redacted receipt, and proves the outcome or labels it `UNPROVEN`.
