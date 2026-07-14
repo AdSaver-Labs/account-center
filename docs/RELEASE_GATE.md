@@ -39,6 +39,8 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [ ] Responsive, keyboard-accessible views exist for dashboard/status, account/routing, guided add/reauth, model policy/fallback, receipts/audit, and destructive-operation confirmation.
 - [ ] UI exposes loading, empty, error, success, unsupported, read-only, and `UNPROVEN` states.
 - [ ] UI actions call the protected local API; it is not a status-only mock shell.
+- [ ] A Settings / Update Center lets the operator check for, review, and explicitly apply verified Account Center updates without manually pulling from GitHub; it shows installed/available versions, release provenance and notes, creates a backup, restarts only the local Account Center process, health-checks the result, and reports verified/`UNPROVEN`/rollback state.
+- [ ] Update Center never silently executes arbitrary repository code, accepts a branch name as a release, or updates Hermes/OpenClaw/Codex; those platforms remain separate controlled update surfaces.
 - [ ] Visual and accessibility QA pass at desktop and narrow viewport sizes.
 
 ### 5. Installability and release verification

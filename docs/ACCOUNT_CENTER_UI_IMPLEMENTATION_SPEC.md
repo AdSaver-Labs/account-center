@@ -13,6 +13,7 @@ The app has a persistent top bar with the connection/freshness state, a runtime-
 3. **Guided Add / Reauthenticate** — challenge creation and the durable challenge lifecycle.
 4. **Models & Fallbacks** — separate requested, effective, eligibility, and proof states for the selected runtime/scope.
 5. **Receipts & Audit** — mutation evidence, dry-run outcomes, verification, backups, warnings, and filters.
+6. **Settings / Update Center** — Account Center release status and a guarded, operator-confirmed update flow. It is only for Account Center itself; it is not an update surface for Hermes, OpenClaw, or Codex.
 
 The destructive confirmation is a modal/drawer layer launched from Accounts & Routing (and, when applicable, Models & Fallbacks); it is not a destination. Navigation preserves the selected `runtime + scope` when that scope exists in the next view. A changed scope must refetch scope-scoped data and return focus to the destination heading. Never silently broaden an action from a named scope to `all`.
 
@@ -45,6 +46,7 @@ Every screen and every actionable card implements the following states. These ar
 | Blocked | A guard (exact match, eligibility, active challenge, lock, policy) prevented the action. Show its structured reason. | Resolve the reason; do not offer a bypass unless the API explicitly supports a separate confirmed force operation. |
 | Success/applied | API returns `applied` and post-operation proof is verified. Show what changed, selected scope, timestamp, and receipt link. | View receipt / undo only if API provides a guarded rollback action. |
 | Dry run | A preview only. It must visually differ from success and say “No change was made.” | Review then launch the normal confirmation/action. |
+| Rollback | A verified update could not be made healthy and the API restored the pre-update Account Center backup, or the operator invoked an offered guarded rollback. State whether the restored service health is verified. | Inspect receipt, recheck health, or contact/support manual recovery supplied by API. |
 
 The first screen is intentionally **not** treated as an error before connection: it is a `not_connected` empty state with a launch-token form. Store the token only in memory for the current page; clear the input after a page reload and never persist it in local/session storage, URL, query string, history, or error output.
 
@@ -157,11 +159,35 @@ For credential delete, the dialog must show the API-confirmed canonical connecte
 
 For `Remove from routing`, use a separate, smaller confirmation: “Remove from routing only — credentials stay saved.” It must never reuse delete styling or language. For route/model changes, use normal confirmation with a preview/receipt summary. Any non-idempotent request disables duplicate submit, communicates progress, and resolves from the server result rather than timing out locally into a presumed failure.
 
+### 3.7 Settings / Update Center
+
+**Purpose:** let the local operator update **Account Center only** with the ergonomics of an in-app updater, without manually visiting GitHub or granting the UI arbitrary repository execution. It is a separate Settings destination, not a Dashboard quick action and not a generic source-control interface.
+
+**Release status:** show an installed-release card and an available-release card. Each identifies the Account Center version, immutable release ID/tag, published time when reported, and verification/provenance state. Installed release also shows install time and last successful local healthcheck; available release shows its release notes and compatibility/guard warnings. Never present a branch, commit selected by the UI, URL supplied by the operator, or an unverified latest repository state as an available release. If no verified release is available, say so plainly and leave Apply unavailable.
+
+Release provenance is API-supplied and must include the trusted publisher/source identity, immutable release artifact/reference, signature or verification method, and verification timestamp/result. Render `Verified` only when the API returns a verified provenance result. Missing, stale, malformed, or non-verifiable provenance is literal `UNPROVEN`; it is not eligible for Apply. Release notes are an API-supplied, sanitized, bounded display field associated with that immutable release; they are not fetched or rendered from arbitrary release URLs in the browser.
+
+**Guarded flow:** the only live path is explicit **Check → Review → Apply**:
+
+1. **Check for updates** calls the protected API and refreshes the installed/available cards. It changes nothing locally and announces the resulting availability/provenance state.
+2. **Review update** opens a normal confirmation sheet with the installed and available immutable release identifiers, version change, provenance/verification details, release notes, compatibility warnings, backup plan, restart scope, and healthcheck plan. The primary action is unavailable for `UNPROVEN`, failed, unsupported, or policy-blocked results.
+3. **Apply update** requires an explicit acknowledgement that Account Center will be backed up and only its local process restarted. It uses a new idempotency key, displays non-secret progress, and cannot be dismissed with Escape while applying. The API creates and verifies a redacted backup before any replacement, applies only the reviewed verified artifact, restarts only the Account Center local process, and runs its healthcheck before reporting completion.
+
+Never silently poll-and-apply, auto-update on launch, execute arbitrary repository code, pull a repository branch, accept a branch name as a release selector, or execute release notes/instructions. The UI cannot supply shell arguments, artifact URLs, refs, or restart targets. It must state explicitly that updating Hermes, OpenClaw, and Codex is outside this control and use their separate controlled update surfaces.
+
+**Results and recovery:** show a stepper for `backup`, `apply`, `restart`, and `healthcheck`, with server timestamps and a receipt link. `applied` success is displayed only after verified post-restart health. If the update completed but health evidence is unavailable, display `UNPROVEN`, retain the receipt, and offer only API-provided recheck/guarded recovery. A failed update must state the failing phase without sensitive command output. If the API rolls back, show `Rollback completed` or `Rollback UNPROVEN` with the restored installed release and post-rollback health state; do not call rollback success merely because it was attempted. If backup, verified provenance, narrow restart targeting, or healthcheck guard is absent, the action is `Blocked`/`UNPROVEN` and Apply is disabled.
+
+**Layout and narrow screens:** desktop uses side-by-side installed/available cards above release notes and update history; the review sheet carries a compact before/after comparison and step plan. On narrow screens cards stack, release notes use a labelled disclosure, and the review/apply dialog is full-screen. Keep release identity, provenance badge, backup status, restart scope, and health result visible without horizontal scrolling.
+
+**Update Center API needs:** planned `GET /api/updates/status`, `POST /api/updates/check`, `POST /api/updates/apply`, `POST /api/updates/:operationId/recheck`, and, only when supplied as a guarded server capability, `POST /api/updates/:operationId/rollback`. The API, not the browser, owns trusted-release discovery, signature/provenance verification, artifact selection, backup, update execution, process targeting, restart, healthcheck, rollback, audit, and receipt creation.
+
 ## 4. API interaction contract for the UI
 
 The UI is a protected local API client only. It does not execute shell commands, access adapter files, choose routing targets, write receipts, or retain auth material. All mutations use the shared command executor through the API.
 
 Every response that drives a screen must include a stable schema/version or discriminant, server timestamp, redacted warnings, and no-store headers. Every mutation uses the bearer token plus API-selected CSRF protection and includes a client request/idempotency key. A mutation response must be a discriminated union, at minimum `dry_run`, `started`, `applied`, `blocked`, `validation_error`, `unsupported_by_runtime`, `failed`, or `unproven`; UI behavior branches on `kind`, never string matching a human summary. Responses should include `requestId` and `auditId` where applicable.
+
+Update responses use their own stable discriminated contracts; human release notes and summaries are never control inputs. `UpdateStatus` contains `installed: InstalledRelease`, `available: AvailableRelease | null`, `lastOperation: UpdateOperation | null`, and capability/policy fields. `InstalledRelease` contains immutable release identity, version, installed time, and last-health result. `AvailableRelease` contains immutable release identity, version, published time, sanitized release notes, compatibility warnings, and `provenance`. `provenance` is `verified` (trusted publisher/source, immutable artifact/reference, verification method/time) or `unproven`/`failed` with a structured safe reason. `UpdateOperation` is one of: `checked`, `review_ready`, `applying` (phase is `backup | apply | restart | healthcheck`), `applied` (verified health proof required), `blocked`, `failed`, `unproven`, `rollback_applied` (verified restored-health proof required), or `rollback_unproven`/`rollback_failed`. All variants include operation/request/audit IDs as applicable, timestamps, redacted receipt reference, warnings, and structured next actions. `POST /api/updates/apply` accepts only the API-issued reviewed immutable release ID plus acknowledgement and idempotency key; it accepts no branch, commit, URL, shell command, process name, or arbitrary ref.
 
 | UI need | Planned endpoint/action | Minimum data / result |
 | --- | --- | --- |
@@ -173,6 +199,8 @@ Every response that drives a screen must include a stable schema/version or disc
 | Challenge list/detail/cancel | `GET /api/reauth`, `GET /api/reauth/:id`, `POST /api/reauth/:id/cancel` | Durable lifecycle state, expiry, safe verification data, warnings, receipts. |
 | Audit evidence | `GET /api/audit` and safe receipt detail | Paginated redacted events and a redacted receipt detail view. |
 | Models/fallbacks | API routes to be finalized from model command contract | Per-scope catalog/preference/fallback/proof plus preview/apply/probe unions. |
+| Update status/check | `GET /api/updates/status`, `POST /api/updates/check` | Installed/available Account Center releases only; immutable identity, sanitized notes, trusted provenance union, capability/policy, last operation. Check is read-only. |
+| Update review/apply/recovery | `POST /api/updates/apply`, `POST /api/updates/:operationId/recheck`, guarded rollback if supported | API-issued reviewed release ID, acknowledgement, idempotency key; backup/apply/narrow-restart/health phases; verified/`UNPROVEN`/failed/rollback union and redacted receipt. |
 
 Current implementation note: `packages/cli/src/server.ts` provides `GET /api/status` behind a bearer token and serves a read-only HTML status shell. It does **not** yet provide the planned mutation, scope, challenge, audit, or model endpoints. The implementation pass should preserve the existing no-store and bearer behavior while replacing the status-only shell only after the API contract exists.
 
@@ -192,7 +220,7 @@ Use the existing dark local-control-plane direction, but implement a coherent to
 | Shape/elevation | 6 px controls, 10 px panels; 1 px borders. Use elevation sparingly; dialogs have backdrop and clearly bounded surface. |
 | Focus | 3 px visible `color.focus` outline with 2 px offset; never remove it. |
 
-Required components: application shell; connection status; runtime/scope selector; status badge; capability badge; card/panel; data table and responsive record card; account row; route order list; capacity meter (with textual percentage/unknown); alert/banner; empty state; skeleton; inline field error; toast/live-region announcer; action menu; preview/normal confirmation sheet; strong destructive dialog; guided-auth challenge card; code display with copy action; receipt/audit drawer; fallback order editor; pagination/filter controls.
+Required components: application shell; connection status; runtime/scope selector; status badge; capability badge; card/panel; data table and responsive record card; account row; route order list; capacity meter (with textual percentage/unknown); alert/banner; empty state; skeleton; inline field error; toast/live-region announcer; action menu; preview/normal confirmation sheet; strong destructive dialog; guided-auth challenge card; code display with copy action; receipt/audit drawer; fallback order editor; update release comparison; provenance badge/details; sanitized release-notes disclosure; update phase stepper; pagination/filter controls.
 
 Use semantic buttons for actions and links only for navigation. Disabled actions include a concise adjacent reason; `aria-disabled` alone is not a substitute for disabled semantics. Avoid icon-only controls unless they have an accessible name and visible tooltip on keyboard focus.
 
@@ -207,6 +235,7 @@ Keyboard requirements:
 - Menus use Arrow keys/Home/End/Escape and return focus to their trigger. Comboboxes expose selected runtime and scope in their accessible name.
 - Modal dialogs trap focus, restore focus on close, and use an explicit Cancel button. In-flight dialogs prevent duplicate submission but retain status text.
 - Copy code, refresh, retry, preview, and confirm all have keyboard-visible focus and non-ambiguous labels.
+- Update Center’s Check, Review, Apply, Recheck, and guarded Rollback controls expose the target Account Center version and state in their accessible names. Applying update progress is announced without command output; focus remains in the in-flight confirmation dialog until a result is available.
 
 Screen-reader requirements:
 
@@ -214,6 +243,7 @@ Screen-reader requirements:
 - Announce connection, loading completion, action result, and field validation in a polite live region. Use assertive announcement only for a destructive-action failure that requires immediate attention. Do not announce device codes, URLs, exact emails, tokens, or long receipt contents.
 - Status badges have visible text and an equivalent accessible name, for example `UNPROVEN — route verification unavailable`.
 - Countdown has a static expiry timestamp plus periodic, throttled updates; it must not flood live regions. Expiry triggers one announcement and moves focus nowhere automatically.
+- Provenance, backup, restart scope, healthcheck, `UNPROVEN`, failed, and rollback outcomes have visible text and equivalent programmatic status. Release notes are not injected as HTML and are not announced in full automatically.
 - Meet WCAG 2.2 AA contrast and text-resize/reflow expectations; honor `prefers-reduced-motion` by eliminating nonessential animation.
 
 ## 7. Implementation and test acceptance checklist
@@ -225,5 +255,7 @@ Screen-reader requirements:
 - Test desktop and 320/430/760 px layouts; keyboard paths for context selection, account action menu, fallback reorder, copy code, and both confirmation dialogs; run automated accessibility checks plus manual screen-reader smoke.
 - Mock API result unions, including malformed/unknown values, and render unknown values as error/`UNPROVEN`, never success.
 - Verify a mutation result produces a receipt/audit link and that absent proof remains `UNPROVEN`.
+- Cover Update Center with fixtures for no update, verified available release, unproven/failed provenance, policy-blocked Apply, backup failure, apply failure, narrow-restart guard failure, verified health success, missing health proof (`UNPROVEN`), verified rollback, rollback `UNPROVEN`, and rollback failure. Assert Check makes no changes; Apply cannot be reached without review/acknowledgement and API-issued immutable release ID; branch/ref/URL/process-name inputs do not exist in the UI contract.
+- Assert Update Center labels its target as Account Center only, never offers Hermes/OpenClaw/Codex updates, renders sanitized bounded release notes, preserves receipts/redaction, and passes desktop plus 320/430/760 px, keyboard, dialog-focus, live-region, and screen-reader checks.
 
 No UI-only fixture change is required for this specification. The existing fixture remains useful for the current read-only Dashboard, while implementation should add dedicated redacted API fixtures for the result unions above once the API contract is introduced.
