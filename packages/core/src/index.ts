@@ -1,3 +1,4 @@
+export * from "./audit-store.js";
 export * from "./auth-challenge-store.js";
 export * from "./auth-challenges.js";
 export * from "./command-executor.js";
