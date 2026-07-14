@@ -14,6 +14,8 @@ import {
   probeProviders,
   redactJson
 } from "@account-center/core";
+import { randomBytes } from "node:crypto";
+import { createAccountCenterServer } from "./server.js";
 import { parseAuthCommand, renderAuthHelp } from "./auth-bridge.js";
 
 interface CliResult {
@@ -467,6 +469,7 @@ function helpText(): string {
   models list
   doctor
   audit list [--limit 20]
+  serve [--port 4317] [--token <local-token>] [--source fixture|openclaw|generic-command] -- launch the local control panel
   auth "/auth ..." -- parse and execute manual /auth chat commands
 
 Manual chat compatibility command is /auth. /account is the product namespace.
@@ -489,8 +492,25 @@ function json(value: unknown): string {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const result = await runCli(process.argv.slice(2));
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  process.exitCode = result.code;
+  if (process.argv[2] === "serve") {
+    await serveControlPanel(process.argv.slice(3));
+  } else {
+    const result = await runCli(process.argv.slice(2));
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exitCode = result.code;
+  }
+}
+
+async function serveControlPanel(argv: string[]): Promise<void> {
+  const portValue = valueAfter(argv, "--port") ?? "4317";
+  const port = Number(portValue);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
+  const token = valueAfter(argv, "--token") ?? randomBytes(24).toString("base64url");
+  const source = parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE);
+  const app = createAccountCenterServer({ token, source });
+  await app.listen(port);
+  process.stdout.write(`Account Center local panel: http://127.0.0.1:${port}/\nLaunch token: ${token}\nPress Ctrl+C to stop.\n`);
+  await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+  await app.close();
 }
