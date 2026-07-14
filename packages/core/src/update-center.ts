@@ -1,4 +1,4 @@
-import { verify } from "node:crypto";
+import { createHash, verify } from "node:crypto";
 
 export interface ReleaseArtifactV1 {
   platform: string;
@@ -33,6 +33,46 @@ export interface InspectSignedReleaseInput {
 }
 
 /** Produces the exact stable bytes covered by the detached release signature. */
+export interface UpdateApplyPlanInput {
+  inspection: ReleaseInspection;
+  installedVersion: string;
+  supervisor: string;
+}
+
+export type UpdateApplyPlan =
+  | {
+      state: "ready_for_confirmation";
+      planId: string;
+      product: "account-center";
+      installedVersion: string;
+      release: { version: string; tag: string; artifact: ReleaseArtifactV1 };
+      supervisor: "account-center-local";
+      requiredSteps: ["explicit_confirmation", "artifact_checksum", "protected_backup", "narrow_account_center_restart", "health_proof", "rollback_on_failed_health"];
+    }
+  | { state: "blocked"; reason: "release_not_verified" | "unsupported_supervisor" };
+
+/**
+ * Binds a verified immutable release to an Account-Center-only apply plan.
+ * This is intentionally a plan, not an installer: it never downloads, writes,
+ * restarts, or accepts a process name supplied by an agent/operator.
+ */
+export function createUpdateApplyPlan(input: UpdateApplyPlanInput): UpdateApplyPlan {
+  if (input.inspection.state !== "verified") return { state: "blocked", reason: "release_not_verified" };
+  if (input.supervisor !== "account-center-local") return { state: "blocked", reason: "unsupported_supervisor" };
+  const release = input.inspection.release;
+  const planInput = canonicalizeReleaseManifest({ product: "account-center", installedVersion: input.installedVersion, release, supervisor: input.supervisor });
+  const planId = `ac-update-v1:${createHash("sha256").update(planInput).digest("hex")}`;
+  return {
+    state: "ready_for_confirmation",
+    planId,
+    product: "account-center",
+    installedVersion: input.installedVersion,
+    release,
+    supervisor: "account-center-local",
+    requiredSteps: ["explicit_confirmation", "artifact_checksum", "protected_backup", "narrow_account_center_restart", "health_proof", "rollback_on_failed_health"]
+  };
+}
+
 export function canonicalizeReleaseManifest(manifest: unknown): string {
   return JSON.stringify(sortJson(manifest));
 }
