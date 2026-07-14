@@ -1,3 +1,5 @@
+import { cp, chmod, copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { createHash, verify } from "node:crypto";
 
 export interface ReleaseArtifactV1 {
@@ -116,6 +118,55 @@ async function rollbackAfterFailure(adapter: UpdateExecutionAdapter, plan: Extra
   const rollback = await adapter.rollback(plan, backupId);
   if (rollback.state === "verified") return { state: "rolled_back", planId: plan.planId, backupId, reason };
   return { state: "UNPROVEN", planId: plan.planId, backupId, stage: "rollback" };
+}
+
+export class LocalFilesystemUpdateAdapter implements UpdateExecutionAdapter {
+  constructor(private readonly paths: { artifactPath: string; installRoot: string; workRoot: string }) {}
+
+  async verifyArtifact(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified" | "failed" | "UNPROVEN" }> {
+    try {
+      const bytes = await readFile(this.paths.artifactPath);
+      const actual = createHash("sha256").update(bytes).digest("hex");
+      return actual === plan.release.artifact.sha256 ? { state: "verified" } : { state: "failed" };
+    } catch { return { state: "UNPROVEN" }; }
+  }
+
+  async createBackup(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified"; backupId: string } | { state: "failed" } | { state: "UNPROVEN" }> {
+    const backupId = `backup-${createHash("sha256").update(`${plan.planId}:${Date.now()}`).digest("hex").slice(0, 24)}`;
+    const destination = join(this.paths.workRoot, "backups", backupId);
+    try {
+      await mkdir(join(this.paths.workRoot, "backups"), { recursive: true, mode: 0o700 });
+      await chmod(join(this.paths.workRoot, "backups"), 0o700);
+      await cp(this.paths.installRoot, destination, { recursive: true, errorOnExist: true, force: false });
+      await chmod(destination, 0o700);
+      return { state: "verified", backupId };
+    } catch { return { state: "failed" }; }
+  }
+
+  async installArtifact(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified" | "failed" | "UNPROVEN" }> {
+    try {
+      const staged = join(this.paths.installRoot, "staged");
+      await mkdir(staged, { recursive: true, mode: 0o700 });
+      await chmod(staged, 0o700);
+      const destination = join(staged, plan.release.artifact.fileName);
+      await copyFile(this.paths.artifactPath, destination);
+      await chmod(destination, 0o600);
+      return { state: "verified" };
+    } catch { return { state: "failed" }; }
+  }
+
+  async restartAccountCenter(): Promise<{ state: "verified" | "failed" | "UNPROVEN" }> { return { state: "UNPROVEN" }; }
+  async healthCheck(): Promise<{ state: "verified" | "failed" | "UNPROVEN" }> { return { state: "UNPROVEN" }; }
+
+  async rollback(_plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>, backupId: string): Promise<{ state: "verified" | "failed" | "UNPROVEN" }> {
+    const source = join(this.paths.workRoot, "backups", backupId);
+    try {
+      await rm(this.paths.installRoot, { recursive: true, force: true });
+      await cp(source, this.paths.installRoot, { recursive: true, errorOnExist: true, force: false });
+      await chmod(this.paths.installRoot, 0o700);
+      return { state: "verified" };
+    } catch { return { state: "UNPROVEN" }; }
+  }
 }
 
 export function canonicalizeReleaseManifest(manifest: unknown): string {
