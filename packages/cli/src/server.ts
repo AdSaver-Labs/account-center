@@ -64,7 +64,7 @@ function agentCapabilities(): unknown {
       { id: "status", mode: "read", state: "available", requires: ["bearer_token"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "no_stable_native_exact_profile_delete_api", requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"] },
       { id: "routes", mode: "mutation", state: "unproven", requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"] },
-      { id: "guided_auth", mode: "mutation", state: "unproven", requires: ["bearer_token", "explicit_confirmation", "idempotency_key"] },
+      { id: "guided_auth", mode: "mutation", state: "unproven", reason: "protected_start_contract_missing_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_confirmation", "idempotency_key"] },
       { id: "models", mode: "mutation", state: "unproven", requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"] },
       { id: "updates", mode: "mutation", state: "blocked", requires: ["bearer_token", "verified_release", "backup", "narrow_supervisor", "health_proof"] }
     ],
