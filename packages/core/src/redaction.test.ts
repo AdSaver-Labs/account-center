@@ -10,6 +10,12 @@ test("redactText removes token-shaped values", () => {
   assert.match(output, /\[REDACTED\]/);
 });
 
+test("redactText removes account emails", () => {
+  const output = redactText("Route update for private@example.test was blocked.");
+  assert.equal(output.includes("private@example.test"), false);
+  assert.match(output, /\[REDACTED_EMAIL\]/);
+});
+
 test("redactJson redacts sensitive keys recursively", () => {
   const output = redactJson({
     profile: "openai:helper-1",

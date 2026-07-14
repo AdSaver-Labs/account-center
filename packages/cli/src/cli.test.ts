@@ -129,7 +129,7 @@ test("OpenClaw source can be selected with a mocked read-only runner", async () 
   }
 });
 
-test("/auth default output matches Dexter-style Codex account limits without JSON", async () => {
+test("/auth default output retains Codex account-limit detail while redacting account emails", async () => {
   const dir = await mkdtemp(join(tmpdir(), "account-center-openclaw-limits-"));
   const cli = join(dir, "oauth_routing_cli.py");
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
@@ -196,17 +196,20 @@ test("/auth default output matches Dexter-style Codex account limits without JSO
     assert.equal(result.code, 0);
     assert.match(result.stdout, /^Codex account limits/);
     assert.match(result.stdout, /Snapshot: 10 Jul 2026, 12:25 EEST/);
-    assert.match(result.stdout, /Current active account: travis@example.com \(openai:travis@example.com\)/);
+    assert.match(result.stdout, /Current active account: \[REDACTED_EMAIL\] \(openai:\[REDACTED_EMAIL\]\)/);
+    assert.equal(result.stdout.includes("travis@example.com"), false);
+    assert.equal(result.stdout.includes("49pushy@example.com"), false);
+    assert.equal(result.stdout.includes("info@adsaveragency.com"), false);
     assert.match(result.stdout, /Non-AdSaver weekly-usable accounts: 1/);
     assert.match(result.stdout, /⚠️ WARNING: only 1 non-AdSaver weekly-usable account remains/);
     assert.match(result.stdout, /No-token commands you can use here:/);
     assert.match(result.stdout, /• \/auth add <email> — start OpenAI Codex device-code login from Telegram/);
-    assert.match(result.stdout, /49pushy@example.com — PLUS/);
+    assert.match(result.stdout, /\[REDACTED_EMAIL\] — PLUS/);
     assert.match(result.stdout, /OAuth expires: 18 Jul 2026, 23:28/);
     assert.match(result.stdout, /• 5h: 1% used \/ 99% left\n  refresh: 10 Jul 2026, 17:25/);
-    assert.match(result.stdout, /travis@example.com — FREE/);
+    assert.match(result.stdout, /\[REDACTED_EMAIL\] — FREE/);
     assert.match(result.stdout, /• 5h: unknown/);
-    assert.doesNotMatch(result.stdout, /\[REDACTED\]/);
+    assert.match(result.stdout, /\[REDACTED_EMAIL\]/);
   } finally {
     if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
     else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;

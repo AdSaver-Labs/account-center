@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthChallengeStore } from "@account-center/core";
+import { AuditStore, AuthChallengeStore } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
@@ -72,6 +72,35 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       requires: ["bearer_token", "verified_release", "backup", "narrow_supervisor", "health_proof"]
     });
     assert.equal(JSON.stringify(body).match(/secret|password|accessToken|refreshToken/i), null);
+  } finally {
+    await app.close();
+  }
+});
+
+test("audit history is bearer-protected, bounded, and redacted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  await auditStore.append({
+    action: "route.use",
+    outcome: "blocked",
+    proofState: "unproven",
+    requestDigest: "request-digest",
+    summary: "Route update for private@example.test was blocked.",
+    warnings: ["no_live_mutation"]
+  });
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/audit")).status, 401);
+    const accepted = await request(address.port, "/api/audit", "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as { schemaVersion: string; records: Array<Record<string, unknown>> };
+    assert.equal(body.schemaVersion, "account-center.audit-history.v1");
+    assert.equal(body.records.length, 1);
+    assert.deepEqual(Object.keys(body.records[0]).sort(), ["action", "createdAt", "id", "outcome", "proofState", "summary", "warnings"]);
+    assert.equal(JSON.stringify(body).includes("private@example.test"), false);
+    assert.equal(JSON.stringify(body).includes("request-digest"), false);
   } finally {
     await app.close();
   }

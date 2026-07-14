@@ -202,7 +202,7 @@ Update responses use their own stable discriminated contracts; human release not
 | Update status/check | `GET /api/updates/status`, `POST /api/updates/check` | Installed/available Account Center releases only; immutable identity, sanitized notes, trusted provenance union, capability/policy, last operation. Check is read-only. |
 | Update review/apply/recovery | `POST /api/updates/apply`, `POST /api/updates/:operationId/recheck`, guarded rollback if supported | API-issued reviewed release ID, acknowledgement, idempotency key; backup/apply/narrow-restart/health phases; verified/`UNPROVEN`/failed/rollback union and redacted receipt. |
 
-Current implementation note: `packages/cli/src/server.ts` provides `GET /api/status` behind a bearer token and serves a read-only HTML status shell. It does **not** yet provide the planned mutation, scope, challenge, audit, or model endpoints. The implementation pass should preserve the existing no-store and bearer behavior while replacing the status-only shell only after the API contract exists.
+Current implementation note: `packages/cli/src/server.ts` provides bearer-protected, no-store `GET /api/status`, redacted local challenge inventory/detail/cancellation routes, and `GET /api/audit` (bounded redacted audit history). It does **not** yet provide planned runtime mutation, scope, or model endpoints. The implementation pass should preserve the existing no-store and bearer behavior while replacing the status-only shell only after the API contract exists.
 
 ## 5. Visual system and reusable components
 

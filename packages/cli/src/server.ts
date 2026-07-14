@@ -1,10 +1,11 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, RuntimeSource } from "@account-center/core";
+import { AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
   source?: RuntimeSource;
+  auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
 }
 
@@ -22,6 +23,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
+    if (request.url === "/api/audit") return send(response, 200, await auditHistory(options.auditStore));
     if (request.method === "GET" && request.url === "/api/auth-challenges") return send(response, 200, await authChallengeInventory(options.challengeStore));
     const challengeId = authChallengeId(request.url);
     if (challengeId) {
@@ -51,6 +53,18 @@ async function authChallengeInventory(store?: AuthChallengeStore): Promise<unkno
     schemaVersion: "account-center.auth-challenges.v1",
     challenges: challenges.map(authChallengeView)
   };
+}
+
+async function auditHistory(store?: AuditStore): Promise<unknown> {
+  const records = store ? await store.list() : [];
+  return {
+    schemaVersion: "account-center.audit-history.v1",
+    records: records.map(auditRecordView)
+  };
+}
+
+function auditRecordView({ id, createdAt, action, outcome, proofState, summary, warnings }: AuditRecord) {
+  return { id, createdAt, action, outcome, proofState, summary, warnings };
 }
 
 function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
