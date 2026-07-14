@@ -1,10 +1,11 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { createRuntimeAdapter, executeAccountCenterCommand, RuntimeSource } from "@account-center/core";
+import { AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
   source?: RuntimeSource;
+  challengeStore?: AuthChallengeStore;
 }
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
@@ -14,6 +15,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
+    if (request.method === "GET" && request.url === "/api/auth-challenges") return send(response, 200, await authChallengeInventory(options.challengeStore));
     if (request.url === "/api/status") {
       const adapter = createRuntimeAdapter(options.source ?? "fixture");
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
@@ -27,6 +29,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return { port: (server.address() as AddressInfo).port };
     },
     async close(): Promise<void> { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+  };
+}
+
+async function authChallengeInventory(store?: AuthChallengeStore): Promise<unknown> {
+  const challenges = store ? await store.list() : [];
+  return {
+    schemaVersion: "account-center.auth-challenges.v1",
+    challenges: challenges.map(({ id, mode, provider, runtime, scope, status, createdAt, updatedAt }) => ({ id, mode, provider, runtime, scope, status, createdAt, updatedAt }))
   };
 }
 
