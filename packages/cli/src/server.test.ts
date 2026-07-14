@@ -77,6 +77,28 @@ test("guided-auth challenge inventory is bearer-protected and omits account targ
   }
 });
 
+test("guided-auth challenge detail is bearer-protected, redacted, and returns not found for an unknown opaque id", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const challenge = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
+  const address = await app.listen();
+  const path = `/api/auth-challenges/${challenge.id}`;
+  try {
+    assert.equal((await request(address.port, path)).status, 401);
+    const accepted = await request(address.port, path, "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as { schemaVersion: string; challenge: Record<string, unknown> };
+    assert.equal(body.schemaVersion, "account-center.auth-challenge.v1");
+    assert.deepEqual(Object.keys(body.challenge).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
+    assert.equal(JSON.stringify(body).includes("private@example.test"), false);
+    assert.equal((await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", "test-token")).status, 404);
+  } finally {
+    await app.close();
+  }
+});
+
 test("guided-auth cancellation is same-origin, bearer-protected, durable, and redacted", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));

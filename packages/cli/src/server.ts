@@ -23,6 +23,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
     if (request.method === "GET" && request.url === "/api/auth-challenges") return send(response, 200, await authChallengeInventory(options.challengeStore));
+    const challengeId = authChallengeId(request.url);
+    if (challengeId) {
+      const challenge = options.challengeStore ? await options.challengeStore.get(challengeId) : undefined;
+      if (!challenge) return send(response, 404, { error: "not_found" });
+      return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", challenge: authChallengeView(challenge) });
+    }
     if (request.url === "/api/status") {
       const adapter = createRuntimeAdapter(options.source ?? "fixture");
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
@@ -53,6 +59,9 @@ function authChallengeView({ id, mode, provider, runtime, scope, status, created
 
 function authChallengeCancelId(path: string | undefined): string | undefined {
   return path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})\/cancel$/)?.[1];
+}
+function authChallengeId(path: string | undefined): string | undefined {
+  return path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})$/)?.[1];
 }
 
 function agentCapabilities(): unknown {

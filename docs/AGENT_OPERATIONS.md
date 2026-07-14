@@ -49,6 +49,7 @@ The action catalog is authoritative for the running server. Agents must not assu
 |---|---|---|---|
 | API | `GET /api/capabilities` | Available | Discover behavior before every workflow. |
 | API | `GET /api/status` | Available | Read-only; validate schema and redaction assertion. |
+| API | `GET /api/auth-challenges/:id` | Available for an existing local challenge only | Bearer token required; response is `account-center.auth-challenge.v1` and contains only redacted lifecycle metadata. An opaque ID that is not present returns `404`; it does not start or alter runtime authentication. |
 | API | `POST /api/auth-challenges/:id/cancel` | Available for an existing local challenge only | Browser-origin request plus bearer token required; response is `account-center.auth-challenge-cancel.v1` and contains only redacted lifecycle metadata. This cancels Account Center's local challenge record; it does not alter runtime credentials. |
 | CLI | `status`, `guard`, provider probes | Available | Prefer `--json` for machine handling. |
 | CLI/chat | `/auth ... --dry-run` | Available where adapter supports it | Preview only; no mutation. |
