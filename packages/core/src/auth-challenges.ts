@@ -20,18 +20,27 @@ export interface AuthChallenge extends AuthChallengeInput {
   updatedAt: string;
 }
 
-export function createAuthChallenge(input: AuthChallengeInput, existing: AuthChallenge[] = []): AuthChallenge {
+export function createAuthChallenge(input: AuthChallengeInput, existing: AuthChallenge[] = [], now = new Date()): AuthChallenge {
   const normalized = { ...input, target: input.target.trim().toLowerCase(), provider: input.provider.trim().toLowerCase(), runtime: input.runtime.trim().toLowerCase(), scope: input.scope.trim() };
+  assertExpiry(normalized.expiresAt);
   const key = challengeKey(normalized);
-  const active = existing.find((item) => item.key === key && item.status === "pending");
+  const active = existing.map((item) => expireAuthChallenge(item, now)).find((item) => item.key === key && item.status === "pending");
   if (active) return active;
-  const now = new Date().toISOString();
-  return { ...normalized, id: `auth_${randomUUID()}`, key, status: "pending", createdAt: now, updatedAt: now };
+  const timestamp = now.toISOString();
+  return { ...normalized, id: `auth_${randomUUID()}`, key, status: "pending", createdAt: timestamp, updatedAt: timestamp };
 }
 
-export function cancelAuthChallenge(challenge: AuthChallenge): AuthChallenge {
-  if (challenge.status !== "pending") return challenge;
-  return { ...challenge, status: "cancelled", updatedAt: new Date().toISOString() };
+export function expireAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
+  if (challenge.status !== "pending" || !challenge.expiresAt) return challenge;
+  const expiry = parseExpiry(challenge.expiresAt);
+  if (expiry.getTime() > now.getTime()) return challenge;
+  return { ...challenge, status: "expired", updatedAt: now.toISOString() };
+}
+
+export function cancelAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
+  const current = expireAuthChallenge(challenge, now);
+  if (current.status !== "pending") return current;
+  return { ...current, status: "cancelled", updatedAt: now.toISOString() };
 }
 
 export function getAuthChallenge(challenges: AuthChallenge[], id: string): AuthChallenge | undefined {
@@ -40,4 +49,11 @@ export function getAuthChallenge(challenges: AuthChallenge[], id: string): AuthC
 
 function challengeKey(input: AuthChallengeInput): string {
   return createHash("sha256").update([input.mode, input.provider, input.runtime, input.target.trim().toLowerCase(), input.scope].join("\0")).digest("hex");
+}
+
+function assertExpiry(value: string | undefined): void { if (value) parseExpiry(value); }
+function parseExpiry(value: string): Date {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) throw new Error("invalid challenge expiry");
+  return parsed;
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAuthChallenge, cancelAuthChallenge, getAuthChallenge } from "./auth-challenges.js";
+import { cancelAuthChallenge, createAuthChallenge, expireAuthChallenge, getAuthChallenge } from "./auth-challenges.js";
 
 test("guided auth challenge preserves add mode and de-duplicates active target", () => {
   const first = createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "agent:main" });
@@ -23,4 +23,19 @@ test("guided auth challenge can be cancelled without exposing credentials", () =
   const cancelled = cancelAuthChallenge(challenge);
   assert.equal(cancelled.status, "cancelled");
   assert.equal(JSON.stringify(getAuthChallenge([cancelled], cancelled.id)).includes("token"), false);
+});
+
+test("guided auth expires deterministically and an expired challenge no longer blocks replacement", () => {
+  const input = { mode: "add" as const, provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "agent:main", expiresAt: "2026-07-14T18:00:00.000Z" };
+  const challenge = createAuthChallenge(input, [], new Date("2026-07-14T17:00:00.000Z"));
+  assert.equal(expireAuthChallenge(challenge, new Date("2026-07-14T17:59:59.999Z")).status, "pending");
+  const expired = expireAuthChallenge(challenge, new Date(input.expiresAt));
+  assert.equal(expired.status, "expired");
+  assert.equal(cancelAuthChallenge(challenge, new Date(input.expiresAt)).status, "expired");
+  const replacement = createAuthChallenge(input, [challenge], new Date("2026-07-14T18:00:00.000Z"));
+  assert.notEqual(replacement.id, challenge.id);
+});
+
+test("guided auth rejects malformed expiry instead of leaving a challenge pending forever", () => {
+  assert.throws(() => createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "agent:main", expiresAt: "not-a-date" }), /invalid challenge expiry/);
 });
