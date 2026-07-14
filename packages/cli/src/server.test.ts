@@ -69,3 +69,28 @@ test("guided-auth challenge inventory is bearer-protected and omits account targ
     await app.close();
   }
 });
+
+test("guided-auth cancellation is same-origin, bearer-protected, durable, and redacted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
+  const address = await app.listen();
+  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  try {
+    assert.equal((await request(address.port, path)).status, 401);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token", origin: "http://attacker.invalid" } })).status, 403);
+    const cancelled = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` } });
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.headers.get("cache-control"), "no-store");
+    const body = await cancelled.json() as { schemaVersion: string; challenge: Record<string, unknown> };
+    assert.equal(body.schemaVersion, "account-center.auth-challenge-cancel.v1");
+    assert.deepEqual(Object.keys(body.challenge).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
+    assert.equal(body.challenge.status, "cancelled");
+    assert.equal(JSON.stringify(body).includes("private@example.test"), false);
+    assert.equal((await challenges.get(challenge.id))?.status, "cancelled");
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` } })).status, 404);
+  } finally {
+    await app.close();
+  }
+});

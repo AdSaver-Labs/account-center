@@ -14,6 +14,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [ ] `/auth add` and `/auth reauth` create distinct durable guided-auth challenges.
 - [ ] Challenge lifecycle supports start, cancel, expire, complete, and verified failure without storing credentials.
 - [x] Durable guided-auth challenge records exclude raw account targets; legacy records are redacted on read before reuse.
+- [x] Existing durable guided-auth challenges can be cancelled only through the bearer-protected, same-origin `POST /api/auth-challenges/:id/cancel` endpoint; its versioned response and persisted state expose redacted metadata only.
 - [ ] Reauth follows `stage → verify identity/health → optional route switch → receipt`; previous working auth remains usable until verified.
 - [ ] `/auth remove` changes routing only.
 - [ ] `/auth delete` requires an exact normalized connected identity, takes a runtime backup, returns a redacted receipt, and proves the outcome or labels it `UNPROVEN`.

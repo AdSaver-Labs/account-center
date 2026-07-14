@@ -13,6 +13,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
+    const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
+    if (cancelId) {
+      if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
+      const challenge = options.challengeStore ? await options.challengeStore.cancel(cancelId) : undefined;
+      if (!challenge) return send(response, 404, { error: "not_found" });
+      return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", challenge: authChallengeView(challenge) });
+    }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
     if (request.method === "GET" && request.url === "/api/auth-challenges") return send(response, 200, await authChallengeInventory(options.challengeStore));
@@ -36,8 +43,16 @@ async function authChallengeInventory(store?: AuthChallengeStore): Promise<unkno
   const challenges = store ? await store.list() : [];
   return {
     schemaVersion: "account-center.auth-challenges.v1",
-    challenges: challenges.map(({ id, mode, provider, runtime, scope, status, createdAt, updatedAt }) => ({ id, mode, provider, runtime, scope, status, createdAt, updatedAt }))
+    challenges: challenges.map(authChallengeView)
   };
+}
+
+function authChallengeView({ id, mode, provider, runtime, scope, status, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  return { id, mode, provider, runtime, scope, status, createdAt, updatedAt };
+}
+
+function authChallengeCancelId(path: string | undefined): string | undefined {
+  return path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})\/cancel$/)?.[1];
 }
 
 function agentCapabilities(): unknown {
@@ -64,6 +79,10 @@ function agentCapabilities(): unknown {
 
 function authorized(request: IncomingMessage, token: string): boolean {
   return request.headers.authorization === `Bearer ${token}`;
+}
+function sameOrigin(request: IncomingMessage): boolean {
+  const origin = request.headers.origin;
+  return typeof origin === "string" && origin === `http://${request.headers.host}`;
 }
 function setSafetyHeaders(response: ServerResponse): void {
   response.setHeader("Cache-Control", "no-store");
