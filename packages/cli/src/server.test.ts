@@ -50,6 +50,27 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       reason: "protected_start_contract_missing_review_idempotency_runtime_proof",
       requires: ["bearer_token", "explicit_confirmation", "idempotency_key"]
     });
+    assert.deepEqual(body.actions.find((action) => action.id === "routes"), {
+      id: "routes",
+      mode: "mutation",
+      state: "unproven",
+      reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof",
+      requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"]
+    });
+    assert.deepEqual(body.actions.find((action) => action.id === "models"), {
+      id: "models",
+      mode: "mutation",
+      state: "unproven",
+      reason: "protected_model_contract_missing_scoped_review_idempotency_runtime_proof",
+      requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"]
+    });
+    assert.deepEqual(body.actions.find((action) => action.id === "updates"), {
+      id: "updates",
+      mode: "mutation",
+      state: "blocked",
+      reason: "macos_signed_artifact_package_supervisor_backup_restart_health_proof_missing",
+      requires: ["bearer_token", "verified_release", "backup", "narrow_supervisor", "health_proof"]
+    });
     assert.equal(JSON.stringify(body).match(/secret|password|accessToken|refreshToken/i), null);
   } finally {
     await app.close();
