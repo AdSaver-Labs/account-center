@@ -73,6 +73,51 @@ export function createUpdateApplyPlan(input: UpdateApplyPlanInput): UpdateApplyP
   };
 }
 
+export interface UpdateExecutionAdapter {
+  verifyArtifact(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified" | "failed" | "UNPROVEN" }>;
+  createBackup(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified"; backupId: string } | { state: "failed" } | { state: "UNPROVEN" }>;
+  installArtifact(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified" | "failed" | "UNPROVEN" }>;
+  restartAccountCenter(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified" | "failed" | "UNPROVEN" }>;
+  healthCheck(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>): Promise<{ state: "verified" | "failed" | "UNPROVEN" }>;
+  rollback(plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>, backupId: string): Promise<{ state: "verified" | "failed" | "UNPROVEN" }>;
+}
+
+export type UpdateExecutionResult =
+  | { state: "applied"; planId: string; backupId: string; health: "verified" }
+  | { state: "rolled_back"; planId: string; backupId: string; reason: "health_check_failed" | "install_failed" | "restart_failed" }
+  | { state: "blocked"; reason: "confirmation_mismatch" }
+  | { state: "failed_no_change_verified"; planId: string; stage: "artifact" | "backup" }
+  | { state: "UNPROVEN"; planId: string; backupId?: string; stage: "artifact" | "backup" | "install" | "restart" | "health" | "rollback" };
+
+export async function executeUpdatePlan(input: { plan: UpdateApplyPlan; confirmationPlanId: string; adapter: UpdateExecutionAdapter }): Promise<UpdateExecutionResult> {
+  if (input.plan.state !== "ready_for_confirmation" || input.confirmationPlanId !== input.plan.planId) return { state: "blocked", reason: "confirmation_mismatch" };
+  const plan = input.plan;
+  const artifact = await input.adapter.verifyArtifact(plan);
+  if (artifact.state === "UNPROVEN") return { state: "UNPROVEN", planId: plan.planId, stage: "artifact" };
+  if (artifact.state === "failed") return { state: "failed_no_change_verified", planId: plan.planId, stage: "artifact" };
+  const backup = await input.adapter.createBackup(plan);
+  if (backup.state !== "verified") {
+    if (backup.state === "UNPROVEN") return { state: "UNPROVEN", planId: plan.planId, stage: "backup" };
+    return { state: "failed_no_change_verified", planId: plan.planId, stage: "backup" };
+  }
+  const installed = await input.adapter.installArtifact(plan);
+  if (installed.state === "UNPROVEN") return { state: "UNPROVEN", planId: plan.planId, backupId: backup.backupId, stage: "install" };
+  if (installed.state === "failed") return await rollbackAfterFailure(input.adapter, plan, backup.backupId, "install_failed");
+  const restarted = await input.adapter.restartAccountCenter(plan);
+  if (restarted.state === "UNPROVEN") return { state: "UNPROVEN", planId: plan.planId, backupId: backup.backupId, stage: "restart" };
+  if (restarted.state === "failed") return await rollbackAfterFailure(input.adapter, plan, backup.backupId, "restart_failed");
+  const health = await input.adapter.healthCheck(plan);
+  if (health.state === "verified") return { state: "applied", planId: plan.planId, backupId: backup.backupId, health: "verified" };
+  if (health.state === "UNPROVEN") return { state: "UNPROVEN", planId: plan.planId, backupId: backup.backupId, stage: "health" };
+  return rollbackAfterFailure(input.adapter, plan, backup.backupId, "health_check_failed");
+}
+
+async function rollbackAfterFailure(adapter: UpdateExecutionAdapter, plan: Extract<UpdateApplyPlan, { state: "ready_for_confirmation" }>, backupId: string, reason: "health_check_failed" | "install_failed" | "restart_failed"): Promise<UpdateExecutionResult> {
+  const rollback = await adapter.rollback(plan, backupId);
+  if (rollback.state === "verified") return { state: "rolled_back", planId: plan.planId, backupId, reason };
+  return { state: "UNPROVEN", planId: plan.planId, backupId, stage: "rollback" };
+}
+
 export function canonicalizeReleaseManifest(manifest: unknown): string {
   return JSON.stringify(sortJson(manifest));
 }
