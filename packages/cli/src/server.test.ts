@@ -36,6 +36,11 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.equal(body.schemaVersion, "account-center.agent-capabilities.v1");
     assert.equal(body.target, "account-center");
     assert.deepEqual(body.actions.find((action) => action.id === "status"), { id: "status", mode: "read", state: "available", requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "available", requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "available", requires: ["bearer_token", "opaque_challenge_id"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), { id: "auth_challenges.cancel", mode: "mutation", state: "available", requires: ["bearer_token", "same_origin", "opaque_challenge_id"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "available", requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.history"), { id: "mutation_operations.history", mode: "read", state: "available", requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), {
       id: "account.delete",
       mode: "mutation",

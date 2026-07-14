@@ -94,6 +94,11 @@ function agentCapabilities(): unknown {
     transport: { loopbackOnly: true, authentication: "bearer_token", cacheControl: "no-store" },
     actions: [
       { id: "status", mode: "read", state: "available", requires: ["bearer_token"] },
+      { id: "auth_challenges.list", mode: "read", state: "available", requires: ["bearer_token"] },
+      { id: "auth_challenges.detail", mode: "read", state: "available", requires: ["bearer_token", "opaque_challenge_id"] },
+      { id: "auth_challenges.cancel", mode: "mutation", state: "available", requires: ["bearer_token", "same_origin", "opaque_challenge_id"] },
+      { id: "audit.history", mode: "read", state: "available", requires: ["bearer_token"] },
+      { id: "mutation_operations.history", mode: "read", state: "available", requires: ["bearer_token"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "no_stable_native_exact_profile_delete_api", requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"] },
       { id: "routes", mode: "mutation", state: "unproven", reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"] },
       { id: "guided_auth", mode: "mutation", state: "unproven", reason: "protected_start_contract_missing_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_confirmation", "idempotency_key"] },

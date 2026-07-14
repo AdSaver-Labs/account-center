@@ -43,6 +43,8 @@ Current capability schema:
 
 The action catalog is authoritative for the running server. Agents must not assume that a planned UI/API feature exists merely because it appears in a roadmap.
 
+The catalog advertises each protected local API action independently. Currently available local actions are `status`, `auth_challenges.list`, `auth_challenges.detail`, `auth_challenges.cancel`, `audit.history`, and `mutation_operations.history`. `auth_challenges.cancel` changes only Account Center's local redacted challenge record and additionally requires a same-origin request; it is not runtime authentication mutation.
+
 ## Current safe operations
 
 | Surface | Operation | State | Agent rule |
