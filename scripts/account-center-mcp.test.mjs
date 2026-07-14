@@ -1,0 +1,33 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const bridge = resolve(root, "scripts/account-center-mcp.mjs");
+
+function call(command) {
+  const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "account_center_auth", arguments: { command } } };
+  const result = spawnSync(process.execPath, [bridge], {
+    cwd: root,
+    input: `${JSON.stringify(request)}\n`,
+    encoding: "utf8",
+    env: { ...process.env, ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS: "" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout.trim());
+}
+
+for (const command of ["/auth auto", "/auth use openai:example", "/auth remove openai:example", "/auth delete example@example.invalid"]) {
+  test(`MCP blocks live ${command} unless mutation authorization is enabled`, () => {
+    const response = call(command);
+    assert.equal(response.result.isError, true);
+    assert.match(response.result.content[0].text, /Blocked potentially mutating Account Center command/);
+  });
+}
+
+test("MCP permits an explicitly dry-run mutation without mutation authorization", () => {
+  const response = call("/auth auto --dry-run");
+  assert.notEqual(response.result.content[0].text.includes("Blocked potentially mutating"), true);
+});

@@ -84,7 +84,7 @@ function isMutation(command) {
 }
 
 function isClearlyDryRun(command) {
-  return /\s--dry-run\b/i.test(command) || /^\/auth\s+auto\b/i.test(command) || /^\/auth\s+ensure\b/i.test(command);
+  return /\s--dry-run\b/i.test(command);
 }
 
 function runAuth(command) {

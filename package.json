@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -b && node scripts/checkpoint.mjs build passed",
     "checkpoint": "node scripts/checkpoint.mjs checkpoint passed",
-    "test": "npm run build && node --test \"packages/*/dist/**/*.test.js\" && node scripts/checkpoint.mjs test passed",
+    "test": "npm run build && node --test \"packages/*/dist/**/*.test.js\" scripts/account-center-mcp.test.mjs && node scripts/checkpoint.mjs test passed",
     "typecheck": "tsc -b --pretty false && node scripts/checkpoint.mjs typecheck passed"
   },
   "devDependencies": {
