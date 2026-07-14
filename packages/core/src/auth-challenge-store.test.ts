@@ -18,6 +18,16 @@ test("challenge store persists redacted lifecycle state without credentials or a
   assert.equal(JSON.stringify(cancelled).includes("new@example.com"), false);
 });
 
+test("independent challenge stores serialize competing creation of the same active challenge", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
+  const input = { mode: "reauth" as const, provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" };
+  const [first, second] = await Promise.all([new AuthChallengeStore(path).create(input), new AuthChallengeStore(path).create(input)]);
+  assert.equal(first.id, second.id);
+  const persisted = await new AuthChallengeStore(path).list();
+  assert.equal(persisted.length, 1);
+  assert.equal(JSON.stringify(persisted).includes("private@example.test"), false);
+});
+
 test("challenge store removes raw account targets from legacy records on read", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
   await writeFile(path, JSON.stringify([{ id: "auth_legacy", key: "key", mode: "add", status: "pending", target: "legacy@example.com", provider: "openai", runtime: "openclaw", scope: "agent:main", createdAt: "2026-07-14T00:00:00.000Z", updatedAt: "2026-07-14T00:00:00.000Z" }]));
