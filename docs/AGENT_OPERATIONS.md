@@ -35,13 +35,13 @@ Current capability schema:
   "schemaVersion": "account-center.agent-capabilities.v1",
   "target": "account-center",
   "actions": [
-    { "id": "status", "mode": "read", "state": "available" },
+    { "id": "status", "mode": "read", "state": "available", "endpoint": { "method": "GET", "path": "/api/status" } },
     { "id": "account.delete", "mode": "mutation", "state": "blocked" }
   ]
 }
 ```
 
-The action catalog is authoritative for the running server. Agents must not assume that a planned UI/API feature exists merely because it appears in a roadmap.
+The action catalog is authoritative for the running server. An `available` action supplies its fixed local `endpoint` method and path; `:id` is an opaque path parameter, never an account identity or credential. No endpoint is supplied for blocked or `UNPROVEN` actions, so agents must not infer or construct a mutation URL. Agents must not assume that a planned UI/API feature exists merely because it appears in a roadmap.
 
 The catalog advertises each protected local API action independently. Currently available local actions are `status`, `auth_challenges.list`, `auth_challenges.detail`, `auth_challenges.cancel`, `audit.history`, and `mutation_operations.history`. `auth_challenges.cancel` changes only Account Center's local redacted challenge record and additionally requires a same-origin request; it is not runtime authentication mutation.
 
