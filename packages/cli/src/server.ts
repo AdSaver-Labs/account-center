@@ -53,8 +53,8 @@ async function authChallengeInventory(store?: AuthChallengeStore): Promise<unkno
   };
 }
 
-function authChallengeView({ id, mode, provider, runtime, scope, status, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
-  return { id, mode, provider, runtime, scope, status, createdAt, updatedAt };
+function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
 }
 
 function authChallengeCancelId(path: string | undefined): string | undefined {

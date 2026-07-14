@@ -59,7 +59,8 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
 test("guided-auth challenge inventory is bearer-protected and omits account targets", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
-  await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const expiresAt = "2030-01-01T00:00:00.000Z";
+  await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main", expiresAt });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
   const address = await app.listen();
   try {
@@ -70,7 +71,8 @@ test("guided-auth challenge inventory is bearer-protected and omits account targ
     const body = await accepted.json() as { schemaVersion: string; challenges: Array<Record<string, unknown>> };
     assert.equal(body.schemaVersion, "account-center.auth-challenges.v1");
     assert.equal(body.challenges.length, 1);
-    assert.deepEqual(Object.keys(body.challenges[0]).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
+    assert.deepEqual(Object.keys(body.challenges[0]).sort(), ["createdAt", "expiresAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
+    assert.equal(body.challenges[0].expiresAt, expiresAt);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
   } finally {
     await app.close();
