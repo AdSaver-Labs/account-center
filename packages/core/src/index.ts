@@ -3,6 +3,7 @@ export * from "./auth-challenges.js";
 export * from "./command-executor.js";
 export * from "./fixtures.js";
 export * from "./model-selection.js";
+export * from "./mutation-contract.js";
 export * from "./policy.js";
 export * from "./provider-probes.js";
 export * from "./redaction.js";
