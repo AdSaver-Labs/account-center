@@ -255,3 +255,24 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, and re
     await app.close();
   }
 });
+
+test("guided-auth cancellation rejects request bodies before changing local challenge state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
+  const address = await app.listen();
+  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  try {
+    const rejected = await fetch(`http://127.0.0.1:${address.port}${path}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}`, "content-type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(rejected.status, 413);
+    assert.deepEqual(await rejected.json(), { error: "request_body_not_allowed" });
+    assert.equal((await challenges.get(challenge.id))?.status, "pending");
+  } finally {
+    await app.close();
+  }
+});

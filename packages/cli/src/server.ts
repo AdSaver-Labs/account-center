@@ -17,6 +17,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
+      if (hasRequestBody(request)) {
+        request.resume();
+        return send(response, 413, { error: "request_body_not_allowed" });
+      }
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
       const challenge = options.challengeStore ? await options.challengeStore.cancel(cancelId) : undefined;
       if (!challenge) return send(response, 404, { error: "not_found" });
@@ -153,6 +157,9 @@ function agentCapabilities(): unknown {
 
 function authorized(request: IncomingMessage, token: string): boolean {
   return request.headers.authorization === `Bearer ${token}`;
+}
+function hasRequestBody(request: IncomingMessage): boolean {
+  return request.headers["transfer-encoding"] !== undefined || (request.headers["content-length"] !== undefined && request.headers["content-length"] !== "0");
 }
 function sameOrigin(request: IncomingMessage): boolean {
   const origin = request.headers.origin;
