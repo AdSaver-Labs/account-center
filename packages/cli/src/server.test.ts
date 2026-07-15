@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
@@ -8,6 +9,25 @@ import { createAccountCenterServer } from "./server.js";
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+}
+
+async function bodyRequest(port: number, path: string, token: string): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({
+      host: "127.0.0.1",
+      port,
+      path,
+      method: "GET",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "content-length": "2" }
+    }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => { text += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) }));
+    });
+    request.once("error", reject);
+    request.end("{}");
+  });
 }
 
 test("local API requires bearer token and returns no-store status", async () => {
@@ -19,6 +39,19 @@ test("local API requires bearer token and returns no-store status", async () => 
     const accepted = await request(address.port, "/api/status", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
+  } finally {
+    await app.close();
+  }
+});
+
+test("body-bearing API reads are rejected before status execution", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    assert.deepEqual(await bodyRequest(address.port, "/api/status", "test-token"), {
+      status: 413,
+      body: { error: "request_body_not_allowed" }
+    });
   } finally {
     await app.close();
   }

@@ -15,12 +15,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
+    if (hasRequestBody(request)) {
+      request.resume();
+      return send(response, 413, { error: "request_body_not_allowed" });
+    }
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
-      if (hasRequestBody(request)) {
-        request.resume();
-        return send(response, 413, { error: "request_body_not_allowed" });
-      }
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
       const challenge = options.challengeStore ? await options.challengeStore.cancel(cancelId) : undefined;
       if (!challenge) return send(response, 404, { error: "not_found" });
