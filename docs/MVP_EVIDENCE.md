@@ -34,7 +34,7 @@ Implemented Phase 1 plus MVP read-only/dry-run command surface and the first run
 - Phase 3 generic adapter foundation:
   - `--source generic-command` reads any external no-secret status command.
   - `ACCOUNT_CENTER_GENERIC_COMMAND` configures the read command.
-  - `ACCOUNT_CENTER_GENERIC_APPLY_COMMAND` configures an optional explicit apply command.
+  - Live apply is blocked: the generic adapter never executes an agent-supplied apply command and returns the machine-readable reason `generic_apply_requires_protected_native_adapter`.
   - `guard --ensure-route` / `/auth ensure` lets agents automatically request policy-based route selection while remaining dry-run unless `--apply` is explicit.
 - PI agent and Odysseus / PewDiePie harness target examples:
   - `examples/pi-agent-status.mjs`

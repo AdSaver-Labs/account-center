@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { AccountCenterStatus, AuditAction, Profile, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
-import { createReceipt, nextEligible } from "./policy.js";
+import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
 
@@ -50,7 +50,6 @@ export interface OpenClawAdapterConfig {
 export interface GenericCommandAdapterConfig {
   command?: string;
   args?: string[];
-  applyCommand?: string;
   runner?: CommandRunner;
 }
 
@@ -237,7 +236,6 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
   readonly source = "generic-command" as const;
   private readonly command: string;
   private readonly args: string[];
-  private readonly applyCommand?: string;
   private readonly runner: CommandRunner;
 
   constructor(config: GenericCommandAdapterConfig = {}) {
@@ -246,7 +244,6 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
     const commandParts = splitArgs(commandText);
     this.command = commandParts[0] ?? commandText;
     this.args = config.args ?? [...commandParts.slice(1), ...splitArgs(process.env.ACCOUNT_CENTER_GENERIC_ARGS ?? "--json")];
-    this.applyCommand = config.applyCommand ?? process.env.ACCOUNT_CENTER_GENERIC_APPLY_COMMAND;
     this.runner = config.runner ?? execFileRunner;
   }
 
@@ -268,24 +265,17 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
   async mutate(input: RuntimeMutationInput): Promise<RuntimeMutationResult> {
     const status = await this.readStatus();
     if (!input.apply) return { code: 0, payload: dryRunReceipt(input.action, input.target, status, "generic-command") };
-    if (!this.applyCommand) {
-      const receipt = createReceipt({ action: input.action, dryRun: true, target: input.target, summary: "Generic command apply requires ACCOUNT_CENTER_GENERIC_APPLY_COMMAND; no live mutation was attempted.", warnings: ["generic_apply_unconfigured", "no_live_mutation"] });
-      return { code: 2, payload: { applied: false, dryRun: true, liveRuntimeMutation: false, receipt } };
-    }
-    const target = input.action === "route.auto" ? nextEligible(status, input.provider, input.runtime)?.profile.id : input.target;
-    const result = await this.runner(this.applyCommand, [input.action, requiredTarget(target, input.action), "--json"], { timeoutMs: 60_000 });
     const receipt = createReceipt({
       action: input.action,
-      dryRun: false,
-      target,
-      summary: result.code === 0 ? `Applied through generic command adapter: ${input.action}` : `Generic command adapter failed: ${input.action}`,
+      dryRun: true,
+      target: input.target,
+      summary: "Generic command live apply is blocked: an arbitrary runtime command cannot provide Account Center's scoped review, idempotency, durable redacted receipt, and authoritative post-operation proof.",
       before: routeBefore(status),
-      after: { command: this.applyCommand, action: input.action, exitCode: result.code },
-      warnings: ["generic_command_adapter", "external_command_contract"]
+      warnings: ["generic_apply_requires_protected_native_adapter", "no_live_mutation"]
     });
-    const payload = { applied: result.code === 0, dryRun: false, liveRuntimeMutation: result.code === 0, receipt, stdout: result.stdout.slice(0, 2000), stderr: result.stderr.slice(0, 2000) };
+    const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason: "generic_apply_requires_protected_native_adapter" };
     await writeReceipt(input.receiptPath, payload);
-    return { code: result.code, payload };
+    return { code: 2, payload };
   }
 }
 

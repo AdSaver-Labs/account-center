@@ -2,7 +2,7 @@
 
 Account Center supports runtimes in two layers:
 
-1. **generic-command adapter** — any agent or harness can integrate by exposing no-secret Account Center status JSON and, optionally, an explicit apply command.
+1. **generic-command adapter** — any agent or harness can integrate by exposing no-secret Account Center status JSON. It is read-only; it never runs an agent-supplied apply command.
 2. **native adapter** — a first-class adapter once we know the runtime's real status, routing, backup, and rollback APIs.
 
 The generic layer is how we make PI agent, Odysseus/PewDiePie harness, and unknown future agents work before writing bespoke code for each one.
@@ -14,9 +14,9 @@ The generic layer is how we make PI agent, Odysseus/PewDiePie harness, and unkno
 | OpenClaw / Dexter | read-only live adapter + hardened apply path foundation | yes | `--source openclaw` | Phase 4 hardened route apply |
 | Hermes / Jack | generic-command now; native adapter planned | yes | TBD Hermes status exporter | planned |
 | Codex CLI/app/colleague | generic-command now; native adapter planned | yes | TBD Codex status exporter | planned |
-| PI agent | generic-command now via example | yes, after runtime shape is known | `node examples/pi-agent-status.mjs` | through `ACCOUNT_CENTER_GENERIC_APPLY_COMMAND` until native |
-| Odysseus / PewDiePie harness | generic-command now via example | yes, after harness APIs are known | `node examples/odysseus-status.mjs` | through `ACCOUNT_CENTER_GENERIC_APPLY_COMMAND` until native |
-| Any future shell/container/browser agent | generic-command now | optional | any command that prints `account-center.status.v1` | optional explicit apply command |
+| PI agent | generic-command now via example | yes, after runtime shape is known | `node examples/pi-agent-status.mjs` | blocked until protected native adapter |
+| Odysseus / PewDiePie harness | generic-command now via example | yes, after harness APIs are known | `node examples/odysseus-status.mjs` | blocked until protected native adapter |
+| Any future shell/container/browser agent | generic-command now | optional | any command that prints `account-center.status.v1` | blocked until protected native adapter |
 
 ## Contract every agent must satisfy
 
@@ -28,13 +28,7 @@ A status command must:
 - set `noSecrets: true` only if the exporter has intentionally redacted its output;
 - exit non-zero if status cannot be trusted.
 
-An optional apply command must:
-
-- be configured explicitly via `ACCOUNT_CENTER_GENERIC_APPLY_COMMAND` or a native adapter;
-- accept an action such as `route.auto` or `route.use` plus the selected profile;
-- write its own runtime-native backup or let the native adapter create one;
-- return JSON or a clear exit code;
-- never edit unrelated memory, prompts, sessions, bootstrap, or agent work product.
+Live apply is deliberately unavailable through the generic adapter. An arbitrary agent-supplied shell command cannot establish Account Center's server-owned scope, exact review confirmation, idempotency, durable redacted receipt/audit, or authoritative read-after-write proof. A runtime needs a protected native adapter before Account Center can expose live mutation.
 
 ## PI agent integration path
 

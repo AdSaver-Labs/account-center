@@ -273,16 +273,16 @@ test("Generic command adapter dry-run mutation never calls apply command", async
   assert.equal((result.payload as { liveRuntimeMutation: boolean }).liveRuntimeMutation, false);
 });
 
-test("Generic command adapter apply shells to explicit apply command and writes receipt", async () => {
+test("Generic command adapter blocks live apply instead of shelling to an arbitrary runtime command", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-generic-"));
   const calls: Array<{ command: string; args: string[] }> = [];
   const runner: CommandRunner = async (command, args) => {
     calls.push({ command, args });
     if (command === "agent-status") return { code: 0, stdout: JSON.stringify({ ...routerStatus, source: "generic-command" }), stderr: "" };
-    return { code: 0, stdout: JSON.stringify({ applied: true }), stderr: "" };
+    throw new Error("generic runtime apply command must never be executed");
   };
   const receiptPath = join(workspace, "receipt.json");
-  const adapter = new GenericCommandRuntimeAdapter({ command: "agent-status", applyCommand: "agent-route", runner });
+  const adapter = new GenericCommandRuntimeAdapter({ command: "agent-status", runner });
   const result = await adapter.mutate({
     action: "route.auto",
     apply: true,
@@ -290,9 +290,10 @@ test("Generic command adapter apply shells to explicit apply command and writes 
     runtime: "generic-command",
     receiptPath
   });
-  assert.equal(result.code, 0);
-  assert.deepEqual(calls[1], { command: "agent-route", args: ["route.auto", "openai:helper-2", "--json"] });
+  assert.equal(result.code, 2);
+  assert.deepEqual(calls, [{ command: "agent-status", args: ["--json"] }]);
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
-  assert.equal(receipt.applied, true);
-  assert.equal(receipt.liveRuntimeMutation, true);
+  assert.equal(receipt.applied, false);
+  assert.equal(receipt.liveRuntimeMutation, false);
+  assert.equal(receipt.reason, "generic_apply_requires_protected_native_adapter");
 });

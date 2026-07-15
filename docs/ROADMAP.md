@@ -30,7 +30,7 @@ Account Center is intended to become a finished local-first account/subscription
 
 - `generic-command` runtime source.
 - External agent status command contract via `ACCOUNT_CENTER_GENERIC_COMMAND`.
-- Optional external apply command via `ACCOUNT_CENTER_GENERIC_APPLY_COMMAND`.
+- Live apply is blocked until a protected native adapter supplies server-owned scope, review confirmation, idempotency, durable redacted receipt/audit, and authoritative post-operation proof.
 - `guard --ensure-route` / `/auth ensure` to let agents automatically request the right account route from current usage policy.
 - Example generic adapter script under `examples/generic-agent-status.mjs`.
 
