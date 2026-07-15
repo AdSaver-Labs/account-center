@@ -166,9 +166,9 @@ function agentCapabilities(): unknown {
       { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] },
       { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "no_stable_native_exact_profile_delete_api", requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"] },
-      { id: "routes", mode: "mutation", state: "unproven", reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
-      { id: "guided_auth", mode: "mutation", state: "unproven", reason: "protected_start_contract_missing_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "explicit_confirmation", "idempotency_key"] },
-      { id: "models", mode: "mutation", state: "unproven", reason: "protected_model_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
+      { id: "routes", mode: "mutation", state: "UNPROVEN", reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
+      { id: "guided_auth", mode: "mutation", state: "UNPROVEN", reason: "protected_start_contract_missing_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "explicit_confirmation", "idempotency_key"] },
+      { id: "models", mode: "mutation", state: "UNPROVEN", reason: "protected_model_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
       { id: "updates", mode: "mutation", state: "blocked", reason: "macos_signed_artifact_package_supervisor_backup_restart_health_proof_missing", requires: ["bearer_token", "verified_release", "backup", "narrow_supervisor", "health_proof"] }
     ],
     rules: [
