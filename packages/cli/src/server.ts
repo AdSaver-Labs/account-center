@@ -79,9 +79,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? runtimeScopeCatalog(result.status) : { error: "status_unavailable" });
     }
     if (pathname === "/api/auth-challenges") {
-      const query = runtimeInventoryQuery(request.url ?? "/");
+      const query = authChallengeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      return send(response, 200, await authChallengeInventory(options.challengeStore, query.runtime));
+      return send(response, 200, await authChallengeInventory(options.challengeStore, query));
     }
     const challengeId = authChallengeId(request.url);
     if (challengeId) {
@@ -108,12 +108,16 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   };
 }
 
-async function authChallengeInventory(store?: AuthChallengeStore, runtime?: string): Promise<unknown> {
+interface AuthChallengeInventoryQuery extends RuntimeInventoryQuery { scope?: string; }
+
+async function authChallengeInventory(store: AuthChallengeStore | undefined, query: AuthChallengeInventoryQuery): Promise<unknown> {
   const challenges = store ? await store.list() : [];
   return {
     schemaVersion: "account-center.auth-challenges.v1",
     generatedAt: new Date().toISOString(),
-    challenges: challenges.filter((challenge) => !runtime || challenge.runtime === runtime).map(authChallengeView)
+    challenges: challenges
+      .filter((challenge) => (!query.runtime || challenge.runtime === query.runtime) && (!query.scope || challenge.scope === query.scope))
+      .map(authChallengeView)
   };
 }
 
@@ -167,6 +171,18 @@ function runtimeInventoryQuery(path: string): RuntimeInventoryQuery | undefined 
   const runtime = parameters.get("runtime");
   if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
   return runtime === null ? {} : { runtime };
+}
+
+function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery | undefined {
+  const parameters = new URL(path, "http://account-center.local").searchParams;
+  if ([...parameters.keys()].some((key) => key !== "runtime" && key !== "scope") || parameters.getAll("runtime").length > 1 || parameters.getAll("scope").length > 1) return undefined;
+  const runtime = parameters.get("runtime");
+  const scope = parameters.get("scope");
+  if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
+  // Scope is an exact, API-observed selector. Reject separators, whitespace, and
+  // controls so it cannot be broadened or treated as an arbitrary search term.
+  if (scope !== null && !/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(scope)) return undefined;
+  return { ...(runtime === null ? {} : { runtime }), ...(scope === null ? {} : { scope }) };
 }
 
 function mutationOperationQuery(path: string): MutationOperationQuery | undefined {
@@ -461,6 +477,7 @@ function controlPanelHtml(): string {
       function renderViewState(target, state, title, detail, actionLabel) { var allowed = ['loading', 'empty', 'error', 'blocked', 'read-only', 'unproven']; var safeState = allowed.indexOf(state) === -1 ? 'unproven' : state; var badge = safeState === 'unproven' ? 'UNPROVEN' : safeState === 'read-only' ? 'Read-only' : safeState.charAt(0).toUpperCase() + safeState.slice(1); target.innerHTML = '<article class="record state" data-ui-state="' + safeState + '" role="status"><strong>' + escapeHtml(title) + '</strong><p>' + escapeHtml(detail) + '</p><span class="pill ' + (safeState === 'blocked' || safeState === 'unproven' ? 'warn' : '') + '">' + escapeHtml(badge) + '</span>' + (actionLabel ? '<button class="quiet retry-workspace" type="button">' + escapeHtml(actionLabel) + '</button>' : '') + '</article>'; }
       function selectedRuntime() { return selectedContext ? selectedContext.split('|')[0] : ''; }
       function selectedRuntimeQuery() { var runtime = selectedRuntime(); return runtime ? '?runtime=' + encodeURIComponent(runtime) : ''; }
+      function selectedScopeQuery() { var runtime = selectedRuntime(); var scope = selectedContext ? selectedContext.split('|').slice(1).join('|') : ''; var parameters = new URLSearchParams(); if (runtime) parameters.set('runtime', runtime); if (scope) parameters.set('scope', scope); var query = parameters.toString(); return query ? '?' + query : ''; }
       function selectedScopeKind() { return selectedContext ? selectedContext.split('|')[1].split(':')[0] : ''; }
       function actionById(capabilityData, id) { var actions = capabilityData && Array.isArray(capabilityData.actions) ? capabilityData.actions : []; return actions.filter(function (action) { return action.id === id; })[0]; }
       function actionReason(action, fallback) { return action && action.reason ? action.reason.replaceAll('_', ' ') : fallback; }
@@ -513,7 +530,7 @@ function controlPanelHtml(): string {
       async function loadOperations(cursor) { var parameters = new URLSearchParams(); var runtime = selectedRuntime(); var scopeKind = selectedScopeKind(); if (operationOutcome.value) parameters.set('outcome', operationOutcome.value); if (runtime) parameters.set('runtime', runtime); if (scopeKind) parameters.set('scopeKind', scopeKind); if (cursor) parameters.set('cursor', cursor); var suffix = parameters.toString(); return api('/api/mutation-operations' + (suffix ? '?' + suffix : '')); }
       async function loadModels() { return api('/api/models' + selectedRuntimeQuery()); }
       async function loadLimits() { return api('/api/limits' + selectedRuntimeQuery()); }
-      async function loadChallenges() { return api('/api/auth-challenges' + selectedRuntimeQuery()); }
+      async function loadChallenges() { return api('/api/auth-challenges' + selectedScopeQuery()); }
       async function loadWorkspace() { var scopeResult = (await Promise.allSettled([api('/api/scopes')]))[0]; var values = {}; var unavailable = {}; if (scopeResult.status === 'fulfilled' && scopeResult.value && Array.isArray(scopeResult.value.scopes)) values.scopes = scopeResult.value; else unavailable.scopes = true; renderContextSelector(values.scopes, unavailable.scopes); var results = await Promise.allSettled([api('/api/capabilities'), loadChallenges(), loadModels(), loadLimits(), loadAudit(), loadOperations()]); var keys = ['capabilities', 'challenges', 'models', 'limits', 'audit', 'operations']; results.forEach(function (result, index) { var key = keys[index]; var field = key === 'capabilities' ? 'actions' : key === 'challenges' ? 'challenges' : key === 'models' ? 'models' : key === 'limits' ? 'accounts' : key === 'audit' ? 'records' : 'operations'; if (result.status === 'fulfilled' && result.value && Array.isArray(result.value[field])) values[key] = result.value; else unavailable[key] = true; }); renderWorkspace(values, unavailable); return Object.keys(unavailable).length > 0; }
       runtimeScope.addEventListener('change', async function () { if (runtimeScope.disabled) return; selectedContext = runtimeScope.value; setNotice('Context changed. Refreshing observed runtime data; scope-filtered reads remain UNPROVEN until supplied by the API.', 'loading'); var incomplete = await loadWorkspace(); setNotice(incomplete ? 'Context refreshed; some evidence is UNPROVEN. Retry unavailable sections.' : 'Observed runtime data refreshed. Scope-filtered reads remain UNPROVEN until supplied by the API.', incomplete ? 'error' : 'ready'); });
       auditFilter.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to filter audit history.', 'error'); return; } auditFilterSubmit.disabled = true; auditFilterSubmit.textContent = 'Filtering…'; setNotice('Loading filtered audit history…', 'loading'); try { var data = await loadAudit(); auditFreshness(data); var records = data && Array.isArray(data.records) ? data.records : []; auditCursor = data && typeof data.nextCursor === 'string' ? data.nextCursor : ''; auditLoadMore.hidden = !auditCursor; auditRecords.innerHTML = records.length ? records.map(auditRecord).join('') : '<p class="empty">No Account Center audit records match this outcome.</p>'; setNotice('Filtered audit history is current.', 'ready'); } catch (_) { auditCursor = ''; auditLoadMore.hidden = true; auditRecords.innerHTML = unavailableRecord('Audit history'); setNotice('Audit history could not be filtered. Retry to verify current evidence.', 'error'); } finally { auditFilterSubmit.disabled = false; auditFilterSubmit.textContent = 'Filter audit history'; } });

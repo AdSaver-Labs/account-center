@@ -91,12 +91,13 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /function renderLimits\(limitData, limitsUnavailable\)/);
     assert.match(html, /renderLimits\(data.limits, unavailable.limits\)/);
     assert.match(html, /function selectedRuntimeQuery\(\)/);
+    assert.match(html, /function selectedScopeQuery\(\)/);
     assert.match(html, /function loadModels\(\)/);
     assert.match(html, /function loadLimits\(\)/);
     assert.match(html, /function loadChallenges\(\)/);
     assert.match(html, /api\('\/api\/models' \+ selectedRuntimeQuery\(\)\)/);
     assert.match(html, /api\('\/api\/limits' \+ selectedRuntimeQuery\(\)\)/);
-    assert.match(html, /api\('\/api\/auth-challenges' \+ selectedRuntimeQuery\(\)\)/);
+    assert.match(html, /api\('\/api\/auth-challenges' \+ selectedScopeQuery\(\)\)/);
     assert.match(html, /observedProfileCount/);
     assert.match(html, /readableProfileCount/);
     assert.match(html, /runtimeCompatibility/);

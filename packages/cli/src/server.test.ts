@@ -568,24 +568,25 @@ test("guided-auth challenge inventory is bearer-protected and omits account targ
   }
 });
 
-test("guided-auth challenge inventory can be bounded to the selected runtime without exposing targets", async () => {
+test("guided-auth challenge inventory can be bounded to the selected runtime and exact scope without exposing targets", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
   await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "openclaw-private@example.test", scope: "default" });
-  await challenges.create({ mode: "reauth", provider: "openai", runtime: "hermes", target: "hermes-private@example.test", scope: "default" });
+  await challenges.create({ mode: "reauth", provider: "openai", runtime: "hermes", target: "hermes-default@example.test", scope: "default" });
+  await challenges.create({ mode: "add", provider: "openai", runtime: "hermes", target: "hermes-agent@example.test", scope: "agent:recovery" });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
   const address = await app.listen();
   try {
-    assert.equal((await request(address.port, "/api/auth-challenges?runtime=hermes")).status, 401);
-    const accepted = await request(address.port, "/api/auth-challenges?runtime=hermes", "test-token");
+    assert.equal((await request(address.port, "/api/auth-challenges?runtime=hermes&scope=agent%3Arecovery")).status, 401);
+    const accepted = await request(address.port, "/api/auth-challenges?runtime=hermes&scope=agent%3Arecovery", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
-    const body = await accepted.json() as { schemaVersion: string; challenges: Array<{ runtime: string }> };
+    const body = await accepted.json() as { schemaVersion: string; challenges: Array<{ runtime: string; scope: string }> };
     assert.equal(body.schemaVersion, "account-center.auth-challenges.v1");
-    assert.deepEqual(body.challenges.map(({ runtime }) => runtime), ["hermes"]);
+    assert.deepEqual(body.challenges.map(({ runtime, scope }) => ({ runtime, scope })), [{ runtime: "hermes", scope: "agent:recovery" }]);
     assert.equal(JSON.stringify(body).match(/private@example\.test/), null);
 
-    for (const path of ["/api/auth-challenges?runtime=Hermes", "/api/auth-challenges?runtime=hermes&runtime=openclaw", "/api/auth-challenges?scope=default"]) {
+    for (const path of ["/api/auth-challenges?runtime=Hermes", "/api/auth-challenges?runtime=hermes&runtime=openclaw", "/api/auth-challenges?scope=", "/api/auth-challenges?scope=agent%3Arecovery&scope=default", "/api/auth-challenges?scope=agent%3Arecovery%0A", "/api/auth-challenges?unknown=default"]) {
       const malformed = await request(address.port, path, "test-token");
       assert.equal(malformed.status, 400, path);
       assert.deepEqual(await malformed.json(), { error: "invalid_query" });
