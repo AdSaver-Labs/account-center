@@ -23,6 +23,8 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Unsupported/);
     assert.match(html, /authorization: 'Bearer ' \+ token.value/);
     assert.match(html, /Cancel pending challenge/);
+    assert.match(html, /function scopeLabel\(scope\)/);
+    assert.match(html, /scope not reported/);
     assert.match(html, /\/api\/auth-challenges\/.*encodeURIComponent\(id\).*\/cancel/);
     assert.match(html, /credentials: 'same-origin'/);
     assert.match(html, /UNPROVEN — data unavailable/);
