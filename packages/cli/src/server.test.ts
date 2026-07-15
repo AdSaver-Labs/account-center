@@ -127,6 +127,37 @@ test("read-only model catalog is bearer-protected, versioned, and reflects disab
   }
 });
 
+test("read-only limits inventory is bearer-protected, versioned, and uses redacted account references", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/limits")).status, 401);
+    const accepted = await request(address.port, "/api/limits", "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as {
+      schemaVersion: string;
+      generatedAt: string;
+      accounts: Array<{ accountRef: string; provider: string; health: string; authState: string; readable: boolean; windows: Array<{ name: string; remainingPct: number | null; resetsAt?: string }> }>;
+    };
+    assert.equal(body.schemaVersion, "account-center.limits.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(body.accounts.map(({ accountRef, provider, health, authState, readable }) => ({ accountRef, provider, health, authState, readable })), [
+      { accountRef: "account-1", provider: "openai", health: "warn", authState: "ok", readable: true },
+      { accountRef: "account-2", provider: "openai", health: "ok", authState: "ok", readable: true },
+      { accountRef: "account-3", provider: "openai", health: "ok", authState: "ok", readable: true },
+      { accountRef: "account-4", provider: "openai", health: "error", authState: "reauth-needed", readable: false }
+    ]);
+    assert.deepEqual(body.accounts[0]?.windows, [
+      { name: "five-hour", remainingPct: 1 },
+      { name: "weekly", remainingPct: 68 }
+    ]);
+    assert.equal(JSON.stringify(body).match(/profileId|email|label|token|secret|password/i), null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("read-only runtime scope catalog is bearer-protected, versioned, and exposes no profile metadata", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
@@ -161,6 +192,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.equal(body.target, "account-center");
     assert.deepEqual(body.actions.find((action) => action.id === "capabilities.list"), { id: "capabilities.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/capabilities" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "status"), { id: "status", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/status" }, requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "limits.list"), { id: "limits.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/limits" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "models.list"), { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "runtime_scopes.list"), { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] });

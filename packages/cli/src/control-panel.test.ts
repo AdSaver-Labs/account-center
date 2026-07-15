@@ -40,6 +40,10 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /nextCursor/);
     assert.match(html, /URLSearchParams/);
     assert.match(html, /\/api\/models/);
+    assert.match(html, /\/api\/limits/);
+    assert.match(html, /function renderLimits\(limitData, limitsUnavailable\)/);
+    assert.match(html, /renderLimits\(data.limits, unavailable.limits\)/);
+    assert.match(html, /accountRef/);
     assert.match(html, /\/api\/scopes/);
     assert.match(html, /Capability discovery/);
     assert.match(html, /authorization: 'Bearer ' \+ token.value/);

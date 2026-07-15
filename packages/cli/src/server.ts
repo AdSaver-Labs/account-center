@@ -46,6 +46,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? modelCatalog(result.status) : { error: "status_unavailable" });
     }
+    if (request.url === "/api/limits") {
+      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
+      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? limitsInventory(result.status) : { error: "status_unavailable" });
+    }
     if (request.url === "/api/scopes") {
       const adapter = createRuntimeAdapter(options.source ?? "fixture");
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
@@ -131,6 +136,21 @@ function modelCatalog(status: AccountCenterStatus): unknown {
   };
 }
 
+function limitsInventory(status: AccountCenterStatus): unknown {
+  return {
+    schemaVersion: "account-center.limits.v1",
+    generatedAt: status.generatedAt,
+    accounts: status.profiles.map((profile, index) => ({
+      accountRef: `account-${index + 1}`,
+      provider: profile.provider,
+      health: profile.usage.health,
+      authState: profile.usage.auth.state,
+      readable: profile.usage.readable,
+      windows: profile.usage.windows.map(({ name, remainingPct, resetsAt }) => ({ name, remainingPct, ...(resetsAt ? { resetsAt } : {}) }))
+    }))
+  };
+}
+
 function runtimeScopeCatalog(status: AccountCenterStatus): unknown {
   return {
     schemaVersion: "account-center.runtime-scopes.v1",
@@ -163,7 +183,7 @@ function authChallengeView({ id, mode, provider, runtime, scope, status, expires
 
 function endpointMethod(path: string | undefined): "GET" | "POST" | undefined {
   const pathname = path ? new URL(path, "http://account-center.local").pathname : undefined;
-  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/scopes", "/api/auth-challenges", "/api/status"].includes(pathname ?? "")) return "GET";
+  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/scopes", "/api/auth-challenges", "/api/status"].includes(pathname ?? "")) return "GET";
   if (authChallengeCancelId(pathname)) return "POST";
   if (authChallengeId(pathname)) return "GET";
   return undefined;
@@ -184,6 +204,7 @@ function agentCapabilities(): unknown {
     actions: [
       { id: "capabilities.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/capabilities" }, requires: ["bearer_token"] },
       { id: "status", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/status" }, requires: ["bearer_token"] },
+      { id: "limits.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/limits" }, requires: ["bearer_token"] },
       { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] },
       { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] },
       { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] },
@@ -317,9 +338,11 @@ function controlPanelHtml(): string {
       function unavailableRecord(label) { return '<article class="record" role="status"><strong>UNPROVEN — data unavailable</strong><p>' + escapeHtml(label) + ' could not be verified. Previously loaded evidence is not shown as current.</p><button class="quiet retry-workspace" type="button">Retry workspace data</button></article>'; }
       function renderAttention(challengeData, challengesUnavailable) { if (!latestStatus) return; var signals = []; var profiles = Array.isArray(latestStatus.profiles) ? latestStatus.profiles : []; profiles.forEach(function (profile) { var usage = profile.usage || {}; var firstWindow = usage.windows && usage.windows[0] || {}; if (usage.health === 'error' || usage.auth && usage.auth.state === 'reauth-needed') signals.push({ title: 'Authentication needs attention', detail: profile.label || profile.id, badge: 'reauth-needed' }); else if (!usage.readable || firstWindow.remainingPct == null || firstWindow.remainingPct < 10) signals.push({ title: 'Capacity needs review', detail: profile.label || profile.id, badge: firstWindow.remainingPct == null ? 'unreadable' : firstWindow.remainingPct + '% remaining' }); }); (latestStatus.warnings || []).forEach(function (warning) { signals.push({ title: 'Runtime warning', detail: warning, badge: 'review' }); }); if (challengesUnavailable) signals.push({ title: 'Guided-auth evidence is UNPROVEN', detail: 'Refresh workspace data before treating challenge status as current.', badge: 'unproven' }); else { var pending = challengeData && challengeData.challenges || []; pending.filter(function (item) { return item.status === 'pending'; }).forEach(function (item) { signals.push({ title: 'Pending guided auth', detail: item.mode + ' · ' + item.provider + ' · ' + item.runtime + ' · ' + scopeLabel(item.scope), badge: 'pending', guided: true }); }); } attentionCount.textContent = signals.length ? signals.length + (signals.length === 1 ? ' signal' : ' signals') : 'No signals'; attention.innerHTML = signals.length ? signals.map(function (item) { return '<article class="record"><strong>' + escapeHtml(item.title) + '</strong><p>' + escapeHtml(item.detail) + '</p><span class="pill">' + escapeHtml(item.badge) + '</span>' + (item.guided ? '<button class="quiet view-guided" type="button">View guided auth</button>' : '') + '</article>'; }).join('') : '<p class="empty">No recovery work is currently reported by verified local evidence.</p>'; }
       function renderOperatorActions(capabilityData, unavailable) { var names = { routes: 'Switch route', guided_auth: 'Start guided auth', models: 'Change model policy', 'account.delete': 'Delete credentials', updates: 'Update Account Center' }; if (unavailable) { operatorActions.innerHTML = unavailableRecord('Action capability contract'); return; } var actions = capabilityData && capabilityData.actions || []; operatorActions.innerHTML = Object.keys(names).map(function (id) { var action = actions.filter(function (item) { return item.id === id; })[0]; var state = action && action.state || 'UNPROVEN'; var reason = action && action.reason ? action.reason.replaceAll('_', ' ') : 'No protected action contract was reported.'; return '<div class="action-row"><div><strong>' + escapeHtml(names[id]) + '</strong><p>' + escapeHtml(reason) + '</p></div><button class="quiet" type="button" disabled>' + escapeHtml(state) + '</button></div>'; }).join(''); }
+      function renderLimits(limitData, limitsUnavailable) { if (limitsUnavailable) return; var limitAccounts = limitData && Array.isArray(limitData.accounts) ? limitData.accounts.filter(function (item) { return item && typeof item.accountRef === 'string' && typeof item.provider === 'string' && Array.isArray(item.windows); }) : []; document.getElementById('account-count').textContent = limitAccounts.length + (limitAccounts.length === 1 ? ' account' : ' accounts'); accounts.innerHTML = limitAccounts.length ? limitAccounts.map(function (item) { var windowText = item.windows.map(function (window) { return text(window.name) + ': ' + (window.remainingPct == null ? 'unreadable' : text(window.remainingPct) + '% remaining') + (window.resetsAt ? ' · resets ' + text(window.resetsAt) : ''); }).join(' · '); return '<article class="account-record" role="listitem"><div class="account-name">' + escapeHtml(item.accountRef) + '</div><dl class="account-details"><div><dt>Provider</dt><dd>' + escapeHtml(item.provider) + '</dd></div><div><dt>Health / auth</dt><dd>' + escapeHtml(text(item.health)) + ' · ' + escapeHtml(text(item.authState)) + '</dd></div><div><dt>Capacity</dt><dd>' + escapeHtml(windowText || 'Not reported') + '</dd></div><div><dt>Proof</dt><dd>' + (item.readable === true ? 'Observed readable status' : 'UNPROVEN — unreadable status') + '</dd></div></dl></article>'; }).join('') : '<p class="empty">No account limits were reported by the protected API.</p>'; }
       function renderWorkspace(data, unavailable) {
         renderContextSelector(data.scopes, unavailable.scopes);
         renderAttention(data.challenges, unavailable.challenges);
+        renderLimits(data.limits, unavailable.limits);
         renderOperatorActions(data.capabilities, unavailable.capabilities);
         renderAccountsRouting(data.capabilities, unavailable);
         renderSettings(data.capabilities, unavailable);
@@ -330,7 +353,7 @@ function controlPanelHtml(): string {
         var operations = data.operations && data.operations.operations || []; operationRecords.innerHTML = unavailable.operations ? unavailableRecord('Operation history') : operations.length ? operations.map(function (item) { return record(operationRecords, item.operationId || 'operation', item.outcome || 'No terminal outcome.', item.state || 'unproven'); }).join('') : '<p class="empty">No completed protected operations are available.</p>';
       }
       async function loadAudit(cursor) { var parameters = new URLSearchParams(); if (auditOutcome.value) parameters.set('outcome', auditOutcome.value); if (cursor) parameters.set('cursor', cursor); var suffix = parameters.toString(); return api('/api/audit' + (suffix ? '?' + suffix : '')); }
-      async function loadWorkspace() { var results = await Promise.allSettled([api('/api/capabilities'), api('/api/auth-challenges'), api('/api/scopes'), api('/api/models'), loadAudit(), api('/api/mutation-operations')]); var keys = ['capabilities', 'challenges', 'scopes', 'models', 'audit', 'operations']; var values = {}; var unavailable = {}; results.forEach(function (result, index) { var key = keys[index]; var field = key === 'capabilities' ? 'actions' : key === 'challenges' ? 'challenges' : key === 'scopes' ? 'scopes' : key === 'models' ? 'models' : key === 'audit' ? 'records' : 'operations'; if (result.status === 'fulfilled' && result.value && Array.isArray(result.value[field])) values[key] = result.value; else unavailable[key] = true; }); renderWorkspace(values, unavailable); return Object.keys(unavailable).length > 0; }
+      async function loadWorkspace() { var results = await Promise.allSettled([api('/api/capabilities'), api('/api/auth-challenges'), api('/api/scopes'), api('/api/models'), api('/api/limits'), loadAudit(), api('/api/mutation-operations')]); var keys = ['capabilities', 'challenges', 'scopes', 'models', 'limits', 'audit', 'operations']; var values = {}; var unavailable = {}; results.forEach(function (result, index) { var key = keys[index]; var field = key === 'capabilities' ? 'actions' : key === 'challenges' ? 'challenges' : key === 'scopes' ? 'scopes' : key === 'models' ? 'models' : key === 'limits' ? 'accounts' : key === 'audit' ? 'records' : 'operations'; if (result.status === 'fulfilled' && result.value && Array.isArray(result.value[field])) values[key] = result.value; else unavailable[key] = true; }); renderWorkspace(values, unavailable); return Object.keys(unavailable).length > 0; }
       runtimeScope.addEventListener('change', async function () { if (runtimeScope.disabled) return; selectedContext = runtimeScope.value; setNotice('Context changed. Refreshing observed runtime data; scope-filtered reads remain UNPROVEN until supplied by the API.', 'loading'); var incomplete = await loadWorkspace(); setNotice(incomplete ? 'Context refreshed; some evidence is UNPROVEN. Retry unavailable sections.' : 'Observed runtime data refreshed. Scope-filtered reads remain UNPROVEN until supplied by the API.', incomplete ? 'error' : 'ready'); });
       auditFilter.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to filter audit history.', 'error'); return; } auditFilterSubmit.disabled = true; auditFilterSubmit.textContent = 'Filtering…'; setNotice('Loading filtered audit history…', 'loading'); try { var data = await loadAudit(); var records = data && Array.isArray(data.records) ? data.records : []; auditCursor = data && typeof data.nextCursor === 'string' ? data.nextCursor : ''; auditLoadMore.hidden = !auditCursor; auditRecords.innerHTML = records.length ? records.map(function (item) { return record(auditRecords, item.action, item.summary || 'No summary supplied.', item.outcome); }).join('') : '<p class="empty">No Account Center audit records match this outcome.</p>'; setNotice('Filtered audit history is current.', 'ready'); } catch (_) { auditCursor = ''; auditLoadMore.hidden = true; auditRecords.innerHTML = unavailableRecord('Audit history'); setNotice('Audit history could not be filtered. Retry to verify current evidence.', 'error'); } finally { auditFilterSubmit.disabled = false; auditFilterSubmit.textContent = 'Filter audit history'; } });
       auditLoadMore.addEventListener('click', async function () { if (!auditCursor || auditLoadMore.disabled) return; auditLoadMore.disabled = true; auditLoadMore.textContent = 'Loading older records…'; setNotice('Loading older audit history…', 'loading'); try { var data = await loadAudit(auditCursor); var records = data && Array.isArray(data.records) ? data.records : []; auditCursor = data && typeof data.nextCursor === 'string' ? data.nextCursor : ''; auditLoadMore.hidden = !auditCursor; if (records.length) auditRecords.insertAdjacentHTML('beforeend', records.map(function (item) { return record(auditRecords, item.action, item.summary || 'No summary supplied.', item.outcome); }).join('')); setNotice(records.length ? 'Older audit history is current.' : 'No older audit history is available.', 'ready'); } catch (_) { setNotice('Older audit history could not be verified. Previously loaded evidence is retained.', 'error'); } finally { auditLoadMore.disabled = false; auditLoadMore.textContent = 'Load older audit records'; } });
