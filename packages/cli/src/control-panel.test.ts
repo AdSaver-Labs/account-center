@@ -39,6 +39,14 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /function loadAudit\(cursor\)/);
     assert.match(html, /nextCursor/);
     assert.match(html, /URLSearchParams/);
+    assert.match(html, /function auditRecord\(item\)/);
+    assert.match(html, /Audit ID:/);
+    assert.match(html, /Proof:/);
+    assert.match(html, /Warnings:/);
+    assert.match(html, /Recorded:/);
+    assert.match(html, /function operationRecord\(item\)/);
+    assert.match(html, /Operation ID:/);
+    assert.match(html, /Completed:/);
     assert.match(html, /\/api\/models/);
     assert.match(html, /\/api\/limits/);
     assert.match(html, /function renderLimits\(limitData, limitsUnavailable\)/);
