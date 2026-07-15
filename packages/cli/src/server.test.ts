@@ -286,8 +286,9 @@ test("audit history is bearer-protected, bounded, and redacted", async () => {
     const accepted = await request(address.port, "/api/audit", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
-    const body = await accepted.json() as { schemaVersion: string; records: Array<Record<string, unknown>> };
+    const body = await accepted.json() as { schemaVersion: string; generatedAt: string; records: Array<Record<string, unknown>> };
     assert.equal(body.schemaVersion, "account-center.audit-history.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(body.records.length, 1);
     assert.deepEqual(Object.keys(body.records[0]).sort(), ["action", "createdAt", "id", "outcome", "proofState", "summary", "warnings"]);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
