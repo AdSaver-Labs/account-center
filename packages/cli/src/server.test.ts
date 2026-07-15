@@ -54,11 +54,38 @@ test("status API omits OAuth device codes and verification URLs despite a noSecr
     assert.deepEqual(body.reauth, [{
       id: "reauth_fixture",
       provider: "openai",
-      profileHint: "reauth-needed",
+      profileHint: "account-4",
       expiresAt: "2026-07-09T00:15:00.000Z",
       status: "pending"
     }]);
     assert.equal(JSON.stringify(body).match(/userCode|verificationUri|ABCD-EFGH|example\.invalid\/device/), null);
+  } finally {
+    await app.close();
+  }
+});
+
+test("status API exposes only opaque account references, including route and challenge metadata", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 200);
+    const body = await response.json() as {
+      profiles: Array<{ id: string; label: string; usage: { profileId: string } }>;
+      routes: Array<{ activeProfileId: string; order: string[] }>;
+      reauth: Array<{ profileHint: string }>;
+    };
+    assert.deepEqual(body.profiles.map(({ id, label, usage }) => ({ id, label, profileId: usage.profileId })), [
+      { id: "account-1", label: "account-1", profileId: "account-1" },
+      { id: "account-2", label: "account-2", profileId: "account-2" },
+      { id: "account-3", label: "account-3", profileId: "account-3" },
+      { id: "account-4", label: "account-4", profileId: "account-4" }
+    ]);
+    assert.deepEqual(body.routes.map(({ activeProfileId, order }) => ({ activeProfileId, order })), [{
+      activeProfileId: "account-1", order: ["account-1", "account-2", "account-3", "account-4"]
+    }]);
+    assert.deepEqual(body.reauth.map(({ profileHint }) => ({ profileHint })), [{ profileHint: "account-4" }]);
+    assert.equal(JSON.stringify(body).match(/helper-|business-backup|openai:helper|openai:business/), null);
   } finally {
     await app.close();
   }

@@ -191,10 +191,48 @@ function runtimeScopeCatalog(status: AccountCenterStatus): unknown {
 }
 
 function statusView(status: AccountCenterStatus): AccountCenterStatus {
-  const { reauth, ...safeStatus } = status;
+  // The status endpoint is an inventory view, not a runtime configuration dump.
+  // Keep a stable response-local reference so route and usage observations can be
+  // correlated without revealing runtime profile names, labels, or identifiers.
+  const accountRefById = new Map(status.profiles.map((profile, index) => [profile.id, `account-${index + 1}`]));
+  const accountRef = (profileId: string): string => accountRefById.get(profileId) ?? "account-redacted";
+  const challengeProfileRef = (profileHint: string): string => {
+    const profile = status.profiles.find((candidate) => candidate.id === profileHint || candidate.label === profileHint);
+    return profile ? accountRef(profile.id) : "account-redacted";
+  };
   return redactJson({
-    ...safeStatus,
-    reauth: reauth.map(({ id, provider, profileHint, expiresAt, status: challengeStatus }) => ({ id, provider, profileHint, expiresAt, status: challengeStatus }))
+    ...status,
+    profiles: status.profiles.map((profile) => ({
+      id: accountRef(profile.id),
+      provider: profile.provider,
+      label: accountRef(profile.id),
+      role: profile.role,
+      runtimeCompatibility: profile.runtimeCompatibility,
+      models: profile.models,
+      disabled: profile.disabled,
+      ...(profile.cooldownUntil ? { cooldownUntil: profile.cooldownUntil } : {}),
+      usage: {
+        profileId: accountRef(profile.id),
+        provider: profile.usage.provider,
+        generatedAt: profile.usage.generatedAt,
+        readable: profile.usage.readable,
+        health: profile.usage.health,
+        windows: profile.usage.windows.map(({ name, remainingPct, resetsAt }) => ({ name, remainingPct, ...(resetsAt ? { resetsAt } : {}) })),
+        auth: { state: profile.usage.auth.state },
+        warnings: []
+      }
+    })),
+    routes: status.routes.map((route) => ({
+      provider: route.provider,
+      runtime: route.runtime,
+      activeProfileId: accountRef(route.activeProfileId),
+      order: route.order.map(accountRef),
+      updatedAt: route.updatedAt
+    })),
+    leases: [],
+    reauth: status.reauth.map(({ id, provider, profileHint, expiresAt, status: challengeStatus }) => ({ id, provider, profileHint: challengeProfileRef(profileHint), expiresAt, status: challengeStatus })),
+    audit: [],
+    warnings: []
   }) as AccountCenterStatus;
 }
 
