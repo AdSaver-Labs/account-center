@@ -26,6 +26,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!challenge) return send(response, 404, { error: "not_found" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", challenge: authChallengeView(challenge) });
     }
+    const allowedMethod = endpointMethod(request.url);
+    if (allowedMethod && request.method !== allowedMethod) {
+      response.setHeader("Allow", allowedMethod);
+      return send(response, 405, { error: "method_not_allowed" });
+    }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
     if (request.url === "/api/audit") return send(response, 200, await auditHistory(options.auditStore));
@@ -117,6 +122,13 @@ function auditRecordView({ id, createdAt, action, outcome, proofState, summary, 
 
 function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
   return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
+}
+
+function endpointMethod(path: string | undefined): "GET" | "POST" | undefined {
+  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/scopes", "/api/auth-challenges", "/api/status"].includes(path ?? "")) return "GET";
+  if (authChallengeCancelId(path)) return "POST";
+  if (authChallengeId(path)) return "GET";
+  return undefined;
 }
 
 function authChallengeCancelId(path: string | undefined): string | undefined {

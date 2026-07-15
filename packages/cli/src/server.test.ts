@@ -57,6 +57,27 @@ test("body-bearing API reads are rejected before status execution", async () => 
   }
 });
 
+test("protected endpoint method rejection advertises the fixed allowed method", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const status = await fetch(`http://127.0.0.1:${address.port}/api/status`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" }
+    });
+    assert.equal(status.status, 405);
+    assert.equal(status.headers.get("allow"), "GET");
+
+    const cancel = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel`, {
+      headers: { authorization: "Bearer test-token" }
+    });
+    assert.equal(cancel.status, 405);
+    assert.equal(cancel.headers.get("allow"), "POST");
+  } finally {
+    await app.close();
+  }
+});
+
 test("read-only model catalog is bearer-protected, versioned, and reflects disabled policy without profile metadata", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();

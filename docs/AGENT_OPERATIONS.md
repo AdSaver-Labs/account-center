@@ -44,7 +44,7 @@ Current capability schema:
 
 The action catalog is authoritative for the running server. An `available` action supplies its fixed local `endpoint` method and path; `:id` is an opaque path parameter, never an account identity or credential. No endpoint is supplied for blocked or `UNPROVEN` actions, so agents must not infer or construct a mutation URL. Agents must not assume that a planned UI/API feature exists merely because it appears in a roadmap.
 
-The catalog advertises each protected local API action independently. Currently available local actions are `status`, `models.list`, `runtime_scopes.list`, `auth_challenges.list`, `auth_challenges.detail`, `auth_challenges.cancel`, `audit.history`, and `mutation_operations.history`. `auth_challenges.cancel` changes only Account Center's local redacted challenge record and additionally requires a same-origin request; it accepts no request body and is not runtime authentication mutation.
+The catalog advertises each protected local API action independently. Available endpoint bindings are method-enforced: a request using a different method receives `405 method_not_allowed` and an `Allow` header naming the single permitted method. Currently available local actions are `status`, `models.list`, `runtime_scopes.list`, `auth_challenges.list`, `auth_challenges.detail`, `auth_challenges.cancel`, `audit.history`, and `mutation_operations.history`. `auth_challenges.cancel` changes only Account Center's local redacted challenge record and additionally requires a same-origin request; it accepts no request body and is not runtime authentication mutation.
 
 ## Current safe operations
 
