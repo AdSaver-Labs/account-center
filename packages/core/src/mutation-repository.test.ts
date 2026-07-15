@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MutationRepository } from "./mutation-repository.js";
@@ -35,4 +35,23 @@ test("mutation repository persists only fixed redacted schema in owner-only stat
   assert.equal((await stat(root)).mode & 0o777, 0o700);
   assert.equal((await stat(join(root, "mutation-repository.v1.json"))).mode & 0o777, 0o600);
   assert.deepEqual(await repository.claim({ ...input, requestDigest: "d".repeat(64) }), { kind: "blocked", reason: "idempotency_key_reused_with_different_request" });
+});
+
+test("mutation repository rejects malformed persisted operations before a redacted history view can expose them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-mutations-corrupt-"));
+  const statePath = join(root, "mutation-repository.v1.json");
+  await writeFile(statePath, JSON.stringify({
+    schemaVersion: "account-center.mutation-repository.v1",
+    operations: [{
+      operationId: "op_test",
+      idempotencyKeyDigest: "a".repeat(64),
+      requestDigest: "b".repeat(64),
+      state: "pending",
+      createdAt: "2026-07-15T00:00:00.000Z",
+      audit: { action: "route.use.private@example.test", provider: "openai", runtime: "openclaw", scopeKind: "agent", scopeIdDigest: "c".repeat(64), targetDigest: "d".repeat(64) }
+    }]
+  }), { mode: 0o600 });
+  await chmod(root, 0o700);
+
+  await assert.rejects(() => new MutationRepository(root).list(), /repository_corrupt/);
 });
