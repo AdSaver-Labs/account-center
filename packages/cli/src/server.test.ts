@@ -240,6 +240,19 @@ test("mutation operation history is bearer-protected and exposes only redacted t
   }
 });
 
+test("protected API contains repository failures without returning internal error detail", async () => {
+  const repository = { list: async () => { throw new Error("private@example.test mutation repository corrupt"); } } as unknown as MutationRepository;
+  const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/mutation-operations", "test-token");
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "internal_error" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("guided-auth challenge inventory is bearer-protected and omits account targets", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));

@@ -7,7 +7,7 @@ Account Center is designed for people **and** their self-hosted or remote agents
 - The local browser dashboard and agent API client use the same loopback-only server.
 - Each launch has a bearer token. Treat it as a short-lived local secret: keep it in process memory or a platform secret store, never in source, logs, URLs, receipts, chat, or issue text.
 - All API responses use `Cache-Control: no-store` and contain redacted operational metadata only.
-- Protected API requests with a body are rejected with `413 request_body_not_allowed` before route execution; current public reads and local challenge cancellation are bodyless contracts.
+- Protected API requests with a body are rejected with `413 request_body_not_allowed` before route execution; current public reads and local challenge cancellation are bodyless contracts. Unexpected protected-route failures are contained as `500 {"error":"internal_error"}` and never return internal error detail.
 - Account Center manages **Account Center only**. It does not provide a back door to update Hermes, OpenClaw, Codex, a provider account, or arbitrary host processes.
 
 ## Mandatory agent workflow

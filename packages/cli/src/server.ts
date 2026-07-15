@@ -12,7 +12,8 @@ export interface AccountCenterServerOptions {
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
   const server = createServer(async (request, response) => {
-    setSafetyHeaders(response);
+    try {
+      setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     if (hasRequestBody(request)) {
@@ -57,7 +58,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       return send(response, result.code === 0 ? 200 : 500, result.status);
     }
-    return send(response, 404, { error: "not_found" });
+      return send(response, 404, { error: "not_found" });
+    } catch {
+      if (!response.writableEnded) send(response, 500, { error: "internal_error" });
+    }
   });
   return {
     async listen(port = 0): Promise<{ port: number }> {
