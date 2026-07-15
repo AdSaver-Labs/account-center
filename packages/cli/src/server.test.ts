@@ -44,6 +44,26 @@ test("local API requires bearer token and returns no-store status", async () => 
   }
 });
 
+test("status API omits OAuth device codes and verification URLs despite a noSecrets fixture assertion", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 200);
+    const body = await response.json() as { reauth: Array<Record<string, unknown>> };
+    assert.deepEqual(body.reauth, [{
+      id: "reauth_fixture",
+      provider: "openai",
+      profileHint: "reauth-needed",
+      expiresAt: "2026-07-09T00:15:00.000Z",
+      status: "pending"
+    }]);
+    assert.equal(JSON.stringify(body).match(/userCode|verificationUri|ABCD-EFGH|example\.invalid\/device/), null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("body-bearing API reads are rejected before status execution", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();

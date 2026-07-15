@@ -1,6 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, redactJson, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
@@ -56,7 +56,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.url === "/api/status") {
       const adapter = createRuntimeAdapter(options.source ?? "fixture");
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-      return send(response, result.code === 0 ? 200 : 500, result.status);
+      return send(response, result.code === 0 ? 200 : 500, result.status ? statusView(result.status) : { error: "status_unavailable" });
     }
       return send(response, 404, { error: "not_found" });
     } catch {
@@ -118,6 +118,14 @@ function runtimeScopeCatalog(status: AccountCenterStatus): unknown {
         capabilities: runtime.capabilities
       }))
   };
+}
+
+function statusView(status: AccountCenterStatus): AccountCenterStatus {
+  const { reauth, ...safeStatus } = status;
+  return redactJson({
+    ...safeStatus,
+    reauth: reauth.map(({ id, provider, profileHint, expiresAt, status: challengeStatus }) => ({ id, provider, profileHint, expiresAt, status: challengeStatus }))
+  }) as AccountCenterStatus;
 }
 
 function auditRecordView({ id, createdAt, action, outcome, proofState, summary, warnings }: AuditRecord) {
