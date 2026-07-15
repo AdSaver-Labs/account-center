@@ -13,7 +13,13 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Account Center/);
     assert.match(html, /aria-live/);
     assert.match(html, /Connected accounts/);
-    assert.match(html, /Operator actions/);
+    assert.match(html, /Guided auth/);
+    assert.match(html, /Receipts &amp; audit/);
+    assert.match(html, /data-view="dashboard"/);
+    assert.match(html, /\/api\/auth-challenges/);
+    assert.match(html, /\/api\/audit/);
+    assert.match(html, /\/api\/models/);
+    assert.match(html, /\/api\/scopes/);
     assert.match(html, /Unsupported/);
     assert.match(html, /authorization: 'Bearer ' \+ token.value/);
   } finally {
