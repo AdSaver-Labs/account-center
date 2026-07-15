@@ -88,6 +88,13 @@ test("protected endpoint method rejection advertises the fixed allowed method", 
     assert.equal(status.status, 405);
     assert.equal(status.headers.get("allow"), "GET");
 
+    const filteredAudit = await fetch(`http://127.0.0.1:${address.port}/api/audit?outcome=blocked`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" }
+    });
+    assert.equal(filteredAudit.status, 405);
+    assert.equal(filteredAudit.headers.get("allow"), "GET");
+
     const cancel = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel`, {
       headers: { authorization: "Bearer test-token" }
     });
@@ -226,6 +233,30 @@ test("audit history is bearer-protected, bounded, and redacted", async () => {
     assert.deepEqual(Object.keys(body.records[0]).sort(), ["action", "createdAt", "id", "outcome", "proofState", "summary", "warnings"]);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
     assert.equal(JSON.stringify(body).includes("request-digest"), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test("audit history supports bounded outcome filtering without accepting malformed query input", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "a".repeat(64), summary: "Blocked for private@example.test", warnings: [] });
+  await auditStore.append({ action: "route.use", outcome: "dry_run", proofState: "not_applicable", requestDigest: "b".repeat(64), summary: "Preview for private@example.test", warnings: [] });
+  await auditStore.append({ action: "guided_auth.cancel", outcome: "blocked", proofState: "verified", requestDigest: "c".repeat(64), summary: "Cancelled private@example.test", warnings: [] });
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  try {
+    const filtered = await request(address.port, "/api/audit?outcome=blocked&limit=1", "test-token");
+    assert.equal(filtered.status, 200);
+    const body = await filtered.json() as { schemaVersion: string; records: Array<{ action: string; outcome: string; summary: string }> };
+    assert.equal(body.schemaVersion, "account-center.audit-history.v1");
+    assert.deepEqual(body.records.map(({ action, outcome }) => ({ action, outcome })), [{ action: "guided_auth.cancel", outcome: "blocked" }]);
+    assert.equal(JSON.stringify(body).includes("private@example.test"), false);
+
+    const malformed = await request(address.port, "/api/audit?limit=101", "test-token");
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(await malformed.json(), { error: "invalid_query" });
   } finally {
     await app.close();
   }
