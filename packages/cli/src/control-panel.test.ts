@@ -46,6 +46,12 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Guided-auth challenge detail could not be verified/);
     assert.match(html, /function scopeLabel\(scope\)/);
     assert.match(html, /scope not reported/);
+    assert.match(html, /id="context-selector"/);
+    assert.match(html, /<label for="runtime-scope">Runtime &amp; scope<\/label>/);
+    assert.match(html, /No readable scopes are available\./);
+    assert.match(html, /function renderContextSelector\(scopeData, scopesUnavailable\)/);
+    assert.match(html, /selectedContext = runtimeScope.value/);
+    assert.match(html, /Context changed\. Refreshing observed runtime data/);
     assert.match(html, /\/api\/auth-challenges\/.*encodeURIComponent\(id\).*\/cancel/);
     assert.match(html, /credentials: 'same-origin'/);
     assert.match(html, /UNPROVEN — data unavailable/);
