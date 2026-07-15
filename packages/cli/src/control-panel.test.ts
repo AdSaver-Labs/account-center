@@ -158,6 +158,8 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /function renderViewState\(target, state, title, detail, actionLabel\)/);
     assert.match(html, /\['loading', 'empty', 'error', 'blocked', 'read-only', 'unproven'\]/);
     assert.match(html, /function renderAccountsRouting\(capabilityData, unavailable\)/);
+    assert.match(html, /profile\.runtimeCompatibility\.indexOf\(runtime\) !== -1/);
+    assert.match(html, /No connected accounts were reported as compatible with the selected runtime\./);
     assert.match(html, /function renderSettings\(capabilityData, unavailable\)/);
     assert.match(html, /No verified release status reported/);
     assert.match(html, /No release is eligible for Apply/);
