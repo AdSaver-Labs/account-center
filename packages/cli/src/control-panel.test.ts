@@ -57,6 +57,18 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /UNPROVEN — data unavailable/);
     assert.match(html, /Retry workspace data/);
     assert.match(html, /some evidence is UNPROVEN/);
+    assert.match(html, /--prose:system-ui/);
+    assert.match(html, /--technical:ui-monospace/);
+    assert.match(html, /\.primary,\.quiet\{min-height:44px/);
+    assert.match(html, /\.field input,\.field select\{width:100%;min-height:44px/);
+    assert.match(html, /\.tab\{min-height:44px/);
+    assert.match(html, /@media\(max-width:760px\).*\.account-records\{grid-template-columns:1fr\}/);
+    assert.match(html, /@media\(max-width:430px\).*\.account-details\{grid-template-columns:1fr\}/);
+    assert.match(html, /@media\(max-width:320px\)/);
+    assert.match(html, /class="account-records" id="accounts" role="list" aria-label="Connected accounts"/);
+    assert.match(html, /<dt>Capacity<\/dt>/);
+    assert.match(html, /<dt>Proof<\/dt>/);
+    assert.match(html, /UNPROVEN — unreadable status/);
     assert.doesNotMatch(html, /localStorage|sessionStorage/);
   } finally {
     await app.close();
