@@ -23,6 +23,8 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Readable/);
     assert.doesNotMatch(html, /'online'/);
     assert.match(html, /Guided auth/);
+    assert.match(html, /Accounts &amp; routing/);
+    assert.match(html, /Settings/);
     assert.match(html, /Receipts &amp; audit/);
     assert.match(html, /data-view="dashboard"/);
     assert.match(html, /\/api\/auth-challenges/);
@@ -72,6 +74,16 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /<dt>Capacity<\/dt>/);
     assert.match(html, /<dt>Proof<\/dt>/);
     assert.match(html, /UNPROVEN — unreadable status/);
+    assert.match(html, /function renderViewState\(target, state, title, detail, actionLabel\)/);
+    assert.match(html, /\['loading', 'empty', 'error', 'blocked', 'read-only', 'unproven'\]/);
+    assert.match(html, /function renderAccountsRouting\(capabilityData, unavailable\)/);
+    assert.match(html, /function renderSettings\(capabilityData, unavailable\)/);
+    assert.match(html, /No verified release status reported/);
+    assert.match(html, /No release is eligible for Apply/);
+    assert.match(html, /Update Center is unavailable/);
+    assert.match(html, /renderAccountsRouting\(data.capabilities, unavailable\)/);
+    assert.match(html, /renderSettings\(data.capabilities, unavailable\)/);
+    assert.doesNotMatch(html, /\/api\/updates/);
     assert.doesNotMatch(html, /localStorage|sessionStorage/);
   } finally {
     await app.close();
