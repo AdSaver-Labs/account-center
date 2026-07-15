@@ -255,7 +255,13 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.deepEqual(body.actions.find((action) => action.id === "runtime_scopes.list"), { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), {
+      id: "auth_challenges.cancel",
+      mode: "mutation",
+      state: "blocked",
+      reason: "durable_audit_store_unavailable",
+      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"]
+    });
     assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.history"), { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), {
@@ -585,11 +591,12 @@ test("guided-auth challenge detail is bearer-protected, redacted, and returns no
   }
 });
 
-test("guided-auth cancellation is same-origin, bearer-protected, durable, and redacted", async () => {
+test("guided-auth cancellation is same-origin, bearer-protected, durable, redacted, and records bounded audit evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
   const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
-  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
   const address = await app.listen();
   const path = `/api/auth-challenges/${challenge.id}/cancel`;
   try {
@@ -605,6 +612,21 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, and re
     assert.equal(body.challenge.status, "cancelled");
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
     assert.equal((await challenges.get(challenge.id))?.status, "cancelled");
+    const capabilities = await request(address.port, "/api/capabilities", "test-token");
+    const capabilityBody = await capabilities.json() as { actions: Array<{ id: string; mode: string; state: string; endpoint?: { method: string; path: string }; requires: string[] }> };
+    assert.deepEqual(capabilityBody.actions.find((action) => action.id === "auth_challenges.cancel"), {
+      id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"]
+    });
+    const audit = await request(address.port, "/api/audit", "test-token");
+    assert.equal(audit.status, 200);
+    const auditBody = await audit.json() as { records: Array<{ action: string; outcome: string; proofState: string; summary: string }> };
+    assert.deepEqual(auditBody.records.map(({ action, outcome, proofState, summary }) => ({ action, outcome, proofState, summary })), [{
+      action: "guided_auth.cancel",
+      outcome: "applied",
+      proofState: "verified",
+      summary: "Local guided-auth challenge cancelled."
+    }]);
+    assert.equal(JSON.stringify(auditBody).match(/private@example\.test|auth_[a-f0-9-]{36}|[a-f0-9]{64}/), null);
     assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` } })).status, 404);
   } finally {
     await app.close();

@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
+import { createHash } from "node:crypto";
 import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, redactJson, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
@@ -23,8 +24,19 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
+      // Cancellation changes durable lifecycle state. Refuse the change rather than
+      // creating an unaudited mutation when its durable evidence store is absent.
+      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const challenge = options.challengeStore ? await options.challengeStore.cancel(cancelId) : undefined;
       if (!challenge) return send(response, 404, { error: "not_found" });
+      await options.auditStore.append({
+        action: "guided_auth.cancel",
+        outcome: "applied",
+        proofState: "verified",
+        requestDigest: createHash("sha256").update(`guided_auth.cancel\0${challenge.id}`).digest("hex"),
+        summary: "Local guided-auth challenge cancelled.",
+        warnings: []
+      });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
     const allowedMethod = endpointMethod(request.url);
@@ -33,7 +45,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 405, { error: "method_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
-    if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
+    if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.auditStore)));
     if (request.method === "GET" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/audit") {
       const query = auditQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
@@ -318,7 +330,7 @@ function authChallengeId(path: string | undefined): string | undefined {
   return path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})$/)?.[1];
 }
 
-function agentCapabilities(): unknown {
+function agentCapabilities(auditAvailable: boolean): unknown {
   return {
     schemaVersion: "account-center.agent-capabilities.v1",
     target: "account-center",
@@ -331,7 +343,9 @@ function agentCapabilities(): unknown {
       { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] },
       { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] },
       { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] },
-      { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id"] },
+      auditAvailable
+        ? { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"] }
+        : { id: "auth_challenges.cancel", mode: "mutation", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"] },
       { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] },
       { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "no_stable_native_exact_profile_delete_api", requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"] },
