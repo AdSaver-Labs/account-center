@@ -185,6 +185,37 @@ test("read-only limits inventory is bearer-protected, versioned, and uses redact
   }
 });
 
+test("selected-runtime inventory reads are bearer-protected, bounded to compatible redacted records, and reject malformed filters", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/limits?runtime=hermes")).status, 401);
+    const limits = await request(address.port, "/api/limits?runtime=hermes", "test-token");
+    assert.equal(limits.status, 200);
+    const limitsBody = await limits.json() as { accounts: Array<{ accountRef: string }> };
+    assert.deepEqual(limitsBody.accounts.map((account) => account.accountRef), ["account-1", "account-2", "account-3"]);
+    assert.equal(JSON.stringify(limitsBody).match(/profileId|email|label|token|secret|password/i), null);
+
+    const models = await request(address.port, "/api/models?runtime=hermes", "test-token");
+    assert.equal(models.status, 200);
+    const modelsBody = await models.json() as { models: Array<{ id: string; observedProfileCount: number; runtimeCompatibility: string[] }> };
+    assert.deepEqual(modelsBody.models.map(({ id, observedProfileCount, runtimeCompatibility }) => ({ id, observedProfileCount, runtimeCompatibility })), [
+      { id: "openai/gpt-4.1", observedProfileCount: 0, runtimeCompatibility: [] },
+      { id: "openai/gpt-5.3-codex", observedProfileCount: 2, runtimeCompatibility: ["hermes"] },
+      { id: "openai/gpt-5.5", observedProfileCount: 3, runtimeCompatibility: ["hermes"] }
+    ]);
+    assert.equal(JSON.stringify(modelsBody).match(/profileId|email|label|token|secret|password/i), null);
+
+    for (const path of ["/api/limits?runtime=Hermes", "/api/models?runtime=hermes&runtime=openclaw", "/api/models?scope=default"]) {
+      const response = await request(address.port, path, "test-token");
+      assert.equal(response.status, 400, path);
+      assert.deepEqual(await response.json(), { error: "invalid_query" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("read-only runtime scope catalog is bearer-protected, versioned, and exposes no profile metadata", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
