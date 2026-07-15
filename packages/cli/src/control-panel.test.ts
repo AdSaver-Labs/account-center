@@ -36,6 +36,11 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Unsupported/);
     assert.match(html, /authorization: 'Bearer ' \+ token.value/);
     assert.match(html, /Cancel pending challenge/);
+    assert.match(html, /View challenge details/);
+    assert.match(html, /id="guided-detail"/);
+    assert.match(html, /function loadChallengeDetail\(id\)/);
+    assert.match(html, /\/api\/auth-challenges\/.*encodeURIComponent\(id\)/);
+    assert.match(html, /Guided-auth challenge detail could not be verified/);
     assert.match(html, /function scopeLabel\(scope\)/);
     assert.match(html, /scope not reported/);
     assert.match(html, /\/api\/auth-challenges\/.*encodeURIComponent\(id\).*\/cancel/);
