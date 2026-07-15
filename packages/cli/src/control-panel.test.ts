@@ -77,6 +77,15 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /operationOutcome\.value/);
     assert.match(html, /No protected operations match this outcome/);
     assert.match(html, /Older protected operations could not be verified/);
+    assert.match(html, /Models &amp; fallbacks/);
+    assert.match(html, /data-view="models-fallbacks"/);
+    assert.match(html, /id="model-policy-state"/);
+    assert.match(html, /Requested policy: Not reported/);
+    assert.match(html, /Effective runtime model: Not reported/);
+    assert.match(html, /Fallback chain: Not reported/);
+    assert.match(html, /Model policy is UNPROVEN/);
+    assert.match(html, /function renderModelsFallbacks\(modelData, unavailable\)/);
+    assert.match(html, /renderModelsFallbacks\(data.models, unavailable.models\)/);
     assert.match(html, /\/api\/models/);
     assert.match(html, /\/api\/limits/);
     assert.match(html, /function renderLimits\(limitData, limitsUnavailable\)/);
