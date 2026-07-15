@@ -144,9 +144,9 @@ test("read-only model catalog is bearer-protected, versioned, and reflects disab
     assert.equal(body.schemaVersion, "account-center.models.v1");
     assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(body.models, [
-      { id: "openai/gpt-4.1", selectable: false, reason: "disabled_by_policy" },
-      { id: "openai/gpt-5.3-codex", selectable: true },
-      { id: "openai/gpt-5.5", selectable: true }
+      { id: "openai/gpt-4.1", selectable: false, reason: "disabled_by_policy", observedProfileCount: 0, readableProfileCount: 0, runtimeCompatibility: [], verificationState: "UNPROVEN" },
+      { id: "openai/gpt-5.3-codex", selectable: true, observedProfileCount: 2, readableProfileCount: 2, runtimeCompatibility: ["codex", "hermes", "openclaw"], verificationState: "UNPROVEN" },
+      { id: "openai/gpt-5.5", selectable: true, observedProfileCount: 4, readableProfileCount: 3, runtimeCompatibility: ["codex", "hermes", "openclaw"], verificationState: "UNPROVEN" }
     ]);
     assert.equal(JSON.stringify(body).match(/profileId|email|token|secret|password/i), null);
   } finally {

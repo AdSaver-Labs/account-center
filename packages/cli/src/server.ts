@@ -155,9 +155,20 @@ function modelCatalog(status: AccountCenterStatus): unknown {
   return {
     schemaVersion: "account-center.models.v1",
     generatedAt: status.generatedAt,
-    models: Array.from(known).sort().map((id) => status.policy.disabledModels.includes(id)
-      ? { id, selectable: false, reason: "disabled_by_policy" }
-      : { id, selectable: true })
+    models: Array.from(known).sort().map((id) => {
+      const observedProfiles = status.profiles.filter((profile) => profile.models.includes(id));
+      // Profile declarations are useful inventory evidence, but are not authoritative
+      // proof that a runtime has accepted or applied a model policy.
+      return {
+        id,
+        selectable: !status.policy.disabledModels.includes(id),
+        ...(status.policy.disabledModels.includes(id) ? { reason: "disabled_by_policy" } : {}),
+        observedProfileCount: observedProfiles.length,
+        readableProfileCount: observedProfiles.filter((profile) => profile.usage.readable).length,
+        runtimeCompatibility: Array.from(new Set(observedProfiles.flatMap((profile) => profile.runtimeCompatibility))).sort(),
+        verificationState: "UNPROVEN"
+      };
+    })
   };
 }
 
@@ -413,7 +424,7 @@ function controlPanelHtml(): string {
         renderSettings(data.capabilities, unavailable);
         var challenges = data.challenges && data.challenges.challenges || []; guidedRecords.innerHTML = unavailable.challenges ? unavailableRecord('Guided-auth challenge inventory') : challenges.length ? challenges.map(challengeRecord).join('') : '<p class="empty">No durable guided-auth challenges are recorded.</p>';
         var scopes = data.scopes && data.scopes.scopes || []; scopeRecords.innerHTML = unavailable.scopes ? unavailableRecord('Runtime scope catalog') : scopes.length ? scopes.map(function (item) { return record(scopeRecords, item.runtime, item.scope.kind + ':' + item.scope.id, (item.capabilities && item.capabilities.readStatus) ? 'readable' : 'unproven'); }).join('') : '<p class="empty">No readable runtime scopes were reported.</p>';
-        var catalog = data.models && data.models.models || []; catalogModels.innerHTML = unavailable.models ? unavailableRecord('Model catalog') : catalog.length ? catalog.map(function (item) { return record(catalogModels, item.id, item.selectable ? 'Cataloged for observation.' : 'Not selectable in this observed policy.', item.selectable ? 'observed' : item.reason || 'blocked'); }).join('') : '<p class="empty">No observed models were reported.</p>';
+        var catalog = data.models && data.models.models || []; catalogModels.innerHTML = unavailable.models ? unavailableRecord('Model catalog') : catalog.length ? catalog.map(function (item) { var observed = typeof item.observedProfileCount === 'number' ? item.observedProfileCount : 0; var readable = typeof item.readableProfileCount === 'number' ? item.readableProfileCount : 0; var compatible = Array.isArray(item.runtimeCompatibility) ? item.runtimeCompatibility.join(', ') : 'Not reported'; var proof = item.verificationState === 'UNPROVEN' ? 'UNPROVEN — runtime application is not verified.' : 'Runtime proof not reported.'; return record(catalogModels, item.id, (item.selectable ? 'Observed in ' + observed + ' account record(s), ' + readable + ' readable; compatible runtimes: ' + compatible + '. ' : 'Not selectable in this observed policy. ') + proof, item.selectable ? 'UNPROVEN' : item.reason || 'blocked'); }).join('') : '<p class="empty">No observed models were reported.</p>';
         var audit = data.audit && data.audit.records || []; auditCursor = !unavailable.audit && data.audit && typeof data.audit.nextCursor === 'string' ? data.audit.nextCursor : ''; auditLoadMore.hidden = !auditCursor; auditRecords.innerHTML = unavailable.audit ? unavailableRecord('Audit history') : audit.length ? audit.map(auditRecord).join('') : '<p class="empty">No Account Center audit records are available.</p>';
         var operations = data.operations && data.operations.operations || []; operationCursor = !unavailable.operations && data.operations && typeof data.operations.nextCursor === 'string' ? data.operations.nextCursor : ''; operationLoadMore.hidden = !operationCursor; operationRecords.innerHTML = unavailable.operations ? unavailableRecord('Operation history') : operations.length ? operations.map(operationRecord).join('') : '<p class="empty">No completed protected operations are available.</p>';
       }

@@ -56,6 +56,10 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /\/api\/limits/);
     assert.match(html, /function renderLimits\(limitData, limitsUnavailable\)/);
     assert.match(html, /renderLimits\(data.limits, unavailable.limits\)/);
+    assert.match(html, /observedProfileCount/);
+    assert.match(html, /readableProfileCount/);
+    assert.match(html, /runtimeCompatibility/);
+    assert.match(html, /UNPROVEN — runtime application is not verified/);
     assert.match(html, /accountRef/);
     assert.match(html, /\/api\/scopes/);
     assert.match(html, /Capability discovery/);
