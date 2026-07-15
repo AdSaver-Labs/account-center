@@ -262,6 +262,36 @@ test("audit history supports bounded outcome filtering without accepting malform
   }
 });
 
+test("audit history exposes a bounded opaque-cursor page without leaking request digests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "a".repeat(64), summary: "First private@example.test event", warnings: [] });
+  await auditStore.append({ action: "route.use", outcome: "dry_run", proofState: "not_applicable", requestDigest: "b".repeat(64), summary: "Second private@example.test event", warnings: [] });
+  await auditStore.append({ action: "guided_auth.cancel", outcome: "blocked", proofState: "verified", requestDigest: "c".repeat(64), summary: "Third private@example.test event", warnings: [] });
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  try {
+    const first = await request(address.port, "/api/audit?limit=2", "test-token");
+    assert.equal(first.status, 200);
+    const firstBody = await first.json() as { records: Array<{ summary: string }>; nextCursor?: string };
+    assert.deepEqual(firstBody.records.map((record) => record.summary), ["Third [REDACTED_EMAIL] event", "Second [REDACTED_EMAIL] event"]);
+    assert.match(firstBody.nextCursor ?? "", /^audit_[a-f0-9-]{36}$/);
+
+    const second = await request(address.port, `/api/audit?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor ?? "")}`, "test-token");
+    assert.equal(second.status, 200);
+    const secondBody = await second.json() as { records: Array<{ summary: string }>; nextCursor?: string };
+    assert.deepEqual(secondBody.records.map((record) => record.summary), ["First [REDACTED_EMAIL] event"]);
+    assert.equal(secondBody.nextCursor, undefined);
+    assert.equal(JSON.stringify([firstBody, secondBody]).match(/[abc]{64}|private@example\\.test/), null);
+
+    const malformed = await request(address.port, "/api/audit?cursor=not-an-audit-id", "test-token");
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("mutation operation history is bearer-protected and exposes only redacted terminal evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const repository = new MutationRepository(join(root, "mutations"), { operationId: () => "op_test" });
