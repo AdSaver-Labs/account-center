@@ -453,8 +453,9 @@ test("guided-auth challenge inventory is bearer-protected and omits account targ
     const accepted = await request(address.port, "/api/auth-challenges", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
-    const body = await accepted.json() as { schemaVersion: string; challenges: Array<Record<string, unknown>> };
+    const body = await accepted.json() as { schemaVersion: string; generatedAt: string; challenges: Array<Record<string, unknown>> };
     assert.equal(body.schemaVersion, "account-center.auth-challenges.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(body.challenges.length, 1);
     assert.deepEqual(Object.keys(body.challenges[0]).sort(), ["createdAt", "expiresAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
     assert.equal(body.challenges[0].expiresAt, expiresAt);
@@ -476,8 +477,9 @@ test("guided-auth challenge detail is bearer-protected, redacted, and returns no
     const accepted = await request(address.port, path, "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
-    const body = await accepted.json() as { schemaVersion: string; challenge: Record<string, unknown> };
+    const body = await accepted.json() as { schemaVersion: string; generatedAt: string; challenge: Record<string, unknown> };
     assert.equal(body.schemaVersion, "account-center.auth-challenge.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(Object.keys(body.challenge).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
     assert.equal((await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", "test-token")).status, 404);
@@ -499,8 +501,9 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, and re
     const cancelled = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` } });
     assert.equal(cancelled.status, 200);
     assert.equal(cancelled.headers.get("cache-control"), "no-store");
-    const body = await cancelled.json() as { schemaVersion: string; challenge: Record<string, unknown> };
+    const body = await cancelled.json() as { schemaVersion: string; generatedAt: string; challenge: Record<string, unknown> };
     assert.equal(body.schemaVersion, "account-center.auth-challenge-cancel.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(Object.keys(body.challenge).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
     assert.equal(body.challenge.status, "cancelled");
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
