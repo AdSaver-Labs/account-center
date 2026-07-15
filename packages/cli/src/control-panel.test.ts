@@ -133,6 +133,8 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Expired — start a new guided-auth challenge only when the protected API supports it/);
     assert.match(html, /UNPROVEN — guided-auth lifecycle state is not recognized/);
     assert.match(html, /function isChallengeDetail\(challenge\)/);
+    assert.match(html, /typeof scope === 'string' && \/\^\[a-z\]\[a-z0-9_-\]\{0,31\}/);
+    assert.match(html, /scope is an exact redacted API selector, not a browser-owned scope object/);
     assert.match(html, /Guided-auth challenge detail was malformed or incomplete/);
     assert.match(html, /function scopeLabel\(scope\)/);
     assert.match(html, /scope not reported/);
