@@ -26,6 +26,9 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Receipts &amp; audit/);
     assert.match(html, /data-view="dashboard"/);
     assert.match(html, /\/api\/auth-challenges/);
+    assert.match(html, /\/api\/capabilities/);
+    assert.match(html, /function renderOperatorActions/);
+    assert.match(html, /action && action.reason/);
     assert.match(html, /\/api\/audit/);
     assert.match(html, /<label for="audit-outcome">Outcome<\/label>/);
     assert.match(html, /Filter audit history/);
@@ -33,7 +36,7 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /URLSearchParams/);
     assert.match(html, /\/api\/models/);
     assert.match(html, /\/api\/scopes/);
-    assert.match(html, /Unsupported/);
+    assert.match(html, /Capability discovery/);
     assert.match(html, /authorization: 'Bearer ' \+ token.value/);
     assert.match(html, /Cancel pending challenge/);
     assert.match(html, /View challenge details/);
