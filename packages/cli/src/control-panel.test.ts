@@ -63,6 +63,10 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /id="operation-load-more"/);
     assert.match(html, /Load older protected operations/);
     assert.match(html, /function loadOperations\(cursor\)/);
+    assert.match(html, /function selectedScopeKind\(\)/);
+    assert.match(html, /parameters\.set\('runtime', runtime\)/);
+    assert.match(html, /parameters\.set\('scopeKind', scopeKind\)/);
+    assert.match(html, /selected runtime and scope kind/);
     assert.match(html, /operationCursor/);
     assert.match(html, /id="operation-filter"/);
     assert.match(html, /<label for="operation-outcome">Outcome<\/label>/);

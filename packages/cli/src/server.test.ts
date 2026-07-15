@@ -429,6 +429,42 @@ test("mutation operation history is bounded, newest-first, and paginates with an
   }
 });
 
+test("mutation operation history filters by the redacted runtime and scope kind", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  let sequence = 0;
+  const repository = new MutationRepository(join(root, "mutations"), { operationId: () => `op_filter_${++sequence}` });
+  for (const audit of [
+    { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "default" },
+    { action: "model.use", provider: "openai", runtime: "hermes", scopeKind: "profile" },
+    { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent" }
+  ] as const) {
+    const claim = await repository.claim({
+      idempotencyKey: `operation-filter-${++sequence}-key`,
+      requestDigest: String(sequence).repeat(64),
+      audit: { ...audit, scopeIdDigest: "a".repeat(64), targetDigest: "b".repeat(64) }
+    });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await repository.complete({ operationId: claim.operationId, outcome: "blocked" });
+  }
+  const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    const filtered = await request(address.port, "/api/mutation-operations?runtime=openclaw&scopeKind=agent", "test-token");
+    assert.equal(filtered.status, 200);
+    const body = await filtered.json() as { operations: Array<{ operationId: string; audit: { runtime: string; scopeKind: string } }> };
+    assert.deepEqual(body.operations.map(({ operationId, audit }) => ({ operationId, runtime: audit.runtime, scopeKind: audit.scopeKind })), [
+      { operationId: "op_filter_6", runtime: "openclaw", scopeKind: "agent" }
+    ]);
+    assert.equal(JSON.stringify(body).match(/operation-filter|[ab]{64}/), null);
+
+    const malformed = await request(address.port, "/api/mutation-operations?runtime=OpenClaw", "test-token");
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("protected API contains repository failures without returning internal error detail", async () => {
   const repository = { list: async () => { throw new Error("private@example.test mutation repository corrupt"); } } as unknown as MutationRepository;
   const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
