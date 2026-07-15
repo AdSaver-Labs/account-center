@@ -16,7 +16,10 @@
     "typecheck": "tsc -b --pretty false && node scripts/checkpoint.mjs typecheck passed"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^20.14.11",
+    "axe-core": "^4.12.1",
     "typescript": "^5.5.4"
   },
   "engines": {
