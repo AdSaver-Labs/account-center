@@ -17,6 +17,11 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /View guided auth/);
     assert.match(html, /ArrowRight/);
     assert.match(html, /ArrowLeft/);
+    assert.match(html, /tabindex="0" aria-selected="true"/);
+    assert.match(html, /tab.tabIndex = selected \? 0 : -1/);
+    assert.match(html, /Launch token rejected/);
+    assert.match(html, /Readable/);
+    assert.doesNotMatch(html, /'online'/);
     assert.match(html, /Guided auth/);
     assert.match(html, /Receipts &amp; audit/);
     assert.match(html, /data-view="dashboard"/);
