@@ -359,6 +359,29 @@ test("audit history supports bounded outcome filtering without accepting malform
   }
 });
 
+test("audit history supports bounded UTC calendar-date filters without accepting malformed dates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "d".repeat(64), summary: "Blocked for private@example.test", warnings: [] });
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const accepted = await request(address.port, `/api/audit?from=${today}&to=${today}`, "test-token");
+    assert.equal(accepted.status, 200);
+    const body = await accepted.json() as { records: Array<{ action: string }> };
+    assert.deepEqual(body.records.map(({ action }) => action), ["route.use"]);
+
+    for (const path of ["/api/audit?from=2026-7-1", "/api/audit?to=2026-02-30", "/api/audit?from=2026-07-02&to=2026-07-01", "/api/audit?from=2026-07-01&from=2026-07-01"]) {
+      const malformed = await request(address.port, path, "test-token");
+      assert.equal(malformed.status, 400, path);
+      assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("audit history filters an exact safe action category without broadening the response", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const auditStore = new AuditStore(join(root, "audit.json"));
