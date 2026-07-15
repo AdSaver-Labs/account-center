@@ -31,6 +31,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? modelCatalog(result.status) : { error: "status_unavailable" });
     }
+    if (request.url === "/api/scopes") {
+      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
+      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? runtimeScopeCatalog(result.status) : { error: "status_unavailable" });
+    }
     if (request.method === "GET" && request.url === "/api/auth-challenges") return send(response, 200, await authChallengeInventory(options.challengeStore));
     const challengeId = authChallengeId(request.url);
     if (challengeId) {
@@ -88,6 +93,20 @@ function modelCatalog(status: AccountCenterStatus): unknown {
   };
 }
 
+function runtimeScopeCatalog(status: AccountCenterStatus): unknown {
+  return {
+    schemaVersion: "account-center.runtime-scopes.v1",
+    generatedAt: status.generatedAt,
+    scopes: [...status.runtimes]
+      .sort((left, right) => left.key.localeCompare(right.key))
+      .map((runtime) => ({
+        runtime: runtime.key,
+        scope: { kind: "default", id: "default" },
+        capabilities: runtime.capabilities
+      }))
+  };
+}
+
 function auditRecordView({ id, createdAt, action, outcome, proofState, summary, warnings }: AuditRecord) {
   return { id, createdAt, action, outcome, proofState, summary, warnings };
 }
@@ -111,6 +130,7 @@ function agentCapabilities(): unknown {
     actions: [
       { id: "status", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/status" }, requires: ["bearer_token"] },
       { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] },
+      { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] },
       { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] },
       { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] },
       { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id"] },

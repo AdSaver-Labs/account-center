@@ -46,6 +46,27 @@ test("read-only model catalog is bearer-protected, versioned, and reflects disab
   }
 });
 
+test("read-only runtime scope catalog is bearer-protected, versioned, and exposes no profile metadata", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/scopes")).status, 401);
+    const accepted = await request(address.port, "/api/scopes", "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as { schemaVersion: string; generatedAt: string; scopes: Array<Record<string, unknown>> };
+    assert.equal(body.schemaVersion, "account-center.runtime-scopes.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(body.scopes, [
+      { runtime: "hermes", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+      { runtime: "openclaw", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }
+    ]);
+    assert.equal(JSON.stringify(body).match(/profileId|email|token|secret|password/i), null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("agent capability contract is bearer-protected, redacted, and explicit about unavailable mutations", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
@@ -59,6 +80,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.equal(body.target, "account-center");
     assert.deepEqual(body.actions.find((action) => action.id === "status"), { id: "status", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/status" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "models.list"), { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "runtime_scopes.list"), { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id"] });
