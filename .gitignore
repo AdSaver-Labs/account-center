@@ -6,6 +6,8 @@ dist/
 *.sqlite
 *.db
 coverage/
+artifacts/
+test-results/
 *.tsbuildinfo
 .DS_Store
 .account-center/
