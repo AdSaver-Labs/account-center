@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import {
   AccountCenterStatus,
   AuditAction,
+  AuditStore,
+  AuthChallengeStore,
   CommandRunner,
   createReceipt,
   createRuntimeAdapter,
   executeAccountCenterCommand,
   guardStatus,
+  MutationRepository,
   nextEligible,
   parseRuntimeSource,
   probeProviders,
@@ -502,13 +506,24 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
 }
 
+export function createPersistentControlPanel(options: { token: string; source: CliOptions["source"]; stateRoot?: string }) {
+  const stateRoot = resolve(options.stateRoot ?? process.env.ACCOUNT_CENTER_DATA_DIR ?? join(homedir(), ".account-center"));
+  return createAccountCenterServer({
+    token: options.token,
+    source: options.source,
+    auditStore: new AuditStore(join(stateRoot, "audit.v1.json")),
+    challengeStore: new AuthChallengeStore(join(stateRoot, "auth-challenges.v1.json")),
+    mutationRepository: new MutationRepository(join(stateRoot, "mutation-operations"))
+  });
+}
+
 async function serveControlPanel(argv: string[]): Promise<void> {
   const portValue = valueAfter(argv, "--port") ?? "4317";
   const port = Number(portValue);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
   const token = valueAfter(argv, "--token") ?? randomBytes(24).toString("base64url");
   const source = parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE);
-  const app = createAccountCenterServer({ token, source });
+  const app = createPersistentControlPanel({ token, source });
   await app.listen(port);
   process.stdout.write(`Account Center local panel: http://127.0.0.1:${port}/\nLaunch token: ${token}\nPress Ctrl+C to stop.\n`);
   await new Promise<void>((resolve) => process.once("SIGINT", resolve));
