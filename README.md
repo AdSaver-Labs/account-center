@@ -72,6 +72,18 @@ ACCOUNT_CENTER_GENERIC_COMMAND="node examples/odysseus-status.mjs" \
 
 The CLI uses `tests/fixtures/status.fixture.json` by default and writes token-free local status files under `.account-center/`. Live OpenClaw reads require explicit `--source openclaw` or `ACCOUNT_CENTER_SOURCE=openclaw`. Mutation-shaped commands stay dry-run unless `--apply` is explicit and supported.
 
+## Local team-beta panel (read-only)
+
+After building, launch the local control panel on an ephemeral **loopback-only** port:
+
+```bash
+node packages/cli/dist/index.js serve --port 0 --source fixture
+```
+
+The launcher prints the actual `127.0.0.1` URL and a newly generated bearer token for that one process. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`.
+
+The initial beta path is limited to protected status, limits, scopes, model catalog, local guided-auth challenge inventory/cancellation, and redacted audit/operation history. Routing, model changes, account deletion, and live guided-auth completion remain visibly blocked or `UNPROVEN` until their supported runtime contracts and proof gates exist.
+
 ## Manual chat bridge
 
 Phase 2 adds an actual `/auth` parser/bridge over the CLI:

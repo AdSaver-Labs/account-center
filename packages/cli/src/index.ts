@@ -520,12 +520,14 @@ export function createPersistentControlPanel(options: { token: string; source: C
 async function serveControlPanel(argv: string[]): Promise<void> {
   const portValue = valueAfter(argv, "--port") ?? "4317";
   const port = Number(portValue);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
+  // Port zero asks the kernel for an ephemeral loopback port. This makes the
+  // local, token-protected beta smoke safe to run without competing for 4317.
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
   const token = valueAfter(argv, "--token") ?? randomBytes(24).toString("base64url");
   const source = parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE);
   const app = createPersistentControlPanel({ token, source });
-  await app.listen(port);
-  process.stdout.write(`Account Center local panel: http://127.0.0.1:${port}/\nLaunch token: ${token}\nPress Ctrl+C to stop.\n`);
+  const address = await app.listen(port);
+  process.stdout.write(`Account Center local panel: http://127.0.0.1:${address.port}/\nLaunch token: ${token}\nPress Ctrl+C to stop.\n`);
   await new Promise<void>((resolve) => process.once("SIGINT", resolve));
   await app.close();
 }

@@ -1,9 +1,53 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { runCli } from "./index.js";
+
+test("serve supports an ephemeral loopback port with a per-launch token", async () => {
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source", "fixture"], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  let errors = "";
+  let exited = false;
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => { output += chunk; });
+  child.stderr.on("data", (chunk: string) => { errors += chunk; });
+  child.once("exit", () => { exited = true; });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const deadline = setTimeout(() => reject(new Error(`server launch timed out: ${errors}`)), 5_000);
+      child.stdout.on("data", () => {
+        if (/Account Center local panel: http:\/\/127\.0\.0\.1:\d+\//.test(output) && /Launch token: [A-Za-z0-9_-]+/.test(output)) {
+          clearTimeout(deadline);
+          resolve();
+        }
+      });
+      child.once("error", reject);
+      child.once("exit", (code) => { clearTimeout(deadline); reject(new Error(`server exited before launch: ${code}: ${errors}`)); });
+    });
+    const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)\/\nLaunch token: ([A-Za-z0-9_-]+)/);
+    assert.ok(match);
+    const [, port, token] = match;
+    assert.notEqual(port, "0");
+    assert.match(token, /^[A-Za-z0-9_-]{32}$/);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/status`)).status, 401);
+    const status = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(status.status, 200);
+    assert.equal(status.headers.get("cache-control"), "no-store");
+    const panel = await fetch(`http://127.0.0.1:${port}/`);
+    assert.equal(panel.status, 200);
+    assert.match(await panel.text(), /Account Center/);
+  } finally {
+    if (!exited) {
+      child.kill("SIGINT");
+      await once(child, "exit");
+    }
+  }
+});
 
 test("status --json emits fixture-backed no-secret export", async () => {
   const result = await runCli(["status", "--json", "--no-write-export"]);
