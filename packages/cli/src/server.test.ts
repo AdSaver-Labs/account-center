@@ -322,6 +322,35 @@ test("audit history supports bounded outcome filtering without accepting malform
   }
 });
 
+test("audit history filters an exact safe action category without broadening the response", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "a".repeat(64), summary: "Route action for private@example.test", warnings: [] });
+  await auditStore.append({ action: "guided_auth.cancel", outcome: "applied", proofState: "verified", requestDigest: "b".repeat(64), summary: "Guided-auth action for private@example.test", warnings: [] });
+  await auditStore.append({ action: "route.use.private@example.test", outcome: "blocked", proofState: "unproven", requestDigest: "c".repeat(64), summary: "Legacy unsafe action for private@example.test", warnings: [] });
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  try {
+    const filtered = await request(address.port, "/api/audit?action=route.use", "test-token");
+    assert.equal(filtered.status, 200);
+    const body = await filtered.json() as { records: Array<{ action: string; summary: string }> };
+    assert.deepEqual(body.records.map(({ action }) => action), ["route.use"]);
+    assert.equal(JSON.stringify(body).includes("private@example.test"), false);
+
+    const all = await request(address.port, "/api/audit", "test-token");
+    assert.equal(all.status, 200);
+    const allBody = await all.json() as { records: Array<{ action: string }> };
+    assert.deepEqual(allBody.records.map(({ action }) => action), ["action_redacted", "guided_auth.cancel", "route.use"]);
+    assert.equal(JSON.stringify(allBody).includes("private@example.test"), false);
+
+    const malformed = await request(address.port, "/api/audit?action=route%20use", "test-token");
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("audit history exposes a bounded opaque-cursor page without leaking request digests", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const auditStore = new AuditStore(join(root, "audit.json"));

@@ -36,10 +36,13 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /action && action.reason/);
     assert.match(html, /\/api\/audit/);
     assert.match(html, /<label for="audit-outcome">Outcome<\/label>/);
+    assert.match(html, /<label for="audit-action">Action category<\/label>/);
+    assert.match(html, /id="audit-action" name="action"/);
     assert.match(html, /Filter audit history/);
     assert.match(html, /id="audit-load-more"/);
     assert.match(html, /Load older audit records/);
     assert.match(html, /function loadAudit\(cursor\)/);
+    assert.match(html, /parameters\.set\('action', auditAction\.value\)/);
     assert.match(html, /nextCursor/);
     assert.match(html, /URLSearchParams/);
     assert.match(html, /function auditRecord\(item\)/);
