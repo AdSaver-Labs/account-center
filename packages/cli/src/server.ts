@@ -1,6 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
@@ -26,6 +26,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.url === "/api/capabilities") return send(response, 200, agentCapabilities());
     if (request.url === "/api/audit") return send(response, 200, await auditHistory(options.auditStore));
     if (request.url === "/api/mutation-operations") return send(response, 200, await mutationOperationHistory(options.mutationRepository));
+    if (request.url === "/api/models") {
+      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
+      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? modelCatalog(result.status) : { error: "status_unavailable" });
+    }
     if (request.method === "GET" && request.url === "/api/auth-challenges") return send(response, 200, await authChallengeInventory(options.challengeStore));
     const challengeId = authChallengeId(request.url);
     if (challengeId) {
@@ -72,6 +77,17 @@ async function mutationOperationHistory(repository?: MutationRepository): Promis
   };
 }
 
+function modelCatalog(status: AccountCenterStatus): unknown {
+  const known = new Set([...status.profiles.flatMap((profile) => profile.models), ...status.policy.disabledModels]);
+  return {
+    schemaVersion: "account-center.models.v1",
+    generatedAt: status.generatedAt,
+    models: Array.from(known).sort().map((id) => status.policy.disabledModels.includes(id)
+      ? { id, selectable: false, reason: "disabled_by_policy" }
+      : { id, selectable: true })
+  };
+}
+
 function auditRecordView({ id, createdAt, action, outcome, proofState, summary, warnings }: AuditRecord) {
   return { id, createdAt, action, outcome, proofState, summary, warnings };
 }
@@ -94,6 +110,7 @@ function agentCapabilities(): unknown {
     transport: { loopbackOnly: true, authentication: "bearer_token", cacheControl: "no-store" },
     actions: [
       { id: "status", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/status" }, requires: ["bearer_token"] },
+      { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] },
       { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] },
       { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] },
       { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id"] },

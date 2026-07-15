@@ -43,7 +43,7 @@ Current capability schema:
 
 The action catalog is authoritative for the running server. An `available` action supplies its fixed local `endpoint` method and path; `:id` is an opaque path parameter, never an account identity or credential. No endpoint is supplied for blocked or `UNPROVEN` actions, so agents must not infer or construct a mutation URL. Agents must not assume that a planned UI/API feature exists merely because it appears in a roadmap.
 
-The catalog advertises each protected local API action independently. Currently available local actions are `status`, `auth_challenges.list`, `auth_challenges.detail`, `auth_challenges.cancel`, `audit.history`, and `mutation_operations.history`. `auth_challenges.cancel` changes only Account Center's local redacted challenge record and additionally requires a same-origin request; it is not runtime authentication mutation.
+The catalog advertises each protected local API action independently. Currently available local actions are `status`, `models.list`, `auth_challenges.list`, `auth_challenges.detail`, `auth_challenges.cancel`, `audit.history`, and `mutation_operations.history`. `auth_challenges.cancel` changes only Account Center's local redacted challenge record and additionally requires a same-origin request; it is not runtime authentication mutation.
 
 ## Current safe operations
 
@@ -51,6 +51,7 @@ The catalog advertises each protected local API action independently. Currently 
 |---|---|---|---|
 | API | `GET /api/capabilities` | Available | Discover behavior before every workflow. |
 | API | `GET /api/status` | Available | Read-only; validate schema and redaction assertion. |
+| API | `GET /api/models` | Available for a read-only catalog | Bearer token required; response is `account-center.models.v1` and contains only model IDs plus policy-derived selectability. It excludes profile/account metadata and does not alter runtime model policy. |
 | API | `GET /api/auth-challenges` | Available for local challenge inventory only | Bearer token required; response is `account-center.auth-challenges.v1` and contains only redacted lifecycle metadata plus an optional expiry timestamp. It does not start or alter runtime authentication. |
 | API | `GET /api/auth-challenges/:id` | Available for an existing local challenge only | Bearer token required; response is `account-center.auth-challenge.v1` and contains only redacted lifecycle metadata plus an optional expiry timestamp. An opaque ID that is not present returns `404`; it does not start or alter runtime authentication. |
 | API | `POST /api/auth-challenges/:id/cancel` | Available for an existing local challenge only | Browser-origin request plus bearer token required; response is `account-center.auth-challenge-cancel.v1` and contains only redacted lifecycle metadata plus an optional expiry timestamp. This cancels Account Center's local challenge record; it does not alter runtime credentials. |
