@@ -152,21 +152,21 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       mode: "mutation",
       state: "unproven",
       reason: "protected_start_contract_missing_review_idempotency_runtime_proof",
-      requires: ["bearer_token", "explicit_confirmation", "idempotency_key"]
+      requires: ["bearer_token", "explicit_runtime_scope", "explicit_confirmation", "idempotency_key"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "routes"), {
       id: "routes",
       mode: "mutation",
       state: "unproven",
       reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof",
-      requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"]
+      requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "models"), {
       id: "models",
       mode: "mutation",
       state: "unproven",
       reason: "protected_model_contract_missing_scoped_review_idempotency_runtime_proof",
-      requires: ["bearer_token", "dry_run", "explicit_confirmation", "idempotency_key"]
+      requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "updates"), {
       id: "updates",
