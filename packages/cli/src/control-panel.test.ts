@@ -124,8 +124,15 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /View challenge details/);
     assert.match(html, /id="guided-detail"/);
     assert.match(html, /function loadChallengeDetail\(id\)/);
-    assert.match(html, /\/api\/auth-challenges\/.*encodeURIComponent\(id\)/);
+    assert.match(html, /auth-challenges.*encodeURIComponent\(id\)/);
     assert.match(html, /Guided-auth challenge detail could not be verified/);
+    assert.match(html, /function challengeDetailState\(challenge\)/);
+    assert.match(html, /Pending — complete verification outside Account Center/);
+    assert.match(html, /Cancelled — no credentials were changed by cancellation/);
+    assert.match(html, /Expired — start a new guided-auth challenge only when the protected API supports it/);
+    assert.match(html, /UNPROVEN — guided-auth lifecycle state is not recognized/);
+    assert.match(html, /function isChallengeDetail\(challenge\)/);
+    assert.match(html, /Guided-auth challenge detail was malformed or incomplete/);
     assert.match(html, /function scopeLabel\(scope\)/);
     assert.match(html, /scope not reported/);
     assert.match(html, /id="context-selector"/);
