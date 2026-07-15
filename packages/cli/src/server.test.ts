@@ -354,6 +354,45 @@ test("mutation operation history is bearer-protected and exposes only redacted t
   }
 });
 
+test("mutation operation history is bounded, newest-first, and paginates with an opaque redacted cursor", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  let sequence = 0;
+  const repository = new MutationRepository(join(root, "mutations"), { operationId: () => `op_page_${++sequence}` });
+  for (const outcome of ["applied", "blocked", "failed"] as const) {
+    const claim = await repository.claim({
+      idempotencyKey: `page-idempotency-key-${outcome}-000`,
+      requestDigest: outcome[0].repeat(64),
+      audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "default", scopeIdDigest: "a".repeat(64), targetDigest: "b".repeat(64) }
+    });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await repository.complete({ operationId: claim.operationId, outcome });
+  }
+  const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    const first = await request(address.port, "/api/mutation-operations?limit=2", "test-token");
+    assert.equal(first.status, 200);
+    const firstBody = await first.json() as { schemaVersion: string; generatedAt: string; operations: Array<{ operationId: string; outcome?: string }>; nextCursor?: string };
+    assert.equal(firstBody.schemaVersion, "account-center.mutation-operations.v1");
+    assert.match(firstBody.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(firstBody.operations.map(({ operationId, outcome }) => ({ operationId, outcome })), [{ operationId: "op_page_3", outcome: "failed" }, { operationId: "op_page_2", outcome: "blocked" }]);
+    assert.equal(firstBody.nextCursor, "op_page_2");
+
+    const second = await request(address.port, `/api/mutation-operations?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor ?? "")}`, "test-token");
+    assert.equal(second.status, 200);
+    const secondBody = await second.json() as { operations: Array<{ operationId: string }>; nextCursor?: string };
+    assert.deepEqual(secondBody.operations.map(({ operationId }) => operationId), ["op_page_1"]);
+    assert.equal(secondBody.nextCursor, undefined);
+    assert.equal(JSON.stringify([firstBody, secondBody]).match(/page-idempotency|[ab]{64}/), null);
+
+    const malformed = await request(address.port, "/api/mutation-operations?limit=101", "test-token");
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("protected API contains repository failures without returning internal error detail", async () => {
   const repository = { list: async () => { throw new Error("private@example.test mutation repository corrupt"); } } as unknown as MutationRepository;
   const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });

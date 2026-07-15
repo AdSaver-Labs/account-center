@@ -47,6 +47,11 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /function operationRecord\(item\)/);
     assert.match(html, /Operation ID:/);
     assert.match(html, /Completed:/);
+    assert.match(html, /id="operation-load-more"/);
+    assert.match(html, /Load older protected operations/);
+    assert.match(html, /function loadOperations\(cursor\)/);
+    assert.match(html, /operationCursor/);
+    assert.match(html, /Older protected operations could not be verified/);
     assert.match(html, /\/api\/models/);
     assert.match(html, /\/api\/limits/);
     assert.match(html, /function renderLimits\(limitData, limitsUnavailable\)/);
