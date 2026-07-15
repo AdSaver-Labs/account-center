@@ -25,6 +25,9 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Cancel pending challenge/);
     assert.match(html, /\/api\/auth-challenges\/.*encodeURIComponent\(id\).*\/cancel/);
     assert.match(html, /credentials: 'same-origin'/);
+    assert.match(html, /UNPROVEN — data unavailable/);
+    assert.match(html, /Retry workspace data/);
+    assert.match(html, /some evidence is UNPROVEN/);
     assert.doesNotMatch(html, /localStorage|sessionStorage/);
   } finally {
     await app.close();
