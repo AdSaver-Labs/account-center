@@ -46,14 +46,14 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [ ] UI actions call the protected local API; it is not a status-only mock shell.
 - [ ] A Settings / Update Center lets the operator check for, review, and explicitly apply verified Account Center updates without manually pulling from GitHub; it shows installed/available versions, release provenance and notes, creates a backup, restarts only the local Account Center process, health-checks the result, and reports verified/`UNPROVEN`/rollback state.
 - [ ] Update Center never silently executes arbitrary repository code, accepts a branch name as a release, or updates Hermes/OpenClaw/Codex; those platforms remain separate controlled update surfaces.
-- [ ] Visual and accessibility QA pass at desktop and narrow viewport sizes.
+- [x] Visual and accessibility QA pass at desktop and narrow viewport sizes: independent Chromium proof covers desktop, 760px, 430px, and 320px with no horizontal page overflow; token focus repair, keyboard tab navigation, truthful blocked/UNPROVEN states, guided-auth cancellation focus restoration, and axe scans with no serious or critical violations.
 
 ### 5. Installability and release verification
 
 - [ ] One documented install/build/start path works on a clean supported Node 24 environment.
-- [ ] `npm test`, `npm run typecheck`, `npm run build`, API integration/security tests, and UI/browser smoke tests pass.
+- [x] `npm test`, `npm run typecheck`, `npm run build`, API integration/security tests, and UI/browser smoke tests pass: 107/107 project tests and 6/6 fixture-only Chromium/axe browser tests passed on the merged branch.
 - [ ] Dependency audit and secret scan have no unresolved release blockers.
-- [ ] A real local launch smoke proves loopback binding, token protection, dashboard load, and at least one safe action flow.
+- [x] A real fixture-only local launch smoke proved loopback binding, token protection, dashboard load, and the safe local guided-auth cancellation flow; no live runtime routing, credential, or model change was attempted or claimed.
 - [ ] README, API/command contract, threat/safety model, rollback/backup behavior, and test instructions are current.
 - [ ] Release commit and tag are pushed; final handoff gives exact Mac install/test steps and known limitations.
 
