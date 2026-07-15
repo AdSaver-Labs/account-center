@@ -94,10 +94,15 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /function selectedScopeQuery\(\)/);
     assert.match(html, /function loadModels\(\)/);
     assert.match(html, /function loadLimits\(\)/);
-    assert.match(html, /function loadChallenges\(\)/);
+    assert.match(html, /function loadChallenges\(cursor\)/);
+    assert.match(html, /id="guided-load-more"/);
+    assert.match(html, /Load older guided-auth challenges/);
+    assert.match(html, /parameters\.set\('cursor', cursor\)/);
+    assert.match(html, /challengeCursor/);
+    assert.match(html, /Older guided-auth challenges could not be verified/);
     assert.match(html, /api\('\/api\/models' \+ selectedRuntimeQuery\(\)\)/);
     assert.match(html, /api\('\/api\/limits' \+ selectedRuntimeQuery\(\)\)/);
-    assert.match(html, /api\('\/api\/auth-challenges' \+ selectedScopeQuery\(\)\)/);
+    assert.match(html, /new URLSearchParams\(selectedScopeQuery\(\)\.slice\(1\)\)/);
     assert.match(html, /observedProfileCount/);
     assert.match(html, /readableProfileCount/);
     assert.match(html, /runtimeCompatibility/);

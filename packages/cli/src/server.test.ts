@@ -596,6 +596,44 @@ test("guided-auth challenge inventory can be bounded to the selected runtime and
   }
 });
 
+test("guided-auth challenge history is newest-first, cursor-paginated, and remains redacted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const first = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "first-private@example.test", scope: "default" });
+  const second = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "second-private@example.test", scope: "default" });
+  const third = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "third-private@example.test", scope: "default" });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
+  const address = await app.listen();
+  try {
+    const newest = await request(address.port, "/api/auth-challenges?limit=1", "test-token");
+    assert.equal(newest.status, 200);
+    const newestBody = await newest.json() as { challenges: Array<{ id: string }>; nextCursor?: string };
+    assert.deepEqual(newestBody.challenges.map(({ id }) => id), [third.id]);
+    assert.equal(newestBody.nextCursor, third.id);
+    assert.equal(JSON.stringify(newestBody).match(/(?:first|second|third)-private@example\.test/), null);
+
+    const older = await request(address.port, `/api/auth-challenges?limit=1&cursor=${encodeURIComponent(third.id)}`, "test-token");
+    assert.equal(older.status, 200);
+    const olderBody = await older.json() as { challenges: Array<{ id: string }>; nextCursor?: string };
+    assert.deepEqual(olderBody.challenges.map(({ id }) => id), [second.id]);
+    assert.equal(olderBody.nextCursor, second.id);
+
+    const oldest = await request(address.port, `/api/auth-challenges?limit=1&cursor=${encodeURIComponent(second.id)}`, "test-token");
+    assert.equal(oldest.status, 200);
+    const oldestBody = await oldest.json() as { challenges: Array<{ id: string }>; nextCursor?: string };
+    assert.deepEqual(oldestBody.challenges.map(({ id }) => id), [first.id]);
+    assert.equal(oldestBody.nextCursor, undefined);
+
+    for (const path of ["/api/auth-challenges?limit=0", "/api/auth-challenges?limit=101", "/api/auth-challenges?cursor=auth_not-a-uuid", `/api/auth-challenges?cursor=${encodeURIComponent(first.id)}&cursor=${encodeURIComponent(second.id)}`]) {
+      const malformed = await request(address.port, path, "test-token");
+      assert.equal(malformed.status, 400, path);
+      assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("guided-auth challenge detail is bearer-protected, redacted, and returns not found for an unknown opaque id", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
