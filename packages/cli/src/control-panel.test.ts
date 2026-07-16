@@ -121,8 +121,9 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /parameters\.set\('cursor', cursor\)/);
     assert.match(html, /challengeCursor/);
     assert.match(html, /Older guided-auth challenges could not be verified/);
-    assert.match(html, /api\('\/api\/models' \+ selectedRuntimeQuery\(\)\)/);
-    assert.match(html, /api\('\/api\/limits' \+ selectedRuntimeQuery\(\)\)/);
+    assert.match(html, /api\('\/api\/models' \+ selectedScopeQuery\(\)\)/);
+    assert.match(html, /api\('\/api\/limits' \+ selectedScopeQuery\(\)\)/);
+    assert.match(html, /scope\.kind === 'default' && scope\.id === 'default' \? 'default'/);
     assert.match(html, /new URLSearchParams\(selectedScopeQuery\(\)\.slice\(1\)\)/);
     assert.match(html, /observedProfileCount/);
     assert.match(html, /readableProfileCount/);
@@ -174,7 +175,7 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /runtimeScope\.hidden = scopes\.length === 1/);
     assert.match(html, /contextChip\.hidden = scopes\.length !== 1/);
     assert.match(html, /selectedContext = runtimeScope.value/);
-    assert.match(html, /Context changed\. Refreshing observed runtime data/);
+    assert.match(html, /Context changed\. Refreshing protected scoped runtime data/);
     assert.match(html, /\/api\/auth-challenges\/.*encodeURIComponent\(cancelChallengeId\).*\/cancel/);
     assert.doesNotMatch(html, /\/api\/auth-challenges\/(?:start|complete)/);
     assert.match(html, /credentials: 'same-origin'/);

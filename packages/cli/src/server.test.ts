@@ -216,6 +216,28 @@ test("selected-runtime inventory reads are bearer-protected, bounded to compatib
   }
 });
 
+test("selected default-scope inventory reads require an exact observed runtime scope", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const limits = await request(address.port, "/api/limits?runtime=hermes&scope=default", "test-token");
+    assert.equal(limits.status, 200);
+    assert.deepEqual((await limits.json() as { accounts: Array<{ accountRef: string }> }).accounts.map(({ accountRef }) => accountRef), ["account-1", "account-2", "account-3"]);
+
+    const models = await request(address.port, "/api/models?runtime=hermes&scope=default", "test-token");
+    assert.equal(models.status, 200);
+    assert.deepEqual((await models.json() as { models: Array<{ id: string }> }).models.map(({ id }) => id), ["openai/gpt-4.1", "openai/gpt-5.3-codex", "openai/gpt-5.5"]);
+
+    for (const path of ["/api/limits?scope=default", "/api/models?runtime=hermes&scope=agent:qa", "/api/limits?runtime=codex&scope=default", "/api/models?runtime=hermes&scope=default&scope=default"]) {
+      const response = await request(address.port, path, "test-token");
+      assert.equal(response.status, 400, path);
+      assert.deepEqual(await response.json(), { error: "invalid_query" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("read-only runtime scope catalog is bearer-protected, versioned, and exposes no profile metadata", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
