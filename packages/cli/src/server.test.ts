@@ -264,6 +264,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     });
     assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.history"), { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.detail"), { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] });
     assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), {
       id: "account.delete",
       mode: "mutation",
@@ -466,6 +467,47 @@ test("mutation operation history is bearer-protected and exposes only redacted t
       audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", warningCodes: ["runtime_unavailable"] }
     }]);
     assert.equal(JSON.stringify(body).match(/[abc]{64}|s3ZMdvUKp3wnaAq8EKUla9B1/), null);
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected operation detail is bearer-protected, redacted, and does not expose receipt digests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const repository = new MutationRepository(join(root, "mutations"), { operationId: () => "op_detail" });
+  const claim = await repository.claim({
+    idempotencyKey: "detail-idempotency-key-0000",
+    requestDigest: "a".repeat(64),
+    audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", scopeIdDigest: "b".repeat(64), targetDigest: "c".repeat(64) }
+  });
+  if (claim.kind !== "execute") throw new Error("expected executable test operation");
+  await repository.complete({ operationId: claim.operationId, outcome: "blocked", warningCodes: ["runtime_unavailable"] });
+  const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/mutation-operations/op_detail")).status, 401);
+    const accepted = await request(address.port, "/api/mutation-operations/op_detail", "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as { schemaVersion: string; generatedAt: string; operation: Record<string, unknown> };
+    assert.equal(body.schemaVersion, "account-center.mutation-operation.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(body.operation, {
+      operationId: "op_detail", state: "completed", outcome: "blocked",
+      createdAt: body.operation.createdAt, completedAt: body.operation.completedAt,
+      audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", warningCodes: ["runtime_unavailable"] }
+    });
+    assert.equal(JSON.stringify(body).match(/detail-idempotency|[abc]{64}/), null);
+
+    const wrongMethod = await fetch(`http://127.0.0.1:${address.port}/api/mutation-operations/op_detail`, {
+      method: "POST", headers: { authorization: "Bearer test-token" }
+    });
+    assert.equal(wrongMethod.status, 405);
+    assert.equal(wrongMethod.headers.get("allow"), "GET");
+
+    const missing = await request(address.port, "/api/mutation-operations/op_missing", "test-token");
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "not_found" });
   } finally {
     await app.close();
   }

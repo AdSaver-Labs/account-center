@@ -58,6 +58,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const history = await mutationOperationHistory(options.mutationRepository, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
     }
+    const operationId = request.method === "GET" ? mutationOperationId(request.url) : undefined;
+    if (operationId) {
+      const operation = await mutationOperationDetail(options.mutationRepository, operationId);
+      return operation ? send(response, 200, operation) : send(response, 404, { error: "not_found" });
+    }
     const pathname = new URL(request.url ?? "/", "http://account-center.local").pathname;
     if (pathname === "/api/models") {
       const query = runtimeInventoryQuery(request.url ?? "/");
@@ -269,6 +274,15 @@ async function mutationOperationHistory(repository: MutationRepository | undefin
   };
 }
 
+async function mutationOperationDetail(repository: MutationRepository | undefined, operationId: string): Promise<unknown | undefined> {
+  const operation = repository ? (await repository.list()).find((candidate) => candidate.operationId === operationId) : undefined;
+  return operation ? {
+    schemaVersion: "account-center.mutation-operation.v1",
+    generatedAt: new Date().toISOString(),
+    operation
+  } : undefined;
+}
+
 function modelCatalog(status: AccountCenterStatus, runtime?: string): unknown {
   const known = new Set([...status.profiles.flatMap((profile) => profile.models), ...status.policy.disabledModels]);
   return {
@@ -381,9 +395,14 @@ function authChallengeView({ id, mode, provider, runtime, scope, status, expires
 function endpointMethod(path: string | undefined): "GET" | "POST" | undefined {
   const pathname = path ? new URL(path, "http://account-center.local").pathname : undefined;
   if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/scopes", "/api/auth-challenges", "/api/status"].includes(pathname ?? "")) return "GET";
+  if (mutationOperationId(pathname)) return "GET";
   if (authChallengeCancelId(pathname)) return "POST";
   if (authChallengeId(pathname)) return "GET";
   return undefined;
+}
+
+function mutationOperationId(path: string | undefined): string | undefined {
+  return path?.match(/^\/api\/mutation-operations\/(op_[A-Za-z0-9_-]{1,100})$/)?.[1];
 }
 
 function authChallengeCancelId(path: string | undefined): string | undefined {
@@ -411,6 +430,7 @@ function agentCapabilities(auditAvailable: boolean): unknown {
         : { id: "auth_challenges.cancel", mode: "mutation", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"] },
       { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] },
       { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] },
+      { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "no_stable_native_exact_profile_delete_api", requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"] },
       { id: "routes", mode: "mutation", state: "UNPROVEN", reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
       { id: "guided_auth", mode: "mutation", state: "UNPROVEN", reason: "protected_start_contract_missing_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "explicit_confirmation", "idempotency_key"] },
