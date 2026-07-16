@@ -165,6 +165,38 @@ gate("renders malformed guided-auth inventory evidence as UNPROVEN instead of cu
   await expect(guided).not.toContainText("invented_success_state");
 });
 
+gate("renders malformed protected-operation history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
+  await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.mutation-operations.v1",
+        generatedAt: new Date().toISOString(),
+        operations: [{
+          operationId: "op_malformed",
+          state: "completed",
+          outcome: "invented_success_state",
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          audit: {
+            action: "route.use",
+            provider: "openai",
+            runtime: "hermes",
+            scopeKind: "default",
+            warningCodes: []
+          }
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
+  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await expect(audit).toContainText("UNPROVEN — data unavailable");
+  await expect(audit).not.toContainText("invented_success_state");
+});
+
 gate("loads a redacted protected-operation detail through the bearer-protected API", async ({ panel }) => {
   await open(panel);
   await connect(panel);
