@@ -1017,6 +1017,28 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
   }
 });
 
+test("guided-auth cancellation fails closed before changing challenge state when durable audit evidence is corrupt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const auditPath = join(root, "audit.json");
+  const auditStore = new AuditStore(auditPath);
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  await writeFile(auditPath, "{not valid durable audit evidence");
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
+  const address = await app.listen();
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/${challenge.id}/cancel`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "audit_unavailable" });
+    assert.equal((await challenges.get(challenge.id))?.status, "pending");
+  } finally {
+    await app.close();
+  }
+});
+
 test("repeating a guided-auth cancellation is idempotent and does not duplicate durable audit evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));

@@ -27,6 +27,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // Cancellation changes durable lifecycle state. Refuse the change rather than
       // creating an unaudited mutation when its durable evidence store is absent.
       if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
+      // Validate the evidence store before changing the challenge. A corrupt
+      // audit store must not turn a successful lifecycle mutation into an
+      // unverifiable 500 response after its state has already been persisted.
+      try {
+        await options.auditStore.list({ limit: 1 });
+      } catch {
+        return send(response, 503, { error: "audit_unavailable" });
+      }
       const cancellation = options.challengeStore ? await options.challengeStore.cancelWithResult(cancelId) : undefined;
       if (!cancellation) return send(response, 404, { error: "not_found" });
       const { challenge } = cancellation;
