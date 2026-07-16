@@ -39,3 +39,9 @@ test("guided auth expires deterministically and an expired challenge no longer b
 test("guided auth rejects malformed expiry instead of leaving a challenge pending forever", () => {
   assert.throws(() => createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "agent:main", expiresAt: "not-a-date" }), /invalid challenge expiry/);
 });
+
+test("guided auth rejects unsafe public lifecycle metadata before it can become durable inventory", () => {
+  assert.throws(() => createAuthChallenge({ mode: "add", provider: "private@example.test", runtime: "openclaw", target: "new@example.com", scope: "default" }), /invalid challenge provider/);
+  assert.throws(() => createAuthChallenge({ mode: "add", provider: "openai", runtime: "open claw", target: "new@example.com", scope: "default" }), /invalid challenge runtime/);
+  assert.throws(() => createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "agent:private@example.test" }), /invalid challenge scope/);
+});

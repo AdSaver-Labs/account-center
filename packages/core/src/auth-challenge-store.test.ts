@@ -59,3 +59,19 @@ test("challenge store fails closed when a durable lifecycle record has an unknow
   }]));
   await assert.rejects(new AuthChallengeStore(path).list(), /challenge_store_corrupt/);
 });
+
+test("challenge store fails closed when a durable record contains unsafe public metadata", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
+  await writeFile(path, JSON.stringify([{
+    id: "auth_corrupt",
+    key: "key",
+    mode: "add",
+    status: "pending",
+    provider: "private@example.test",
+    runtime: "openclaw",
+    scope: "default",
+    createdAt: "2026-07-14T00:00:00.000Z",
+    updatedAt: "2026-07-14T00:00:00.000Z"
+  }]));
+  await assert.rejects(new AuthChallengeStore(path).list(), /challenge_store_corrupt/);
+});

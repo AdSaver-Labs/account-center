@@ -22,6 +22,7 @@ export interface AuthChallenge extends Omit<AuthChallengeInput, "target"> {
 
 export function createAuthChallenge(input: AuthChallengeInput, existing: AuthChallenge[] = [], now = new Date()): AuthChallenge {
   const normalized = { ...input, target: input.target.trim().toLowerCase(), provider: input.provider.trim().toLowerCase(), runtime: input.runtime.trim().toLowerCase(), scope: input.scope.trim() };
+  assertPublicChallengeMetadata(normalized);
   assertExpiry(normalized.expiresAt);
   const key = challengeKey(normalized);
   const active = existing.map((item) => expireAuthChallenge(item, now)).find((item) => item.key === key && item.status === "pending");
@@ -29,6 +30,13 @@ export function createAuthChallenge(input: AuthChallengeInput, existing: AuthCha
   const timestamp = now.toISOString();
   const { target: _target, ...redacted } = normalized;
   return { ...redacted, id: `auth_${randomUUID()}`, key, status: "pending", createdAt: timestamp, updatedAt: timestamp };
+}
+
+/** Metadata returned by the redacted challenge APIs must remain safe identifiers. */
+export function isSafePublicChallengeMetadata(value: Pick<AuthChallenge, "provider" | "runtime" | "scope">): boolean {
+  return /^[a-z][a-z0-9._-]{0,63}$/.test(value.provider) &&
+    /^[a-z][a-z0-9._-]{0,63}$/.test(value.runtime) &&
+    /^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(value.scope);
 }
 
 export function expireAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
@@ -53,6 +61,11 @@ function challengeKey(input: AuthChallengeInput): string {
 }
 
 function assertExpiry(value: string | undefined): void { if (value) parseExpiry(value); }
+function assertPublicChallengeMetadata(value: Pick<AuthChallenge, "provider" | "runtime" | "scope">): void {
+  if (!/^[a-z][a-z0-9._-]{0,63}$/.test(value.provider)) throw new Error("invalid challenge provider");
+  if (!/^[a-z][a-z0-9._-]{0,63}$/.test(value.runtime)) throw new Error("invalid challenge runtime");
+  if (!/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(value.scope)) throw new Error("invalid challenge scope");
+}
 function parseExpiry(value: string): Date {
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) throw new Error("invalid challenge expiry");
