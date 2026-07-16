@@ -315,8 +315,8 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       id: "auth_challenges.cancel",
       mode: "mutation",
       state: "blocked",
-      reason: "durable_audit_store_unavailable",
-      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"]
+      reason: "durable_challenge_store_unavailable",
+      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "audit.detail"), { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id"] });
@@ -929,6 +929,27 @@ test("guided-auth challenge detail is bearer-protected, redacted, and returns no
   }
 });
 
+test("guided-auth cancellation capability remains blocked when durable challenge state is unavailable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/capabilities", "test-token");
+    assert.equal(response.status, 200);
+    const body = await response.json() as { actions: Array<{ id: string; mode: string; state: string; reason?: string; requires: string[] }> };
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), {
+      id: "auth_challenges.cancel",
+      mode: "mutation",
+      state: "blocked",
+      reason: "durable_challenge_store_unavailable",
+      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"]
+    });
+  } finally {
+    await app.close();
+  }
+});
+
 test("guided-auth cancellation is same-origin, bearer-protected, durable, redacted, and records bounded audit evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
@@ -953,7 +974,7 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
     const capabilities = await request(address.port, "/api/capabilities", "test-token");
     const capabilityBody = await capabilities.json() as { actions: Array<{ id: string; mode: string; state: string; endpoint?: { method: string; path: string }; requires: string[] }> };
     assert.deepEqual(capabilityBody.actions.find((action) => action.id === "auth_challenges.cancel"), {
-      id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"]
+      id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"]
     });
     const audit = await request(address.port, "/api/audit", "test-token");
     assert.equal(audit.status, 200);
