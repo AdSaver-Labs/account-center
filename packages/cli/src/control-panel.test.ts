@@ -36,6 +36,8 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /action && action.reason/);
     assert.match(html, /\/api\/audit/);
     assert.match(html, /<label for="audit-outcome">Outcome<\/label>/);
+    assert.match(html, /<option value="started">Started<\/option>/);
+    assert.match(html, /<option value="recovery_required">Recovery required<\/option>/);
     assert.match(html, /<label for="audit-action">Action category<\/label>/);
     assert.match(html, /id="audit-action" name="action"/);
     assert.match(html, /<label for="audit-from">Recorded from \(UTC\)<\/label>/);
