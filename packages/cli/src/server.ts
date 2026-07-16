@@ -107,7 +107,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // which contexts the UI may offer as selected contexts.
       if (result.status && !isObservedRuntime(result.status, query.runtime)) return send(response, 400, { error: "invalid_query" });
       if (result.code !== 0 || !result.status) return send(response, 500, { error: "status_unavailable" });
-      return send(response, 200, await authChallengeInventory(options.challengeStore, query));
+      const inventory = await authChallengeInventory(options.challengeStore, query);
+      // A syntactically opaque cursor can still be stale, mismatched to this
+      // selected context, or fabricated. Reject it rather than returning an
+      // empty 200 response with no schema, which UI clients could misread as
+      // a successful empty lifecycle history.
+      return inventory ? send(response, 200, inventory) : send(response, 400, { error: "invalid_query" });
     }
     const challengeId = authChallengeId(request.url);
     if (challengeId) {

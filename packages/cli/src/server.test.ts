@@ -896,7 +896,7 @@ test("guided-auth challenge history is newest-first, cursor-paginated, and remai
     assert.deepEqual(oldestBody.challenges.map(({ id }) => id), [first.id]);
     assert.equal(oldestBody.nextCursor, undefined);
 
-    for (const path of ["/api/auth-challenges?limit=0", "/api/auth-challenges?limit=101", "/api/auth-challenges?cursor=auth_not-a-uuid", `/api/auth-challenges?cursor=${encodeURIComponent(first.id)}&cursor=${encodeURIComponent(second.id)}`]) {
+    for (const path of ["/api/auth-challenges?limit=0", "/api/auth-challenges?limit=101", "/api/auth-challenges?cursor=auth_not-a-uuid", "/api/auth-challenges?cursor=auth_00000000-0000-4000-8000-000000000000", `/api/auth-challenges?cursor=${encodeURIComponent(first.id)}&cursor=${encodeURIComponent(second.id)}`]) {
       const malformed = await request(address.port, path, "test-token");
       assert.equal(malformed.status, 400, path);
       assert.deepEqual(await malformed.json(), { error: "invalid_query" });
