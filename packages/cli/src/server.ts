@@ -283,6 +283,10 @@ function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery 
   // Scope is an exact, API-observed selector. Reject separators, whitespace, and
   // controls so it cannot be broadened or treated as an arbitrary search term.
   if (scope !== null && !/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(scope)) return undefined;
+  // A scope without its concrete runtime turns an operator-selected context
+  // into a cross-runtime history search. Reject it rather than broadening a
+  // scoped lifecycle read beyond the context the operator selected.
+  if (scope !== null && runtime === null) return undefined;
   if (cursor !== null && !/^auth_[a-f0-9-]{36}$/.test(cursor)) return undefined;
   return { limit, ...(runtime === null ? {} : { runtime }), ...(scope === null ? {} : { scope }), ...(cursor === null ? {} : { cursor }) };
 }
