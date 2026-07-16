@@ -856,7 +856,9 @@ test("guided-auth challenge inventory can be bounded to the selected runtime and
     assert.deepEqual(body.challenges.map(({ runtime, scope }) => ({ runtime, scope })), [{ runtime: "hermes", scope: "agent:recovery" }]);
     assert.equal(JSON.stringify(body).match(/private@example\.test/), null);
 
-    for (const path of ["/api/auth-challenges?runtime=Hermes", "/api/auth-challenges?runtime=hermes&runtime=openclaw", "/api/auth-challenges?scope=", "/api/auth-challenges?scope=agent%3Arecovery&scope=default", "/api/auth-challenges?scope=agent%3Arecovery%0A", "/api/auth-challenges?unknown=default"]) {
+    // A syntactically valid but unobserved runtime is not a safe selected
+    // context. Reject it rather than presenting its empty history as evidence.
+    for (const path of ["/api/auth-challenges?runtime=codex", "/api/auth-challenges?runtime=Hermes", "/api/auth-challenges?runtime=hermes&runtime=openclaw", "/api/auth-challenges?scope=", "/api/auth-challenges?scope=agent%3Arecovery&scope=default", "/api/auth-challenges?scope=agent%3Arecovery%0A", "/api/auth-challenges?unknown=default"]) {
       const malformed = await request(address.port, path, "test-token");
       assert.equal(malformed.status, 400, path);
       assert.deepEqual(await malformed.json(), { error: "invalid_query" });
