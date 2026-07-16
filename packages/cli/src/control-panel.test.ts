@@ -162,6 +162,8 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Capability discovery/);
     assert.match(html, /authorization: 'Bearer ' \+ token.value/);
     assert.match(html, /Cancel pending challenge/);
+    assert.match(html, /function challengeRecord\(item, cancellation\)/);
+    assert.match(html, /cancellation && cancellation\.state === 'available'/);
     assert.match(html, /<dialog class="confirmation-dialog" id="cancel-challenge-dialog"/);
     assert.match(html, /aria-labelledby="cancel-challenge-heading" aria-describedby="cancel-challenge-description"/);
     assert.match(html, /This cancels only Account Center's local guided-auth challenge record/);
