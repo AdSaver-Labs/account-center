@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { AuditStore, AuthChallengeStore } from "../../packages/core/dist/index.js";
+import { AuditStore, AuthChallengeStore, MutationRepository } from "../../packages/core/dist/index.js";
 import { createAccountCenterServer } from "../../packages/cli/dist/server.js";
 
 /**
@@ -24,11 +24,20 @@ const gate = test.extend({
       scope: "default:default",
       target: "fixture-only-target"
     });
+    const mutationRepository = new MutationRepository(join(root, "operations"), { operationId: () => "op_fixture_detail" });
+    const claim = await mutationRepository.claim({
+      idempotencyKey: "fixture-operation-detail-key",
+      requestDigest: "a".repeat(64),
+      audit: { action: "route.use", provider: "openai", runtime: "hermes", scopeKind: "default", scopeIdDigest: "b".repeat(64), targetDigest: "c".repeat(64) }
+    });
+    if (claim.kind !== "execute") throw new Error("fixture operation must be executable");
+    await mutationRepository.complete({ operationId: claim.operationId, outcome: "blocked", warningCodes: ["runtime_unavailable"] });
     const app = createAccountCenterServer({
       token,
       source: "fixture",
       auditStore: new AuditStore(join(root, "audit.json")),
-      challengeStore
+      challengeStore,
+      mutationRepository
     });
     const { port } = await app.listen();
     const baseURL = `http://127.0.0.1:${port}`;
@@ -126,6 +135,19 @@ gate("confirms guided-auth cancellation and restores focus when cancellation is 
   await expect(dialog).toBeHidden();
   await expect(panel.page.getByRole("status")).toContainText(/challenge cancelled/i);
   await expect(panel.page.getByRole("tabpanel", { name: /Guided auth/i })).toContainText(/cancelled/i);
+});
+
+gate("loads a redacted protected-operation detail through the bearer-protected API", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
+  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await audit.getByRole("button", { name: "View protected operation details" }).click();
+  const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
+  await expect(detail).toContainText("Protected operation detail");
+  await expect(detail).toContainText("route.use");
+  await expect(detail).toContainText("runtime_unavailable");
+  await expect(detail).not.toContainText(/fixture-operation-detail-key|a{64}|b{64}|c{64}/i);
 });
 
 gate("has no serious or critical axe violations and reports lower severities", async ({ panel }, testInfo) => {

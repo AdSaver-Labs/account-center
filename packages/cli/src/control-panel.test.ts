@@ -65,6 +65,11 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Operation snapshot:/);
     assert.match(html, /Operation ID:/);
     assert.match(html, /Completed:/);
+    assert.match(html, /id="operation-detail"/);
+    assert.match(html, /View protected operation details/);
+    assert.match(html, /function loadOperationDetail\(id\)/);
+    assert.match(html, /Protected operation detail could not be verified/);
+    assert.match(html, /\/api\/mutation-operations\/.*encodeURIComponent\(id\)/);
     assert.match(html, /Provider: /);
     assert.match(html, /Runtime: /);
     assert.match(html, /Scope: /);
