@@ -22,7 +22,11 @@ export class AuthChallengeStore {
   private async listUnsafe(): Promise<AuthChallenge[]> {
     try {
       const value: unknown = JSON.parse(await readFile(this.path, "utf8"));
-      if (!Array.isArray(value)) return [];
+      // Durable lifecycle evidence must never be silently treated as an empty
+      // history when it is corrupt. In particular, an unknown terminal state
+      // could otherwise be rendered as an innocuous empty list or an
+      // unrecognized UI success-like state.
+      if (!Array.isArray(value) || !value.every(isChallenge)) throw new Error("challenge_store_corrupt");
       const redacted = value.filter(isChallenge).map(redactChallenge);
       const challenges = redacted.map((challenge) => expireAuthChallenge(challenge));
       if (value.some(hasRawTarget) || challenges.some((challenge, index) => challenge.status !== redacted[index]?.status)) await this.write(challenges);
@@ -95,7 +99,22 @@ function isExists(error: unknown): boolean { return typeof error === "object" &&
 function isChallenge(value: unknown): value is AuthChallenge {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const candidate = value as Partial<AuthChallenge>;
-  return typeof candidate.id === "string" && typeof candidate.key === "string" && typeof candidate.mode === "string" && typeof candidate.status === "string" && typeof candidate.provider === "string" && typeof candidate.runtime === "string" && typeof candidate.scope === "string" && typeof candidate.createdAt === "string" && typeof candidate.updatedAt === "string";
+  return typeof candidate.id === "string" &&
+    typeof candidate.key === "string" &&
+    (candidate.mode === "add" || candidate.mode === "reauth") &&
+    (candidate.status === "pending" || candidate.status === "completed" || candidate.status === "failed" || candidate.status === "cancelled" || candidate.status === "expired") &&
+    typeof candidate.provider === "string" &&
+    typeof candidate.runtime === "string" &&
+    typeof candidate.scope === "string" &&
+    isTimestamp(candidate.createdAt) &&
+    isTimestamp(candidate.updatedAt) &&
+    (candidate.expiresAt === undefined || isTimestamp(candidate.expiresAt));
+}
+
+function isTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function hasRawTarget(value: unknown): boolean {

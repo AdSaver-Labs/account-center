@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -929,6 +929,31 @@ test("guided-auth challenge detail is bearer-protected, redacted, and returns no
   }
 });
 
+test("guided-auth API fails closed and redacts a corrupt durable lifecycle record", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const path = join(root, "challenges.json");
+  await writeFile(path, JSON.stringify([{
+    id: "auth_corrupt",
+    key: "key",
+    mode: "add",
+    status: "completed-with-unverified-runtime-output",
+    provider: "openai",
+    runtime: "openclaw",
+    scope: "default",
+    createdAt: "2026-07-14T00:00:00.000Z",
+    updatedAt: "2026-07-14T00:00:00.000Z"
+  }]));
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: new AuthChallengeStore(path) });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/auth-challenges", "test-token");
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "internal_error" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("guided-auth cancellation capability remains blocked when durable challenge state is unavailable", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const auditStore = new AuditStore(join(root, "audit.json"));
@@ -1010,6 +1035,35 @@ test("repeating a guided-auth cancellation is idempotent and does not duplicate 
     const audit = await request(address.port, "/api/audit", "test-token");
     assert.equal(audit.status, 200);
     assert.equal((await audit.json() as { records: unknown[] }).records.length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("cancelling an elapsed guided-auth challenge reports expiry without recording a false cancellation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  const challenge = await challenges.create({
+    mode: "reauth",
+    provider: "openai",
+    runtime: "openclaw",
+    target: "private@example.test",
+    scope: "agent:main",
+    expiresAt: "2020-01-01T00:00:00.000Z"
+  });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
+  const address = await app.listen();
+  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as { challenge: { status: string } }).challenge.status, "expired");
+    assert.equal((await challenges.get(challenge.id))?.status, "expired");
+    assert.deepEqual((await auditStore.list()).map((record) => record.action), []);
   } finally {
     await app.close();
   }
