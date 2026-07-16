@@ -20,8 +20,8 @@ const gate = test.extend({
       mode: "reauth",
       provider: "openai",
       runtime: "hermes",
-      // Match the fixture adapter's protected runtime-context identifier.
-      scope: "default:default",
+      // Match the fixture adapter's exact protected runtime-context selector.
+      scope: "default",
       target: "fixture-only-target"
     });
     const mutationRepository = new MutationRepository(join(root, "operations"), { operationId: () => "op_fixture_detail" });
@@ -159,9 +159,23 @@ gate("clears protected-operation detail when the selected runtime context change
   const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
   await expect(detail).toContainText("route.use");
   const context = panel.page.getByLabel("Runtime & scope");
-  await context.selectOption({ label: "openclaw / default:default" });
+  await context.selectOption({ label: "openclaw / default" });
   await expect(detail).toContainText("No protected operation detail selected");
   await expect(detail).not.toContainText("route.use");
+});
+
+gate("clears guided-auth challenge detail when the selected runtime context changes", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Guided auth/i }).click();
+  const guided = panel.page.getByRole("tabpanel", { name: /Guided auth/i });
+  await guided.getByRole("button", { name: "View challenge details" }).click();
+  const detail = panel.page.getByRole("region", { name: "Guided-auth challenge detail" });
+  await expect(detail).toContainText("Challenge detail");
+  await expect(detail).toContainText("hermes");
+  await panel.page.getByLabel("Runtime & scope").selectOption({ label: "openclaw / default" });
+  await expect(detail).toContainText("No guided-auth challenge detail selected");
+  await expect(detail).not.toContainText("hermes");
 });
 
 gate("clears protected-operation detail before replacing its filtered history", async ({ panel }) => {
