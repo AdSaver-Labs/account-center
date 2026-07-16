@@ -238,7 +238,9 @@ test("selected-runtime inventory reads are bearer-protected, bounded to compatib
     ]);
     assert.equal(JSON.stringify(modelsBody).match(/profileId|email|label|token|secret|password/i), null);
 
-    for (const path of ["/api/limits?runtime=Hermes", "/api/models?runtime=hermes&runtime=openclaw", "/api/models?scope=default"]) {
+    // A syntactically valid but unobserved runtime is not a safe selected
+    // context. Reject it instead of returning a misleading empty inventory.
+    for (const path of ["/api/limits?runtime=Hermes", "/api/models?runtime=hermes&runtime=openclaw", "/api/models?scope=default", "/api/limits?runtime=codex", "/api/models?runtime=codex"]) {
       const response = await request(address.port, path, "test-token");
       assert.equal(response.status, 400, path);
       assert.deepEqual(await response.json(), { error: "invalid_query" });

@@ -224,10 +224,15 @@ function runtimeInventoryQuery(path: string): RuntimeInventoryQuery | undefined 
 }
 
 function isObservedRuntimeScope(status: AccountCenterStatus, query: RuntimeInventoryQuery): boolean {
+  if (!query.runtime) return true;
+  // A selected runtime must be observed by the authoritative status snapshot.
+  // Otherwise a typo or stale runtime name would look like an empty inventory.
+  const observed = status.runtimes.some((runtime) => runtime.key === query.runtime);
+  if (!observed) return false;
   if (!query.scope) return true;
   // The current authoritative catalog declares only each runtime's default
   // scope. Named scopes remain unavailable until runtime evidence is added.
-  return query.scope === "default" && Boolean(query.runtime && status.runtimes.some((runtime) => runtime.key === query.runtime));
+  return query.scope === "default";
 }
 
 function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery | undefined {
