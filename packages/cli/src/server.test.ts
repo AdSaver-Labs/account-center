@@ -154,6 +154,38 @@ test("read-only model catalog is bearer-protected, versioned, and reflects disab
   }
 });
 
+test("read-only model catalog separates absent selection evidence from observed catalog eligibility", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const accepted = await request(address.port, "/api/models?runtime=hermes&scope=default", "test-token");
+    assert.equal(accepted.status, 200);
+    const body = await accepted.json() as {
+      selection: {
+        requestedPolicy: { state: string };
+        effectiveRuntimeModel: { state: string };
+        fallbackChain: { state: string };
+        verificationState: string;
+      };
+      models: Array<{ id: string; selectable: boolean; verificationState: string }>;
+    };
+    assert.deepEqual(body.selection, {
+      requestedPolicy: { state: "not_reported" },
+      effectiveRuntimeModel: { state: "not_reported" },
+      fallbackChain: { state: "not_reported" },
+      verificationState: "UNPROVEN"
+    });
+    assert.deepEqual(body.models.map(({ id, selectable, verificationState }) => ({ id, selectable, verificationState })), [
+      { id: "openai/gpt-4.1", selectable: false, verificationState: "UNPROVEN" },
+      { id: "openai/gpt-5.3-codex", selectable: true, verificationState: "UNPROVEN" },
+      { id: "openai/gpt-5.5", selectable: true, verificationState: "UNPROVEN" }
+    ]);
+    assert.equal(JSON.stringify(body).match(/profileId|email|label|token|secret|password/i), null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("read-only limits inventory is bearer-protected, versioned, and uses redacted account references", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
