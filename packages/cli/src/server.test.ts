@@ -554,6 +554,38 @@ test("mutation operation history filters by the redacted runtime and scope kind"
   }
 });
 
+test("mutation operation history filters an exact safe action category without broadening evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  let sequence = 0;
+  const repository = new MutationRepository(join(root, "mutations"), { operationId: () => `op_action_${++sequence}` });
+  for (const action of ["route.use", "model.use"] as const) {
+    const claim = await repository.claim({
+      idempotencyKey: `operation-action-${++sequence}-key`,
+      requestDigest: String(sequence).repeat(64),
+      audit: { action, provider: "openai", runtime: "openclaw", scopeKind: "default", scopeIdDigest: "a".repeat(64), targetDigest: "b".repeat(64) }
+    });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await repository.complete({ operationId: claim.operationId, outcome: "blocked" });
+  }
+  const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    const filtered = await request(address.port, "/api/mutation-operations?action=route.use", "test-token");
+    assert.equal(filtered.status, 200);
+    const body = await filtered.json() as { operations: Array<{ operationId: string; audit: { action: string } }> };
+    assert.deepEqual(body.operations.map(({ operationId, audit }) => ({ operationId, action: audit.action })), [
+      { operationId: "op_action_2", action: "route.use" }
+    ]);
+    assert.equal(JSON.stringify(body).match(/private@example\.test|operation-action|[ab]{64}/), null);
+
+    const malformed = await request(address.port, "/api/mutation-operations?action=route%20use", "test-token");
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("protected API contains repository failures without returning internal error detail", async () => {
   const repository = { list: async () => { throw new Error("private@example.test mutation repository corrupt"); } } as unknown as MutationRepository;
   const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });

@@ -79,9 +79,13 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /operationCursor/);
     assert.match(html, /id="operation-filter"/);
     assert.match(html, /<label for="operation-outcome">Outcome<\/label>/);
+    assert.match(html, /<label for="operation-action">Action category<\/label>/);
+    assert.match(html, /id="operation-action" name="action"/);
     assert.match(html, /Filter operation history/);
     assert.match(html, /operationOutcome\.value/);
-    assert.match(html, /No protected operations match this outcome/);
+    assert.match(html, /operationAction\.value/);
+    assert.match(html, /parameters\.set\('action', operationAction\.value\)/);
+    assert.match(html, /No protected operations match these filters/);
     assert.match(html, /Older protected operations could not be verified/);
     assert.match(html, /Models &amp; fallbacks/);
     assert.match(html, /data-view="models-fallbacks"/);
