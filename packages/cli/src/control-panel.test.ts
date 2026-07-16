@@ -125,7 +125,11 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Fallback chain: Not reported/);
     assert.match(html, /Model policy is UNPROVEN/);
     assert.match(html, /function renderModelsFallbacks\(modelData, unavailable\)/);
-    assert.match(html, /function modelSelectionEvidence\(selection\)/);
+    assert.match(html, /function isLimitsInventory\(data\)/);
+    assert.match(html, /function isModelCatalog\(data\)/);
+    assert.match(html, /function isModelSelectionEvidence\(selection\)/);
+    assert.match(html, /key === 'models'\) valid = valid && isModelCatalog\(result\.value\)/);
+    assert.match(html, /key === 'limits'\) valid = valid && isLimitsInventory\(result\.value\)/);
     assert.match(html, /Requested policy: Not reported/);
     assert.match(html, /Effective runtime model: Not reported/);
     assert.match(html, /Fallback chain: Not reported/);

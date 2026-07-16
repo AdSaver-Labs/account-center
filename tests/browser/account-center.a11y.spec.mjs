@@ -247,6 +247,60 @@ gate("renders malformed audit history as UNPROVEN instead of a claimed outcome",
   await expect(audit).not.toContainText("invented_success_state");
 });
 
+gate("renders malformed selected-scope limits and model catalogs as UNPROVEN instead of inventory", async ({ panel }) => {
+  await panel.page.route("**/api/limits?runtime=hermes&scope=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.limits.v1",
+        generatedAt: new Date().toISOString(),
+        accounts: [{
+          accountRef: "account-9",
+          provider: "openai",
+          health: "ok",
+          authState: "ok",
+          readable: true,
+          windows: "not-an-inventory-array"
+        }]
+      })
+    });
+  });
+  await panel.page.route("**/api/models?runtime=hermes&scope=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.models.v1",
+        generatedAt: new Date().toISOString(),
+        selection: {
+          requestedPolicy: { state: "not_reported" },
+          effectiveRuntimeModel: { state: "not_reported" },
+          fallbackChain: { state: "not_reported" },
+          verificationState: "UNPROVEN"
+        },
+        models: [{
+          id: "openai/invented-model",
+          selectable: true,
+          observedProfileCount: "not-a-number",
+          readableProfileCount: 1,
+          runtimeCompatibility: ["hermes"],
+          verificationState: "UNPROVEN"
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Accounts & routing/i }).click();
+  const accountsRouting = panel.page.getByRole("tabpanel", { name: /Accounts & routing/i });
+  await expect(accountsRouting).toContainText("Selected-scope limit inventory unavailable");
+  await expect(accountsRouting).toContainText("UNPROVEN");
+  await expect(accountsRouting).not.toContainText("account-9");
+  await panel.page.getByRole("tab", { name: /Models & fallbacks/i }).click();
+  const models = panel.page.getByRole("tabpanel", { name: /Models & fallbacks/i });
+  await expect(models).toContainText("UNPROVEN — data unavailable");
+  await expect(models).not.toContainText("openai/invented-model");
+});
+
 gate("loads a redacted protected-operation detail through the bearer-protected API", async ({ panel }) => {
   await open(panel);
   await connect(panel);
