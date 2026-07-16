@@ -27,18 +27,21 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // Cancellation changes durable lifecycle state. Refuse the change rather than
       // creating an unaudited mutation when its durable evidence store is absent.
       if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
-      const challenge = options.challengeStore ? await options.challengeStore.cancel(cancelId) : undefined;
-      if (!challenge) return send(response, 404, { error: "not_found" });
-      await options.auditStore.append({
-        action: "guided_auth.cancel",
-        outcome: "applied",
-        proofState: "verified",
-        requestDigest: createHash("sha256").update(`guided_auth.cancel\0${challenge.id}`).digest("hex"),
-        summary: "Local guided-auth challenge cancelled.",
-        warnings: [],
-        runtime: challenge.runtime,
-        ...(auditScopeKind(challenge.scope) ? { scopeKind: auditScopeKind(challenge.scope) } : {})
-      });
+      const cancellation = options.challengeStore ? await options.challengeStore.cancelWithResult(cancelId) : undefined;
+      if (!cancellation) return send(response, 404, { error: "not_found" });
+      const { challenge } = cancellation;
+      if (cancellation.changed) {
+        await options.auditStore.append({
+          action: "guided_auth.cancel",
+          outcome: "applied",
+          proofState: "verified",
+          requestDigest: createHash("sha256").update(`guided_auth.cancel\0${challenge.id}`).digest("hex"),
+          summary: "Local guided-auth challenge cancelled.",
+          warnings: [],
+          runtime: challenge.runtime,
+          ...(auditScopeKind(challenge.scope) ? { scopeKind: auditScopeKind(challenge.scope) } : {})
+        });
+      }
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
     const allowedMethod = endpointMethod(request.url);

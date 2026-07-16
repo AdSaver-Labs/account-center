@@ -915,6 +915,29 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
   }
 });
 
+test("repeating a guided-auth cancellation is idempotent and does not duplicate durable audit evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
+  const address = await app.listen();
+  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  const headers = { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` };
+  try {
+    const first = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers });
+    assert.equal(first.status, 200);
+    const repeated = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers });
+    assert.equal(repeated.status, 200);
+    assert.equal((await repeated.json() as { challenge: { status: string } }).challenge.status, "cancelled");
+    const audit = await request(address.port, "/api/audit", "test-token");
+    assert.equal(audit.status, 200);
+    assert.equal((await audit.json() as { records: unknown[] }).records.length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
 test("guided-auth cancellation rejects request bodies before changing local challenge state", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));

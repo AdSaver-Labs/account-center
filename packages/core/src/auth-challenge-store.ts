@@ -36,14 +36,25 @@ export class AuthChallengeStore {
   async get(id: string): Promise<AuthChallenge | undefined> { return getAuthChallenge(await this.list(), id); }
 
   async cancel(id: string): Promise<AuthChallenge | undefined> {
+    return (await this.cancelWithResult(id))?.challenge;
+  }
+
+  /**
+   * Atomically reports whether cancellation changed a pending challenge. The
+   * protected API uses this to make retries safe without duplicating audit
+   * evidence for an already-terminal lifecycle record.
+   */
+  async cancelWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
     return this.withLock(async () => {
       const challenges = await this.listUnsafe();
       const index = challenges.findIndex((item) => item.id === id);
       if (index < 0) return undefined;
+      const before = challenges[index];
       const cancelled = cancelAuthChallenge(challenges[index]);
       challenges[index] = cancelled;
-      await this.write(challenges);
-      return cancelled;
+      const changed = before.status !== cancelled.status;
+      if (changed) await this.write(challenges);
+      return { challenge: cancelled, changed };
     });
   }
 
