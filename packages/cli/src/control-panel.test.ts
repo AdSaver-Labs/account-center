@@ -193,6 +193,8 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /<label for="runtime-scope">Runtime &amp; scope<\/label>/);
     assert.match(html, /No readable scopes are available\./);
     assert.match(html, /function renderContextSelector\(scopeData, scopesUnavailable\)/);
+    assert.match(html, /function isScopeCatalog\(data\)/);
+    assert.match(html, /scopeResult\.status === 'fulfilled' && isScopeCatalog\(scopeResult\.value\)/);
     assert.match(html, /id="context-capability"/);
     assert.match(html, /id="context-chip"/);
     assert.match(html, /function contextCapabilityLabel\(capabilities\)/);

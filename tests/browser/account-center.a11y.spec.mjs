@@ -165,6 +165,29 @@ gate("renders malformed guided-auth inventory evidence as UNPROVEN instead of cu
   await expect(guided).not.toContainText("invented_success_state");
 });
 
+gate("rejects a malformed runtime scope catalog before it can select an invented context", async ({ panel }) => {
+  await panel.page.route("**/api/scopes", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.runtime-scopes.v1",
+        generatedAt: new Date().toISOString(),
+        scopes: [{
+          runtime: "invented-runtime",
+          scope: { kind: "default", id: "default" },
+          capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false }
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  const selector = panel.page.locator("#context-selector");
+  await expect(selector).toContainText("UNPROVEN");
+  await expect(selector).toContainText("could not be verified");
+  await expect(selector).not.toContainText("invented-runtime");
+});
+
 gate("renders malformed protected-operation history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
   await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
     await route.fulfill({
