@@ -197,6 +197,33 @@ gate("renders malformed protected-operation history as UNPROVEN instead of a cla
   await expect(audit).not.toContainText("invented_success_state");
 });
 
+gate("renders malformed audit history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
+  await panel.page.route("**/api/audit?runtime=hermes&scopeKind=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.audit-history.v1",
+        generatedAt: new Date().toISOString(),
+        records: [{
+          id: "audit_00000000-0000-4000-8000-000000000000",
+          createdAt: new Date().toISOString(),
+          action: "route.use",
+          outcome: "invented_success_state",
+          proofState: "verified",
+          summary: "Invented audit result.",
+          warnings: []
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
+  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await expect(audit).toContainText("UNPROVEN — data unavailable");
+  await expect(audit).not.toContainText("invented_success_state");
+});
+
 gate("loads a redacted protected-operation detail through the bearer-protected API", async ({ panel }) => {
   await open(panel);
   await connect(panel);

@@ -56,6 +56,9 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /nextCursor/);
     assert.match(html, /URLSearchParams/);
     assert.match(html, /function auditRecord\(item\)/);
+    assert.match(html, /function isAuditInventory\(data\)/);
+    assert.match(html, /key === 'audit'\) valid = valid && isAuditInventory\(result\.value\)/);
+    assert.match(html, /if \(!isAuditInventory\(data\)\) throw new Error\('malformed_audit_history'\)/);
     assert.match(html, /View audit evidence/);
     assert.match(html, /id="audit-detail"/);
     assert.match(html, /function loadAuditDetail\(id\)/);
