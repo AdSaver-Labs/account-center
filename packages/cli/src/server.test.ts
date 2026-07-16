@@ -678,9 +678,14 @@ test("mutation operation history filters by the redacted runtime and scope kind"
     ]);
     assert.equal(JSON.stringify(body).match(/operation-filter|[ab]{64}/), null);
 
-    const malformed = await request(address.port, "/api/mutation-operations?runtime=OpenClaw", "test-token");
-    assert.equal(malformed.status, 400);
-    assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+    // A scope kind without an explicit runtime would broaden the selected
+    // context into cross-runtime evidence. It must be rejected, not treated
+    // as a global scope-kind search.
+    for (const path of ["/api/mutation-operations?runtime=OpenClaw", "/api/mutation-operations?scopeKind=agent"]) {
+      const malformed = await request(address.port, path, "test-token");
+      assert.equal(malformed.status, 400, path);
+      assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+    }
   } finally {
     await app.close();
   }

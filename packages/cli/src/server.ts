@@ -269,6 +269,9 @@ function mutationOperationQuery(path: string): MutationOperationQuery | undefine
   if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
   const scopeKind = parameters.get("scopeKind");
   if (scopeKind !== null && !["agent", "profile", "session", "default", "all"].includes(scopeKind)) return undefined;
+  // Scope kind alone is not an exact selected context. Require its runtime so
+  // an operator cannot accidentally broaden a scoped history read across runtimes.
+  if (scopeKind !== null && runtime === null) return undefined;
   const from = parameters.get("from");
   const to = parameters.get("to");
   if ((from !== null && !isUtcCalendarDate(from)) || (to !== null && !isUtcCalendarDate(to)) || (from !== null && to !== null && from > to)) return undefined;
