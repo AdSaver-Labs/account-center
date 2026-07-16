@@ -137,6 +137,34 @@ gate("confirms guided-auth cancellation and restores focus when cancellation is 
   await expect(panel.page.getByRole("tabpanel", { name: /Guided auth/i })).toContainText(/cancelled/i);
 });
 
+gate("renders malformed guided-auth inventory evidence as UNPROVEN instead of current lifecycle state", async ({ panel }) => {
+  await panel.page.route("**/api/auth-challenges?runtime=hermes&scope=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.auth-challenges.v1",
+        generatedAt: new Date().toISOString(),
+        challenges: [{
+          id: "auth_00000000-0000-4000-8000-000000000000",
+          mode: "reauth",
+          provider: "openai",
+          runtime: "hermes",
+          scope: "default",
+          status: "invented_success_state",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Guided auth/i }).click();
+  const guided = panel.page.getByRole("tabpanel", { name: /Guided auth/i });
+  await expect(guided).toContainText("UNPROVEN — data unavailable");
+  await expect(guided).not.toContainText("invented_success_state");
+});
+
 gate("loads a redacted protected-operation detail through the bearer-protected API", async ({ panel }) => {
   await open(panel);
   await connect(panel);
