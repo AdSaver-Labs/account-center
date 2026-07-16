@@ -56,6 +56,13 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /nextCursor/);
     assert.match(html, /URLSearchParams/);
     assert.match(html, /function auditRecord\(item\)/);
+    assert.match(html, /View audit evidence/);
+    assert.match(html, /id="audit-detail"/);
+    assert.match(html, /function loadAuditDetail\(id\)/);
+    assert.match(html, /\/api\/audit\/.*encodeURIComponent\(id\)/);
+    assert.match(html, /Audit evidence detail could not be verified/);
+    assert.match(html, /function clearAuditDetail\(\)/);
+    assert.match(html, /Audit evidence detail was malformed or incomplete/);
     assert.match(html, /Audit ID:/);
     assert.match(html, /Runtime: /);
     assert.match(html, /Scope: /);

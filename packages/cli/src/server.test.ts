@@ -319,6 +319,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_audit_store"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "audit.detail"), { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id"] });
     assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.history"), { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.detail"), { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] });
     assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), {
@@ -387,6 +388,54 @@ test("audit history is bearer-protected, bounded, and redacted", async () => {
     assert.deepEqual(Object.keys(body.records[0]).sort(), ["action", "createdAt", "id", "outcome", "proofState", "summary", "warnings"]);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
     assert.equal(JSON.stringify(body).includes("request-digest"), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test("audit evidence detail is bearer-protected, redacted, and does not expose request digests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  const record = await auditStore.append({
+    action: "route.use",
+    outcome: "blocked",
+    proofState: "unproven",
+    requestDigest: "sensitive-request-digest",
+    summary: "Route update for private@example.test was blocked.",
+    warnings: ["no_live_mutation"],
+    runtime: "openclaw",
+    scopeKind: "agent"
+  });
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  const path = `/api/audit/${record.id}`;
+  try {
+    assert.equal((await request(address.port, path)).status, 401);
+    const accepted = await request(address.port, path, "test-token");
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const body = await accepted.json() as { schemaVersion: string; generatedAt: string; record: Record<string, unknown> };
+    assert.equal(body.schemaVersion, "account-center.audit-record.v1");
+    assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(body.record, {
+      id: record.id,
+      createdAt: record.createdAt,
+      action: "route.use",
+      outcome: "blocked",
+      proofState: "unproven",
+      summary: "Route update for [REDACTED_EMAIL] was blocked.",
+      warnings: ["no_live_mutation"],
+      runtime: "openclaw",
+      scopeKind: "agent"
+    });
+    assert.equal(JSON.stringify(body).match(/private@example\.test|sensitive-request-digest/), null);
+
+    const wrongMethod = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token" } });
+    assert.equal(wrongMethod.status, 405);
+    assert.equal(wrongMethod.headers.get("allow"), "GET");
+    const missing = await request(address.port, "/api/audit/audit_00000000-0000-4000-8000-000000000000", "test-token");
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "not_found" });
   } finally {
     await app.close();
   }
