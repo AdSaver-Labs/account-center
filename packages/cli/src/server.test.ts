@@ -434,6 +434,40 @@ test("audit history filters an exact safe action category without broadening the
   }
 });
 
+test("audit history filters redacted runtime and scope-kind context without exposing scope identifiers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "a".repeat(64), summary: "OpenClaw route change for private@example.test", warnings: [], runtime: "openclaw", scopeKind: "agent" });
+  await auditStore.append({ action: "model.use", outcome: "unproven", proofState: "unproven", requestDigest: "b".repeat(64), summary: "Hermes model change for private@example.test", warnings: [], runtime: "hermes", scopeKind: "profile" });
+  const app = createAccountCenterServer({ token: "test-token", auditStore });
+  const address = await app.listen();
+  try {
+    const filtered = await request(address.port, "/api/audit?runtime=openclaw&scopeKind=agent", "test-token");
+    assert.equal(filtered.status, 200);
+    const body = await filtered.json() as { records: Array<{ id: string; createdAt: string; action: string; runtime?: string; scopeKind?: string }> };
+    assert.deepEqual(body.records, [{
+      id: body.records[0]?.id,
+      createdAt: body.records[0] && (body.records[0] as { createdAt?: string }).createdAt,
+      action: "route.use",
+      outcome: "blocked",
+      proofState: "unproven",
+      summary: "OpenClaw route change for [REDACTED_EMAIL]",
+      warnings: [],
+      runtime: "openclaw",
+      scopeKind: "agent"
+    }]);
+    assert.equal(JSON.stringify(body).match(/private@example\.test|[ab]{64}/), null);
+
+    for (const path of ["/api/audit?runtime=OpenClaw", "/api/audit?scopeKind=agent", "/api/audit?runtime=openclaw&scopeKind=bogus", "/api/audit?runtime=openclaw&runtime=hermes"]) {
+      const malformed = await request(address.port, path, "test-token");
+      assert.equal(malformed.status, 400, path);
+      assert.deepEqual(await malformed.json(), { error: "invalid_query" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("audit history exposes a bounded opaque-cursor page without leaking request digests", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const auditStore = new AuditStore(join(root, "audit.json"));

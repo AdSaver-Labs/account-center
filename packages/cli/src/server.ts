@@ -35,7 +35,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         proofState: "verified",
         requestDigest: createHash("sha256").update(`guided_auth.cancel\0${challenge.id}`).digest("hex"),
         summary: "Local guided-auth challenge cancelled.",
-        warnings: []
+        warnings: [],
+        runtime: challenge.runtime,
+        ...(auditScopeKind(challenge.scope) ? { scopeKind: auditScopeKind(challenge.scope) } : {})
       });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
@@ -140,12 +142,14 @@ async function authChallengeInventory(store: AuthChallengeStore | undefined, que
   };
 }
 
-interface AuditQuery { limit: number; outcome?: AuditRecord["outcome"]; action?: string; from?: string; to?: string; cursor?: string; }
+interface AuditQuery { limit: number; outcome?: AuditRecord["outcome"]; action?: string; runtime?: string; scopeKind?: NonNullable<AuditRecord["scopeKind"]>; from?: string; to?: string; cursor?: string; }
 
 async function auditHistory(store: AuditStore | undefined, query: AuditQuery = { limit: 50 }): Promise<unknown | undefined> {
   const matching = store ? (await store.list({ limit: 1_000 })).filter((record) =>
     (!query.outcome || record.outcome === query.outcome) &&
     (!query.action || record.action === query.action) &&
+    (!query.runtime || record.runtime === query.runtime) &&
+    (!query.scopeKind || record.scopeKind === query.scopeKind) &&
     (!query.from || record.createdAt.slice(0, 10) >= query.from) &&
     (!query.to || record.createdAt.slice(0, 10) <= query.to)
   ) : [];
@@ -163,7 +167,7 @@ async function auditHistory(store: AuditStore | undefined, query: AuditQuery = {
 
 function auditQuery(path: string): AuditQuery | undefined {
   const parameters = new URL(path, "http://account-center.local").searchParams;
-  if ([...parameters.keys()].some((key) => key !== "limit" && key !== "outcome" && key !== "action" && key !== "from" && key !== "to" && key !== "cursor") || ["limit", "outcome", "action", "from", "to", "cursor"].some((key) => parameters.getAll(key).length > 1)) return undefined;
+  if ([...parameters.keys()].some((key) => key !== "limit" && key !== "outcome" && key !== "action" && key !== "runtime" && key !== "scopeKind" && key !== "from" && key !== "to" && key !== "cursor") || ["limit", "outcome", "action", "runtime", "scopeKind", "from", "to", "cursor"].some((key) => parameters.getAll(key).length > 1)) return undefined;
   const limitValue = parameters.get("limit");
   const limit = limitValue === null ? 50 : Number(limitValue);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return undefined;
@@ -171,12 +175,19 @@ function auditQuery(path: string): AuditQuery | undefined {
   if (outcome !== null && !["dry_run", "started", "applied", "blocked", "failed_no_change_verified", "unproven", "recovery_required"].includes(outcome)) return undefined;
   const action = parameters.get("action");
   if (action !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(action)) return undefined;
+  const runtime = parameters.get("runtime");
+  if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
+  const scopeKind = parameters.get("scopeKind");
+  if (scopeKind !== null && !["agent", "profile", "session", "default", "all"].includes(scopeKind)) return undefined;
+  // Scope context is meaningful only alongside its concrete runtime. Never
+  // silently turn an exact selected-context filter into an app-wide one.
+  if (scopeKind !== null && runtime === null) return undefined;
   const from = parameters.get("from");
   const to = parameters.get("to");
   if ((from !== null && !isUtcCalendarDate(from)) || (to !== null && !isUtcCalendarDate(to)) || (from !== null && to !== null && from > to)) return undefined;
   const cursor = parameters.get("cursor");
   if (cursor !== null && !/^audit_[a-f0-9-]{36}$/.test(cursor)) return undefined;
-  return { limit, ...(outcome === null ? {} : { outcome: outcome as AuditRecord["outcome"] }), ...(action === null ? {} : { action }), ...(from === null ? {} : { from }), ...(to === null ? {} : { to }), ...(cursor === null ? {} : { cursor }) };
+  return { limit, ...(outcome === null ? {} : { outcome: outcome as AuditRecord["outcome"] }), ...(action === null ? {} : { action }), ...(runtime === null ? {} : { runtime }), ...(scopeKind === null ? {} : { scopeKind: scopeKind as NonNullable<AuditRecord["scopeKind"]> }), ...(from === null ? {} : { from }), ...(to === null ? {} : { to }), ...(cursor === null ? {} : { cursor }) };
 }
 
 function isUtcCalendarDate(value: string): boolean {
@@ -394,12 +405,16 @@ function statusView(status: AccountCenterStatus): AccountCenterStatus {
   }) as AccountCenterStatus;
 }
 
-function auditRecordView({ id, createdAt, action, outcome, proofState, summary, warnings }: AuditRecord) {
-  return { id, createdAt, action: safeAuditAction(action), outcome, proofState, summary, warnings };
+function auditRecordView({ id, createdAt, action, outcome, proofState, summary, warnings, runtime, scopeKind }: AuditRecord) {
+  return { id, createdAt, action: safeAuditAction(action), outcome, proofState, summary, warnings, ...(runtime ? { runtime } : {}), ...(scopeKind ? { scopeKind } : {}) };
 }
 
 function safeAuditAction(action: string): string {
   return /^[a-z][a-z0-9._-]{0,63}$/.test(action) ? action : "action_redacted";
+}
+function auditScopeKind(scope: string): AuditRecord["scopeKind"] | undefined {
+  const kind = scope.split(":", 1)[0];
+  return kind === "agent" || kind === "profile" || kind === "session" || kind === "default" || kind === "all" ? kind : undefined;
 }
 
 function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
@@ -566,7 +581,7 @@ function controlPanelHtml(): string {
       function capability(runtime) { var c = runtime.capabilities || {}; var labels = []; if (c.readStatus) labels.push('status'); if (c.mutateRoutes) labels.push('routes'); if (c.startReauth) labels.push('reauth'); if (c.mutateModels) labels.push('models'); return labels.length ? labels.join(' · ') : 'no capabilities reported'; }
       async function api(path, init) { var response = await fetch(path, { method: init && init.method || 'GET', credentials: 'same-origin', headers: { authorization: 'Bearer ' + token.value } }); if (!response.ok) { var error = new Error(response.status === 401 ? 'Launch token rejected' : 'Local API request failed (' + response.status + ')'); error.status = response.status; throw error; } return response.json(); }
       function record(target, title, detail, badge) { return '<article class="record"><strong>' + escapeHtml(title) + '</strong><p>' + escapeHtml(detail) + '</p><span class="pill">' + escapeHtml(badge || 'observed') + '</span></article>'; }
-      function auditRecord(item) { var action = item && typeof item.action === 'string' ? item.action : 'Audit action not reported'; var summary = item && typeof item.summary === 'string' ? item.summary : 'No summary supplied.'; var outcome = item && typeof item.outcome === 'string' ? item.outcome : 'UNPROVEN'; var proof = item && typeof item.proofState === 'string' ? item.proofState : 'UNPROVEN'; var recorded = item && typeof item.createdAt === 'string' ? item.createdAt : 'Not reported'; var auditId = item && typeof item.id === 'string' ? item.id : 'Not reported'; var warnings = item && Array.isArray(item.warnings) ? item.warnings.length : 0; return '<article class="record"><strong>' + escapeHtml(action) + '</strong><p>' + escapeHtml(summary) + '</p><p>Recorded: ' + escapeHtml(recorded) + ' · Proof: ' + escapeHtml(proof) + ' · Warnings: ' + escapeHtml(warnings) + ' · Audit ID: ' + escapeHtml(auditId) + '</p><span class="pill">' + escapeHtml(outcome) + '</span></article>'; }
+      function auditRecord(item) { var action = item && typeof item.action === 'string' ? item.action : 'Audit action not reported'; var summary = item && typeof item.summary === 'string' ? item.summary : 'No summary supplied.'; var outcome = item && typeof item.outcome === 'string' ? item.outcome : 'UNPROVEN'; var proof = item && typeof item.proofState === 'string' ? item.proofState : 'UNPROVEN'; var recorded = item && typeof item.createdAt === 'string' ? item.createdAt : 'Not reported'; var auditId = item && typeof item.id === 'string' ? item.id : 'Not reported'; var runtime = item && typeof item.runtime === 'string' ? item.runtime : 'Not reported'; var scopeKind = item && typeof item.scopeKind === 'string' ? item.scopeKind : 'Not reported'; var warnings = item && Array.isArray(item.warnings) ? item.warnings.length : 0; return '<article class="record"><strong>' + escapeHtml(action) + '</strong><p>' + escapeHtml(summary) + '</p><p>Runtime: ' + escapeHtml(runtime) + ' · Scope: ' + escapeHtml(scopeKind) + '</p><p>Recorded: ' + escapeHtml(recorded) + ' · Proof: ' + escapeHtml(proof) + ' · Warnings: ' + escapeHtml(warnings) + ' · Audit ID: ' + escapeHtml(auditId) + '</p><span class="pill">' + escapeHtml(outcome) + '</span></article>'; }
       function operationRecord(item) { var operationId = item && typeof item.operationId === 'string' ? item.operationId : 'Operation ID not reported'; var audit = item && item.audit && typeof item.audit === 'object' ? item.audit : {}; var action = typeof audit.action === 'string' ? audit.action : 'Protected operation'; var provider = typeof audit.provider === 'string' ? audit.provider : 'provider not reported'; var runtime = typeof audit.runtime === 'string' ? audit.runtime : 'runtime not reported'; var scopeKind = typeof audit.scopeKind === 'string' ? audit.scopeKind : 'scope kind not reported'; var outcome = item && typeof item.outcome === 'string' ? item.outcome : 'UNPROVEN'; var state = item && typeof item.state === 'string' ? item.state : 'UNPROVEN'; var completed = item && typeof item.completedAt === 'string' ? item.completedAt : 'Not reported'; var warnings = Array.isArray(audit.warningCodes) ? audit.warningCodes.length : 0; var detail = /^op_[A-Za-z0-9_-]{1,100}$/.test(operationId) ? '<button class="quiet view-operation" type="button" data-operation-id="' + escapeHtml(operationId) + '" aria-label="View protected operation details">View protected operation details</button>' : ''; return '<article class="record"><strong>' + escapeHtml(action) + '</strong><p>Provider: ' + escapeHtml(provider) + ' · Runtime: ' + escapeHtml(runtime) + ' · Scope: ' + escapeHtml(scopeKind) + '</p><p>Operation ID: ' + escapeHtml(operationId) + ' · Completed: ' + escapeHtml(completed) + ' · Warnings: ' + escapeHtml(warnings) + '</p><span class="pill">' + escapeHtml(outcome + ' · ' + state) + '</span>' + detail + '</article>'; }
       function isOperationDetail(operation) { var audit = operation && operation.audit; return operation && typeof operation === 'object' && Object.keys(operation).every(function (key) { return ['operationId', 'state', 'outcome', 'createdAt', 'completedAt', 'audit'].indexOf(key) !== -1; }) && /^op_[A-Za-z0-9_-]{1,100}$/.test(operation.operationId) && typeof operation.state === 'string' && typeof operation.outcome === 'string' && typeof operation.createdAt === 'string' && typeof operation.completedAt === 'string' && audit && typeof audit === 'object' && Object.keys(audit).every(function (key) { return ['action', 'provider', 'runtime', 'scopeKind', 'warningCodes'].indexOf(key) !== -1; }) && typeof audit.action === 'string' && typeof audit.provider === 'string' && typeof audit.runtime === 'string' && typeof audit.scopeKind === 'string' && Array.isArray(audit.warningCodes) && audit.warningCodes.every(function (code) { return typeof code === 'string'; }); }
       function renderOperationDetail(operation) { if (!isOperationDetail(operation)) { operationDetail.innerHTML = '<article class="record state" data-ui-state="unproven" role="status"><strong>UNPROVEN — data unavailable</strong><p>Protected operation detail was malformed or incomplete. Refresh the operation history and try again.</p><span class="pill warn">UNPROVEN</span></article>'; return; } var audit = operation.audit; operationDetail.innerHTML = '<article class="record"><strong>Protected operation detail</strong><p>Action: ' + escapeHtml(audit.action) + ' · Provider: ' + escapeHtml(audit.provider) + ' · Runtime: ' + escapeHtml(audit.runtime) + ' · Scope: ' + escapeHtml(audit.scopeKind) + '</p><p>Operation ID: ' + escapeHtml(operation.operationId) + ' · Started: ' + escapeHtml(operation.createdAt) + ' · Completed: ' + escapeHtml(operation.completedAt) + '</p><p>Warning codes: ' + escapeHtml(audit.warningCodes.length ? audit.warningCodes.join(', ') : 'None') + '. This redacted evidence does not include request, target, scope, or idempotency digests.</p><span class="pill">' + escapeHtml(operation.outcome + ' · ' + operation.state) + '</span></article>'; }
@@ -608,7 +623,7 @@ function controlPanelHtml(): string {
         var audit = data.audit && data.audit.records || []; auditCursor = !unavailable.audit && data.audit && typeof data.audit.nextCursor === 'string' ? data.audit.nextCursor : ''; auditLoadMore.hidden = !auditCursor; auditRecords.innerHTML = unavailable.audit ? unavailableRecord('Audit history') : audit.length ? audit.map(auditRecord).join('') : '<p class="empty">No Account Center audit records are available.</p>';
         var operations = data.operations && data.operations.operations || []; operationCursor = !unavailable.operations && data.operations && typeof data.operations.nextCursor === 'string' ? data.operations.nextCursor : ''; operationLoadMore.hidden = !operationCursor; operationRecords.innerHTML = unavailable.operations ? unavailableRecord('Operation history') : operations.length ? operations.map(operationRecord).join('') : '<p class="empty">No completed protected operations are available.</p>';
       }
-      async function loadAudit(cursor) { var parameters = new URLSearchParams(); if (auditOutcome.value) parameters.set('outcome', auditOutcome.value); if (auditAction.value) parameters.set('action', auditAction.value); if (auditFrom.value) parameters.set('from', auditFrom.value); if (auditTo.value) parameters.set('to', auditTo.value); if (cursor) parameters.set('cursor', cursor); var suffix = parameters.toString(); return api('/api/audit' + (suffix ? '?' + suffix : '')); }
+      async function loadAudit(cursor) { var parameters = new URLSearchParams(); var runtime = selectedRuntime(); var scopeKind = selectedScopeKind(); if (auditOutcome.value) parameters.set('outcome', auditOutcome.value); if (auditAction.value) parameters.set('action', auditAction.value); if (auditFrom.value) parameters.set('from', auditFrom.value); if (auditTo.value) parameters.set('to', auditTo.value); if (runtime) parameters.set('runtime', runtime); if (scopeKind) parameters.set('scopeKind', scopeKind); if (cursor) parameters.set('cursor', cursor); var suffix = parameters.toString(); return api('/api/audit' + (suffix ? '?' + suffix : '')); }
       async function loadOperations(cursor) { var parameters = new URLSearchParams(); var runtime = selectedRuntime(); var scopeKind = selectedScopeKind(); if (operationOutcome.value) parameters.set('outcome', operationOutcome.value); if (operationAction.value) parameters.set('action', operationAction.value); if (operationFrom.value) parameters.set('from', operationFrom.value); if (operationTo.value) parameters.set('to', operationTo.value); if (runtime) parameters.set('runtime', runtime); if (scopeKind) parameters.set('scopeKind', scopeKind); if (cursor) parameters.set('cursor', cursor); var suffix = parameters.toString(); return api('/api/mutation-operations' + (suffix ? '?' + suffix : '')); }
       async function loadModels() { return api('/api/models' + selectedScopeQuery()); }
       async function loadLimits() { return api('/api/limits' + selectedScopeQuery()); }

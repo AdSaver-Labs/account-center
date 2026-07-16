@@ -15,6 +15,10 @@ export interface AuditRecord {
   requestDigest: string;
   summary: string;
   warnings: string[];
+  // Context is deliberately limited to non-identifying selectors. Scope IDs,
+  // targets, request material, and runtime configuration never enter audit state.
+  runtime?: string;
+  scopeKind?: "agent" | "profile" | "session" | "default" | "all";
 }
 
 export interface AuditRecordInput {
@@ -24,6 +28,8 @@ export interface AuditRecordInput {
   requestDigest: string;
   summary: string;
   warnings: string[];
+  runtime?: string;
+  scopeKind?: "agent" | "profile" | "session" | "default" | "all";
   unsafeContext?: unknown;
 }
 
@@ -37,6 +43,8 @@ export class AuditStore {
 
   async append(input: AuditRecordInput): Promise<AuditRecord> {
     if (!input.action.trim() || !input.requestDigest.trim()) throw new Error("audit action and request digest are required");
+    if (input.runtime !== undefined && !isSafeIdentifier(input.runtime)) throw new Error("invalid_audit_runtime");
+    if (input.scopeKind !== undefined && !isScopeKind(input.scopeKind)) throw new Error("invalid_audit_scope_kind");
     return this.withLock(async () => {
       const state = await this.read();
       const record: AuditRecord = {
@@ -47,7 +55,9 @@ export class AuditStore {
         proofState: input.proofState,
         requestDigest: input.requestDigest,
         summary: redactText(input.summary).slice(0, 1_000),
-        warnings: input.warnings.map((warning) => redactText(warning).slice(0, 160)).slice(0, 32)
+        warnings: input.warnings.map((warning) => redactText(warning).slice(0, 160)).slice(0, 32),
+        ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
+        ...(input.scopeKind === undefined ? {} : { scopeKind: input.scopeKind })
       };
       state.records.push(record);
       if (state.records.length > this.maxRecords) state.records.splice(0, state.records.length - this.maxRecords);
@@ -123,5 +133,7 @@ function isAudit(value: unknown): value is PersistedAudit {
 function isRecord(value: unknown): value is AuditRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Partial<AuditRecord>;
-  return typeof record.id === "string" && typeof record.createdAt === "string" && typeof record.action === "string" && typeof record.outcome === "string" && typeof record.proofState === "string" && typeof record.requestDigest === "string" && typeof record.summary === "string" && Array.isArray(record.warnings) && record.warnings.every((warning) => typeof warning === "string");
+  return typeof record.id === "string" && typeof record.createdAt === "string" && typeof record.action === "string" && typeof record.outcome === "string" && typeof record.proofState === "string" && typeof record.requestDigest === "string" && typeof record.summary === "string" && Array.isArray(record.warnings) && record.warnings.every((warning) => typeof warning === "string") && (record.runtime === undefined || isSafeIdentifier(record.runtime)) && (record.scopeKind === undefined || isScopeKind(record.scopeKind));
 }
+function isSafeIdentifier(value: unknown): value is string { return typeof value === "string" && /^[a-z][a-z0-9._-]{0,63}$/.test(value); }
+function isScopeKind(value: unknown): value is AuditRecord["scopeKind"] { return value === "agent" || value === "profile" || value === "session" || value === "default" || value === "all"; }
