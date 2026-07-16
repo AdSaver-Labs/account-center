@@ -150,6 +150,34 @@ gate("loads a redacted protected-operation detail through the bearer-protected A
   await expect(detail).not.toContainText(/fixture-operation-detail-key|a{64}|b{64}|c{64}/i);
 });
 
+gate("clears protected-operation detail when the selected runtime context changes", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
+  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await audit.getByRole("button", { name: "View protected operation details" }).click();
+  const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
+  await expect(detail).toContainText("route.use");
+  const context = panel.page.getByLabel("Runtime & scope");
+  await context.selectOption({ label: "openclaw / default:default" });
+  await expect(detail).toContainText("No protected operation detail selected");
+  await expect(detail).not.toContainText("route.use");
+});
+
+gate("clears protected-operation detail before replacing its filtered history", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
+  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await audit.getByRole("button", { name: "View protected operation details" }).click();
+  const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
+  await expect(detail).toContainText("route.use");
+  await audit.getByLabel("Action category").nth(1).fill("model.use");
+  await audit.getByRole("button", { name: "Filter operation history" }).click();
+  await expect(detail).toContainText("No protected operation detail selected");
+  await expect(detail).not.toContainText("route.use");
+});
+
 gate("has no serious or critical axe violations and reports lower severities", async ({ panel }, testInfo) => {
   await open(panel);
   await connect(panel);
