@@ -278,6 +278,14 @@ test("Generic command adapter keeps command failures and malformed JSON fixed an
   }
 });
 
+test("Generic command adapter rejects a timeout even when the child reports zero with valid JSON", async () => {
+  const adapter = new GenericCommandRuntimeAdapter({
+    command: "agent-status",
+    runner: async () => ({ code: 0, stdout: JSON.stringify({ ...routerStatus, source: "generic-command" }), stderr: "", timeoutExceeded: true })
+  });
+  await assert.rejects(adapter.readStatus(), /^Error: Generic command status is unavailable or unproven$/);
+});
+
 test("spawn runner accepts exactly the output cap and rejects both stream overflows", async () => {
   for (const stream of ["stdout", "stderr"] as const) {
     const exact = await execFileRunner(process.execPath, ["-e", `process.${stream}.write('x'.repeat(64))`], { maxOutputBytes: 64 });
@@ -299,6 +307,12 @@ test("spawn runner escalates after timeout even when SIGTERM is ignored", async 
   const result = await execFileRunner(process.execPath, ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('ready'); setInterval(() => {}, 1000)"], { timeoutMs: 100, maxOutputBytes: 64 });
   assert.notEqual(result.code, 0);
   assert.ok(Date.now() - startedAt < 2_000, "timeout must escalate instead of waiting for an untrusted process");
+});
+
+test("spawn runner records timeout before a SIGTERM handler exits successfully", async () => {
+  const result = await execFileRunner(process.execPath, ["-e", "process.on('SIGTERM', () => process.exit(0)); process.stdout.write('ready'); setInterval(() => {}, 1000)"], { timeoutMs: 100, maxOutputBytes: 64 });
+  assert.equal(result.code, 0);
+  assert.equal(result.timeoutExceeded, true);
 });
 
 test("generic-command stderr flood is bounded at the actual spawn boundary", async () => {

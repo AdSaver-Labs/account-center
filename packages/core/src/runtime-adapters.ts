@@ -15,6 +15,7 @@ export interface CommandResult {
   stdout: string;
   stderr: string;
   outputLimitExceeded?: boolean;
+  timeoutExceeded?: boolean;
 }
 
 export type CommandRunner = (command: string, args: string[], options?: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number }) => Promise<CommandResult>;
@@ -259,7 +260,7 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
     if (result.outputLimitExceeded || Buffer.byteLength(result.stdout, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES || Buffer.byteLength(result.stderr, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES) {
       throw new Error("Generic command status output exceeds safe ingestion limit");
     }
-    if (result.code !== 0) throw new Error(GENERIC_COMMAND_FAILURE);
+    if (result.timeoutExceeded || result.code !== 0) throw new Error(GENERIC_COMMAND_FAILURE);
     try {
       return normalizeGenericCommandStatus(JSON.parse(result.stdout));
     } catch {
@@ -430,6 +431,7 @@ export async function execFileRunner(command: string, args: string[], options: {
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let outputLimitExceeded = false;
+    let timeoutExceeded = false;
     let settled = false;
     let escalation: NodeJS.Timeout | undefined;
     const finish = (code: number) => {
@@ -437,7 +439,7 @@ export async function execFileRunner(command: string, args: string[], options: {
       settled = true;
       if (timeout) clearTimeout(timeout);
       if (escalation) clearTimeout(escalation);
-      resolvePromise({ code, stdout, stderr, outputLimitExceeded });
+      resolvePromise({ code, stdout, stderr, outputLimitExceeded, timeoutExceeded });
     };
     const terminate = () => {
       if (settled) return;
@@ -448,7 +450,10 @@ export async function execFileRunner(command: string, args: string[], options: {
       child.kill("SIGTERM");
       escalation = setTimeout(() => child.kill("SIGKILL"), PROCESS_TERMINATION_GRACE_MS);
     };
-    const timeout = options.timeoutMs ? setTimeout(terminate, options.timeoutMs) : undefined;
+    const timeout = options.timeoutMs ? setTimeout(() => {
+      timeoutExceeded = true;
+      terminate();
+    }, options.timeoutMs) : undefined;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
