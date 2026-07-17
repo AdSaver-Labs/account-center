@@ -61,7 +61,7 @@ test("CLI auth bridge executes /auth guard against fixture status", async () => 
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.next, "openai:helper-2");
+  assert.equal(parsed.next, "account-2");
 });
 
 test("CLI auth bridge executes /auth probe against fixture status", async () => {

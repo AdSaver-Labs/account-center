@@ -155,7 +155,89 @@ test("guard returns next usable account", async () => {
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.next, "openai:helper-2");
+  assert.equal(parsed.next, "account-2");
+});
+
+test("CLI inventory, eligibility, guard, and route receipts never expose hostile account or runtime values", async () => {
+  const privateValues = [
+    "openai:helper-1",
+    "openai:helper-2",
+    "openai:business-backup",
+    "person@example.test",
+    "/usr/local/bin/private-adapter --dump-config",
+    "sk-hostile-token-value-123456789",
+    "target:production-account"
+  ];
+  const outputs = await Promise.all([
+    runCli(["accounts", "list", "--json"]),
+    runCli(["models", "list", "--json"]),
+    runCli(["routes", "next", "--json"]),
+    runCli(["guard", "--json"]),
+    runCli(["routes", "use", "helper-2", "--json"]),
+    runCli(["accounts", "list"]),
+    runCli(["models", "list"]),
+    runCli(["routes", "next"]),
+    runCli(["guard"]),
+    runCli(["routes", "use", "helper-2"])
+  ]);
+  for (const result of outputs) {
+    assert.equal(result.stderr, undefined);
+    for (const value of privateValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
+  }
+  assert.deepEqual(JSON.parse(outputs[0]!.stdout).accounts.map((account: { id: string }) => account.id), ["account-1", "account-2", "account-3", "account-4"]);
+  assert.equal(JSON.parse(outputs[2]!.stdout).next, "account-2");
+  assert.equal(JSON.parse(outputs[3]!.stdout).next, "account-2");
+  assert.equal(JSON.parse(outputs[4]!.stdout).receipt.target, "redacted-target");
+});
+
+test("hostile OpenClaw inventory fixtures cannot cross the public CLI boundary", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "account-center-hostile-cli-"));
+  const cli = join(dir, "oauth_routing_cli.py");
+  const privateValues = ["openai:private-profile-id", "person@example.test", "/usr/local/bin/private-adapter --dump-config", "sk-hostile-token-value-123456789", "target:production-account"];
+  const previousWorkspace = process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+  const previousCli = process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+  process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = dir;
+  process.env.ACCOUNT_CENTER_OPENCLAW_CLI = cli;
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  const runner = async () => ({
+    code: 0,
+    stderr: "",
+    stdout: JSON.stringify({
+      at: "2026-07-17T12:00:00.000Z",
+      provider: "openai",
+      routePolicy: { primary: "target:production-account" },
+      accounts: {
+        "openai:private-profile-id": {
+          profileId: "openai:private-profile-id",
+          email: "person@example.test",
+          adapterConfig: "/usr/local/bin/private-adapter --dump-config",
+          access_token: "sk-hostile-token-value-123456789",
+          enabled: true,
+          health: { healthy: true, expired: false },
+          usage: { available: true, fiveHourRemaining: 91, weekRemaining: 88 }
+        }
+      },
+      effectiveAuthOrder: ["openai:private-profile-id"]
+    })
+  });
+  try {
+    const outputs = await Promise.all([
+      runCli(["accounts", "list", "--source", "openclaw", "--json"], process.cwd(), { runner }),
+      runCli(["routes", "next", "--source", "openclaw", "--json"], process.cwd(), { runner }),
+      runCli(["guard", "--source", "openclaw", "--json"], process.cwd(), { runner }),
+      runCli(["routes", "use", "openai:private-profile-id", "--source", "openclaw", "--json"], process.cwd(), { runner })
+    ]);
+    for (const result of outputs) for (const value of privateValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
+    assert.equal(JSON.parse(outputs[0]!.stdout).accounts[0].id, "account-1");
+    assert.equal(JSON.parse(outputs[1]!.stdout).next, "account-1");
+    assert.equal(JSON.parse(outputs[2]!.stdout).next, "account-1");
+    assert.equal(JSON.parse(outputs[3]!.stdout).receipt.target, "redacted-target");
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;
+    if (previousCli === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = previousCli;
+  }
 });
 
 test("guard --ensure-route plans automatic route switch without apply", async () => {
@@ -189,13 +271,13 @@ test("dry-run route and account commands produce non-mutating receipts", async (
   }
 });
 
-test("/auth delete --dry-run renders a clear human no-deletion message", async () => {
+test("/auth delete --dry-run renders a clear redacted no-deletion message", async () => {
   const result = await runCli(["auth", "/auth", "delete", "helper-1", "--dry-run"]);
   assert.equal(result.code, 0);
   assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
   assert.match(result.stdout, /Action: account\.delete/);
-  assert.match(result.stdout, /To actually delete it yourself, run:/);
-  assert.match(result.stdout, /\/auth delete helper-1/);
+  assert.match(result.stdout, /Exact connected-target confirmation remains required/);
+  assert.doesNotMatch(result.stdout, /helper-1/);
 
   const jsonResult = await runCli(["auth", "/auth", "delete", "helper-1", "--json"]);
   assert.equal(jsonResult.code, 0);
@@ -206,7 +288,9 @@ test("models list reports fixture model policy", async () => {
   const result = await runCli(["models", "list", "--json"]);
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.some((item: { model: string }) => item.model === "openai/gpt-5.3-codex"), true);
+  assert.equal(parsed.schemaVersion, "account-center.public-models.v1");
+  assert.equal(parsed.models.some((item: { id: string }) => item.id === "model-1"), true);
+  assert.doesNotMatch(result.stdout, /openai\/gpt-5\.3-codex/);
 });
 
 test("help promotes /auth compatibility as the manual chat command", async () => {
