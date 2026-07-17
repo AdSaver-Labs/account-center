@@ -32,7 +32,7 @@ BACKLOG
   -> MERGED           (commit pushed, release gate updated narrowly)
 ```
 
-A failure transitions to `REMEDIATION`, then returns to the failed phase. After two remediation loops, the coordinator records a blocker and stops rather than widening scope or weakening a test.
+A failure transitions to `REMEDIATION`, then returns to the failed phase. After two remediation loops, the coordinator records a blocker and stops rather than widening scope or weakening a test. With the user's standing continuation authorization, it may instead preserve that candidate and create a narrowly scoped execution sub-checkpoint (`<ID>-R<n>`) with its own 5–10-task plan. The parent checkpoint remains incomplete until every required sub-checkpoint has real proof.
 
 ## Required proof for every checkpoint
 
