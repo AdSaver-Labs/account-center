@@ -527,12 +527,12 @@ function publicAuditView(status: AccountCenterStatus, limit: number) {
   return {
     schemaVersion: "account-center.public-audit.v1" as const,
     verificationState: "UNPROVEN" as const,
-    events: status.audit.slice(0, limit).map((event) => ({ id: event.id, action: event.action, dryRun: event.dryRun, state: "UNPROVEN" as const }))
+    events: status.audit.slice(0, limit).map((event) => ({ dryRun: event.dryRun, state: "UNPROVEN" as const }))
   };
 }
 
 function renderAudit(view: ReturnType<typeof publicAuditView>): string {
-  return view.events.map((event) => `${event.id} ${event.action} dryRun=${event.dryRun} ${event.state}`).join("\n") + "\n";
+  return view.events.map((event) => `Audit event dryRun=${event.dryRun} ${event.state}`).join("\n") + "\n";
 }
 
 function startReauth(target: string | undefined, status: AccountCenterStatus, options: CliOptions): CliResult {
