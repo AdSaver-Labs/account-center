@@ -53,10 +53,93 @@ test("status --json emits fixture-backed no-secret export", async () => {
   const result = await runCli(["status", "--json", "--no-write-export"]);
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.schemaVersion, "account-center.status.v1");
-  assert.equal(parsed.noSecrets, true);
+  assert.equal(parsed.schemaVersion, "account-center.public-status.v1");
   assert.equal(parsed.source, "fixture");
   assert.equal(JSON.stringify(parsed).includes("token"), false);
+});
+
+const hostileStatusFailure = "adapter stderr: /srv/private/account-center/worktree\nError: command /usr/local/bin/private-adapter --dump-config failed for person@example.test sk-hostile-token-value-123456789";
+
+test("status failure renders a fixed public UNPROVEN response for humans", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const result = await runCli(["status", "--source", "generic-command", "--no-write-export"], process.cwd(), {
+      runner: async () => ({ code: 1, stdout: "", stderr: hostileStatusFailure })
+    });
+    assert.equal(result.code, 2);
+    assert.equal(result.stderr, undefined);
+    assert.equal(result.stdout, "Account Center: status UNPROVEN\nSource: generic-command\n");
+    for (const value of ["/srv/private/account-center/worktree", "/usr/local/bin/private-adapter --dump-config", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
+      assert.equal(result.stdout.includes(value), false, value);
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("status failure renders a fixed public UNPROVEN JSON response", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const result = await runCli(["status", "--source", "generic-command", "--json", "--no-write-export"], process.cwd(), {
+      runner: async () => ({ code: 1, stdout: "", stderr: hostileStatusFailure })
+    });
+    assert.equal(result.code, 2);
+    assert.equal(result.stderr, undefined);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      schemaVersion: "account-center.public-status-error.v1",
+      source: "generic-command",
+      state: "UNPROVEN"
+    });
+    for (const value of ["/srv/private/account-center/worktree", "/usr/local/bin/private-adapter --dump-config", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
+      assert.equal(result.stdout.includes(value), false, value);
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("doctor --json uses a fixed public DTO instead of adapter diagnostics", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const result = await runCli(["doctor", "--source", "generic-command", "--json"], process.cwd(), {
+      runner: async () => ({ code: 1, stdout: "", stderr: "adapter stderr: person@example.test sk-hostile-token-value-123456789" })
+    });
+    assert.equal(result.code, 0);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      schemaVersion: "account-center.public-doctor.v1",
+      source: "generic-command",
+      state: "UNPROVEN"
+    });
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("doctor renders the public OK state for humans", async () => {
+  const result = await runCli(["doctor", "--source", "fixture"]);
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, "Doctor: OK\nSource: fixture\n");
+});
+
+test("doctor renders the public UNPROVEN state for humans", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const result = await runCli(["doctor", "--source", "generic-command"], process.cwd(), {
+      runner: async () => ({ code: 1, stdout: "", stderr: "adapter stderr: person@example.test sk-hostile-token-value-123456789" })
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "Doctor: UNPROVEN\nSource: generic-command\n");
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
 });
 
 test("status writes a local status export when enabled", async () => {
@@ -64,7 +147,7 @@ test("status writes a local status export when enabled", async () => {
   const result = await runCli(["status", "--json", "--status-path", join(dir, "status.json")]);
   assert.equal(result.code, 0);
   const written = JSON.parse(await readFile(join(dir, "status.json"), "utf8"));
-  assert.equal(written.schemaVersion, "account-center.status.v1");
+  assert.equal(written.schemaVersion, "account-center.public-status.v1");
 });
 
 test("guard returns next usable account", async () => {
@@ -164,7 +247,7 @@ test("OpenClaw source can be selected with a mocked read-only runner", async () 
     assert.equal(result.code, 0);
     const parsed = JSON.parse(result.stdout);
     assert.equal(parsed.source, "openclaw");
-    assert.equal(parsed.profiles[0].id, "openai:helper-1");
+    assert.equal(parsed.profiles[0].id, "account-1");
   } finally {
     if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
     else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;
@@ -173,7 +256,7 @@ test("OpenClaw source can be selected with a mocked read-only runner", async () 
   }
 });
 
-test("/auth default output retains Codex account-limit detail while redacting account emails", async () => {
+test("/auth default output stays within the public status boundary", async () => {
   const dir = await mkdtemp(join(tmpdir(), "account-center-openclaw-limits-"));
   const cli = join(dir, "oauth_routing_cli.py");
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
@@ -238,22 +321,10 @@ test("/auth default output retains Codex account-limit detail while redacting ac
       })
     });
     assert.equal(result.code, 0);
-    assert.match(result.stdout, /^Codex account limits/);
-    assert.match(result.stdout, /Snapshot: 10 Jul 2026, 12:25 EEST/);
-    assert.match(result.stdout, /Current active account: \[REDACTED_EMAIL\] \(openai:\[REDACTED_EMAIL\]\)/);
-    assert.equal(result.stdout.includes("travis@example.com"), false);
-    assert.equal(result.stdout.includes("49pushy@example.com"), false);
-    assert.equal(result.stdout.includes("info@adsaveragency.com"), false);
-    assert.match(result.stdout, /Non-AdSaver weekly-usable accounts: 1/);
-    assert.match(result.stdout, /⚠️ WARNING: only 1 non-AdSaver weekly-usable account remains/);
-    assert.match(result.stdout, /No-token commands you can use here:/);
-    assert.match(result.stdout, /• \/auth add <email> — start OpenAI Codex device-code login from Telegram/);
-    assert.match(result.stdout, /\[REDACTED_EMAIL\] — PLUS/);
-    assert.match(result.stdout, /OAuth expires: 18 Jul 2026, 23:28/);
-    assert.match(result.stdout, /• 5h: 1% used \/ 99% left\n  refresh: 10 Jul 2026, 17:25/);
-    assert.match(result.stdout, /\[REDACTED_EMAIL\] — FREE/);
-    assert.match(result.stdout, /• 5h: unknown/);
-    assert.match(result.stdout, /\[REDACTED_EMAIL\]/);
+    assert.match(result.stdout, /Account Center: status observed/);
+    assert.match(result.stdout, /Source: openclaw/);
+    assert.match(result.stdout, /Verification: UNPROVEN/);
+    assert.doesNotMatch(result.stdout, /travis@example\.com|49pushy@example\.com|info@adsaveragency\.com|codex-device-auth-telegram|Fallback CLI/);
   } finally {
     if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
     else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;

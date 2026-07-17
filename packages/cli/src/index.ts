@@ -16,6 +16,9 @@ import {
   nextEligible,
   parseRuntimeSource,
   probeProviders,
+  publicDoctorView,
+  PublicStatusView,
+  publicStatusView,
   redactJson
 } from "@account-center/core";
 import { randomBytes } from "node:crypto";
@@ -62,16 +65,30 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
     }
   }
-  const adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
+  let adapter;
+  try {
+    adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
+  } catch (error) {
+    if (command === "status") return statusFailure(options);
+    throw error;
+  }
   if (command === "doctor") {
     const report = await adapter.doctor();
-    return ok(options.json ? json(report) : renderDoctorReport(report));
+    const view = publicDoctorView(adapter.source, report);
+    return ok(options.json ? json(view) : renderDoctorReport(view));
   }
-  const statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
+  let statusExecution;
+  try {
+    statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
+  } catch (error) {
+    if (command === "status") return statusFailure(options);
+    throw error;
+  }
   const status = statusExecution.status!;
   if (command === "status") {
-    await maybeWriteStatus(status, options);
-    return ok(options.json ? json(status) : renderStatus(status, options));
+    const view = publicStatusView(status);
+    await maybeWriteStatus(view, options);
+    return ok(options.json ? json(view) : renderStatus(view));
   }
   if (command === "guard") {
     const guarded = guardStatus(status, options.provider, options.runtime, options.model);
@@ -157,10 +174,10 @@ function valueAfter(argv: string[], key: string): string | undefined {
   return index >= 0 ? argv[index + 1] : undefined;
 }
 
-async function maybeWriteStatus(status: AccountCenterStatus, options: CliOptions): Promise<void> {
+async function maybeWriteStatus(status: unknown, options: CliOptions): Promise<void> {
   if (!options.writeExport) return;
   await mkdir(dirname(options.statusPath), { recursive: true });
-  await writeFile(options.statusPath, `${json({ ...status, generatedAt: new Date().toISOString(), source: options.source })}\n`, "utf8");
+  await writeFile(options.statusPath, `${json(status)}\n`, "utf8");
 }
 
 function routeAction(subcommand?: string): "route.auto" | "route.use" | "route.remove" {
@@ -195,16 +212,23 @@ function listModels(status: AccountCenterStatus): Array<{ model: string; disable
   }));
 }
 
-function renderStatus(status: AccountCenterStatus, options: CliOptions): string {
-  if (status.source === "openclaw") return renderCodexLimits(status, options);
-  const route = status.routes.find((item) => item.provider === options.provider && item.runtime === options.runtime);
-  const next = nextEligible(status, options.provider, options.runtime, options.model);
+function renderStatus(status: PublicStatusView): string {
   return [
-    "Account Center: OK",
-    `Active: ${route?.activeProfileId ?? "unknown"}`,
-    `Next eligible: ${next?.profile.id ?? "none"}`,
-    `Warnings: ${status.warnings.join("; ") || "none"}`
+    "Account Center: status observed",
+    `Source: ${status.source}`,
+    `Accounts observed: ${status.profiles.length}`,
+    `Routes observed: ${status.routes.length}`,
+    "Verification: UNPROVEN"
   ].join("\n") + "\n";
+}
+
+function statusFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-status-error.v1",
+    source: options.source,
+    state: "UNPROVEN" as const
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Account Center: status UNPROVEN\nSource: " + view.source + "\n" };
 }
 
 function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): string {
@@ -401,23 +425,8 @@ function renderAccounts(status: AccountCenterStatus): string {
   }).join("\n") + "\n";
 }
 
-function renderDoctorReport(report: unknown): string {
-  if (isReport(report)) {
-    const lines = [
-      `Doctor: ${report.ok ? "OK" : "WARN"}`,
-      `Source: ${String(report.source ?? "unknown")}`
-    ];
-    if (typeof report.fixtureOnly === "boolean") lines.push(`Fixture only: ${report.fixtureOnly ? "yes" : "no"}`);
-    if (typeof report.profiles === "number") lines.push(`Profiles: ${report.profiles}`);
-    if (typeof report.routes === "number") lines.push(`Routes: ${report.routes}`);
-    if (Array.isArray(report.checks)) {
-      for (const check of report.checks) {
-        if (isReport(check)) lines.push(`- ${String(check.name)}: ${check.ok ? "ok" : "fail"} (${String(check.detail ?? "")})`);
-      }
-    }
-    return `${lines.join("\n")}\n`;
-  }
-  return `${json(report)}\n`;
+function renderDoctorReport(report: ReturnType<typeof publicDoctorView>): string {
+  return `Doctor: ${report.state}\nSource: ${report.source}\n`;
 }
 
 function renderModels(status: AccountCenterStatus): string {

@@ -52,7 +52,7 @@ test("status API omits OAuth device codes and verification URLs despite a noSecr
     assert.equal(response.status, 200);
     const body = await response.json() as { reauth: Array<Record<string, unknown>> };
     assert.deepEqual(body.reauth, [{
-      id: "reauth_fixture",
+      id: "reauth-1",
       provider: "openai",
       profileHint: "account-4",
       expiresAt: "2026-07-09T00:15:00.000Z",
