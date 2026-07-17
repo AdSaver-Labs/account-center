@@ -210,6 +210,36 @@ test("status failure renders a fixed public UNPROVEN JSON response", async () =>
   }
 });
 
+test("every generic-command status-read failure returns a fixed public UNPROVEN or blocked result", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  const hostile = "adapter stderr: /srv/private/account-center/worktree person@example.test sk-hostile-token-value-123456789";
+  try {
+    const commands = [
+      ["guard", "--source", "generic-command", "--json"],
+      ["accounts", "list", "--source", "generic-command", "--json"],
+      ["providers", "probe", "--source", "generic-command", "--json"],
+      ["models", "list", "--source", "generic-command", "--json"],
+      ["routes", "next", "--source", "generic-command", "--json"],
+      ["reauth", "start", "account-1", "--source", "generic-command", "--json"],
+      ["routes", "use", "account-1", "--source", "generic-command", "--json"],
+      ["accounts", "disable", "account-1", "--source", "generic-command", "--json"],
+      ["models", "disable", "openai/model", "--source", "generic-command", "--json"]
+    ];
+    for (const command of commands) {
+      const result = await runCli(command, process.cwd(), { runner: async () => ({ code: 1, stdout: "", stderr: hostile }) });
+      assert.equal(result.code, 2, command.join(" "));
+      assert.equal(result.stderr, undefined, command.join(" "));
+      assert.equal(result.stdout.includes(hostile), false, command.join(" "));
+      const parsed = JSON.parse(result.stdout);
+      assert.ok(parsed.state === "UNPROVEN" || parsed.state === "BLOCKED", command.join(" "));
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("doctor --json uses a fixed public DTO instead of adapter diagnostics", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";

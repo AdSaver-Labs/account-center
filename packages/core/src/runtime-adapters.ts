@@ -22,6 +22,8 @@ export type CommandRunner = (command: string, args: string[], options?: { cwd?: 
 // Generic commands are untrusted adapters. Keep their status ingestion bounded
 // before JSON parsing or recursive redaction can process attacker-controlled data.
 export const MAX_GENERIC_COMMAND_STATUS_BYTES = 1_048_576;
+const PROCESS_TERMINATION_GRACE_MS = 250;
+const GENERIC_COMMAND_FAILURE = "Generic command status is unavailable or unproven";
 
 export interface RuntimeMutationInput {
   action: AuditAction;
@@ -254,11 +256,15 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
 
   async readStatus(): Promise<AccountCenterStatus> {
     const result = await this.runner(this.command, this.args, { timeoutMs: 60_000, maxOutputBytes: MAX_GENERIC_COMMAND_STATUS_BYTES });
-    if (result.outputLimitExceeded || Buffer.byteLength(result.stdout, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES) {
+    if (result.outputLimitExceeded || Buffer.byteLength(result.stdout, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES || Buffer.byteLength(result.stderr, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES) {
       throw new Error("Generic command status output exceeds safe ingestion limit");
     }
-    if (result.code !== 0) throw new Error(`Generic command status failed (${result.code}): ${result.stderr.slice(0, 500)}`);
-    return normalizeGenericCommandStatus(JSON.parse(result.stdout));
+    if (result.code !== 0) throw new Error(GENERIC_COMMAND_FAILURE);
+    try {
+      return normalizeGenericCommandStatus(JSON.parse(result.stdout));
+    } catch {
+      throw new Error(GENERIC_COMMAND_FAILURE);
+    }
   }
 
   async doctor(): Promise<unknown> {
@@ -410,14 +416,39 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
   return redactJson(status) as AccountCenterStatus;
 }
 
-async function execFileRunner(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number } = {}): Promise<CommandResult> {
+export async function execFileRunner(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number } = {}): Promise<CommandResult> {
   return new Promise((resolvePromise) => {
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] });
+    let child;
+    try {
+      child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] });
+    } catch {
+      resolvePromise({ code: 127, stdout: "", stderr: "command_start_failed" });
+      return;
+    }
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
+    let stderrBytes = 0;
     let outputLimitExceeded = false;
-    const timeout = options.timeoutMs ? setTimeout(() => child.kill("SIGTERM"), options.timeoutMs) : undefined;
+    let settled = false;
+    let escalation: NodeJS.Timeout | undefined;
+    const finish = (code: number) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (escalation) clearTimeout(escalation);
+      resolvePromise({ code, stdout, stderr, outputLimitExceeded });
+    };
+    const terminate = () => {
+      if (settled) return;
+      // Closing both pipes applies backpressure immediately, so an untrusted
+      // command cannot keep this process buffering data while it exits.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.kill("SIGTERM");
+      escalation = setTimeout(() => child.kill("SIGKILL"), PROCESS_TERMINATION_GRACE_MS);
+    };
+    const timeout = options.timeoutMs ? setTimeout(terminate, options.timeoutMs) : undefined;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
@@ -426,19 +457,27 @@ async function execFileRunner(command: string, args: string[], options: { cwd?: 
       if (options.maxOutputBytes !== undefined && stdoutBytes > options.maxOutputBytes) {
         outputLimitExceeded = true;
         stdout = "";
-        child.kill("SIGTERM");
+        stderr = "";
+        terminate();
         return;
       }
       stdout += chunk;
     });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => {
-      if (timeout) clearTimeout(timeout);
-      resolvePromise({ code: 127, stdout, stderr: `${stderr}${error.message}`, outputLimitExceeded });
+    child.stderr.on("data", (chunk: string) => {
+      if (outputLimitExceeded) return;
+      stderrBytes += Buffer.byteLength(chunk, "utf8");
+      if (options.maxOutputBytes !== undefined && stderrBytes > options.maxOutputBytes) {
+        outputLimitExceeded = true;
+        stdout = "";
+        stderr = "";
+        terminate();
+        return;
+      }
+      stderr += chunk;
     });
+    child.on("error", () => finish(127));
     child.on("close", (code) => {
-      if (timeout) clearTimeout(timeout);
-      resolvePromise({ code: code ?? 1, stdout, stderr, outputLimitExceeded });
+      finish(code ?? 1);
     });
   });
 }

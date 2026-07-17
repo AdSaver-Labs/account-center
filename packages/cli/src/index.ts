@@ -72,7 +72,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   try {
     adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
   } catch (error) {
-    if (command === "status") return statusFailure(options);
+    if (options.source === "generic-command") return genericCommandFailure(options, command, subcommand);
     throw error;
   }
   if (command === "doctor") {
@@ -84,8 +84,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   try {
     statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
   } catch (error) {
-    if (command === "status") return statusFailure(options);
-    if (command === "audit" && subcommand === "list" && options.source === "generic-command") return auditFailure(options);
+    if (options.source === "generic-command") return genericCommandFailure(options, command, subcommand);
     throw error;
   }
   const status = statusExecution.status!;
@@ -359,6 +358,36 @@ function auditFailure(options: CliOptions): CliResult {
     events: []
   };
   return { code: 2, stdout: options.json ? json(view) : "Audit: UNPROVEN\n" };
+}
+
+function genericCommandFailure(options: CliOptions, command?: string, subcommand?: string): CliResult {
+  if (command === "status") return statusFailure(options);
+  if (command === "audit" && subcommand === "list") return auditFailure(options);
+  const action = command === "routes"
+    ? subcommand === "use" ? "route.use" : subcommand === "remove" ? "route.remove" : "route.auto"
+    : command === "accounts"
+      ? subcommand === "delete" ? "account.delete" : subcommand === "enable" ? "account.enable" : "account.disable"
+      : command === "models"
+        ? subcommand === "enable" ? "model.enable" : "model.disable"
+        : undefined;
+  if (action) {
+    const view: PublicMutationView = {
+      schemaVersion: "account-center.public-mutation.v1",
+      verificationState: "UNPROVEN",
+      applied: false,
+      dryRun: true,
+      liveRuntimeMutation: false,
+      state: "BLOCKED",
+      receipt: { id: "receipt-redacted", action, dryRun: true, target: "redacted-target" }
+    };
+    return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
+  }
+  const view = {
+    schemaVersion: "account-center.public-command-error.v1",
+    source: "generic-command" as const,
+    state: "UNPROVEN" as const
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Account Center: command UNPROVEN\nSource: generic-command\n" };
 }
 
 function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): string {
