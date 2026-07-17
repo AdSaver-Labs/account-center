@@ -16,6 +16,9 @@ import {
   nextEligible,
   parseRuntimeSource,
   probeProviders,
+  publicDoctorView,
+  PublicStatusView,
+  publicStatusView,
   redactJson
 } from "@account-center/core";
 import { randomBytes } from "node:crypto";
@@ -65,13 +68,15 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   const adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
   if (command === "doctor") {
     const report = await adapter.doctor();
-    return ok(options.json ? json(report) : renderDoctorReport(report));
+    const view = publicDoctorView(adapter.source, report);
+    return ok(options.json ? json(view) : renderDoctorReport(view));
   }
   const statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
   const status = statusExecution.status!;
   if (command === "status") {
-    await maybeWriteStatus(status, options);
-    return ok(options.json ? json(status) : renderStatus(status, options));
+    const view = publicStatusView(status);
+    await maybeWriteStatus(view, options);
+    return ok(options.json ? json(view) : renderStatus(view));
   }
   if (command === "guard") {
     const guarded = guardStatus(status, options.provider, options.runtime, options.model);
@@ -157,10 +162,10 @@ function valueAfter(argv: string[], key: string): string | undefined {
   return index >= 0 ? argv[index + 1] : undefined;
 }
 
-async function maybeWriteStatus(status: AccountCenterStatus, options: CliOptions): Promise<void> {
+async function maybeWriteStatus(status: unknown, options: CliOptions): Promise<void> {
   if (!options.writeExport) return;
   await mkdir(dirname(options.statusPath), { recursive: true });
-  await writeFile(options.statusPath, `${json({ ...status, generatedAt: new Date().toISOString(), source: options.source })}\n`, "utf8");
+  await writeFile(options.statusPath, `${json(status)}\n`, "utf8");
 }
 
 function routeAction(subcommand?: string): "route.auto" | "route.use" | "route.remove" {
@@ -195,15 +200,13 @@ function listModels(status: AccountCenterStatus): Array<{ model: string; disable
   }));
 }
 
-function renderStatus(status: AccountCenterStatus, options: CliOptions): string {
-  if (status.source === "openclaw") return renderCodexLimits(status, options);
-  const route = status.routes.find((item) => item.provider === options.provider && item.runtime === options.runtime);
-  const next = nextEligible(status, options.provider, options.runtime, options.model);
+function renderStatus(status: PublicStatusView): string {
   return [
-    "Account Center: OK",
-    `Active: ${route?.activeProfileId ?? "unknown"}`,
-    `Next eligible: ${next?.profile.id ?? "none"}`,
-    `Warnings: ${status.warnings.join("; ") || "none"}`
+    "Account Center: status observed",
+    `Source: ${status.source}`,
+    `Accounts observed: ${status.profiles.length}`,
+    `Routes observed: ${status.routes.length}`,
+    "Verification: UNPROVEN"
   ].join("\n") + "\n";
 }
 
