@@ -404,23 +404,8 @@ function renderAccounts(status: AccountCenterStatus): string {
   }).join("\n") + "\n";
 }
 
-function renderDoctorReport(report: unknown): string {
-  if (isReport(report)) {
-    const lines = [
-      `Doctor: ${report.ok ? "OK" : "WARN"}`,
-      `Source: ${String(report.source ?? "unknown")}`
-    ];
-    if (typeof report.fixtureOnly === "boolean") lines.push(`Fixture only: ${report.fixtureOnly ? "yes" : "no"}`);
-    if (typeof report.profiles === "number") lines.push(`Profiles: ${report.profiles}`);
-    if (typeof report.routes === "number") lines.push(`Routes: ${report.routes}`);
-    if (Array.isArray(report.checks)) {
-      for (const check of report.checks) {
-        if (isReport(check)) lines.push(`- ${String(check.name)}: ${check.ok ? "ok" : "fail"} (${String(check.detail ?? "")})`);
-      }
-    }
-    return `${lines.join("\n")}\n`;
-  }
-  return `${json(report)}\n`;
+function renderDoctorReport(report: ReturnType<typeof publicDoctorView>): string {
+  return `Doctor: ${report.state}\nSource: ${report.source}\n`;
 }
 
 function renderModels(status: AccountCenterStatus): string {

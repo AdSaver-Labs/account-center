@@ -77,6 +77,27 @@ test("doctor --json uses a fixed public DTO instead of adapter diagnostics", asy
   }
 });
 
+test("doctor renders the public OK state for humans", async () => {
+  const result = await runCli(["doctor", "--source", "fixture"]);
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, "Doctor: OK\nSource: fixture\n");
+});
+
+test("doctor renders the public UNPROVEN state for humans", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const result = await runCli(["doctor", "--source", "generic-command"], process.cwd(), {
+      runner: async () => ({ code: 1, stdout: "", stderr: "adapter stderr: person@example.test sk-hostile-token-value-123456789" })
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "Doctor: UNPROVEN\nSource: generic-command\n");
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("status writes a local status export when enabled", async () => {
   const dir = await mkdtemp(join(tmpdir(), "account-center-"));
   const result = await runCli(["status", "--json", "--status-path", join(dir, "status.json")]);
