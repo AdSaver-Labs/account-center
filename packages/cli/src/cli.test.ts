@@ -58,6 +58,50 @@ test("status --json emits fixture-backed no-secret export", async () => {
   assert.equal(JSON.stringify(parsed).includes("token"), false);
 });
 
+const hostileStatusFailure = "adapter stderr: /srv/private/account-center/worktree\nError: command /usr/local/bin/private-adapter --dump-config failed for person@example.test sk-hostile-token-value-123456789";
+
+test("status failure renders a fixed public UNPROVEN response for humans", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const result = await runCli(["status", "--source", "generic-command", "--no-write-export"], process.cwd(), {
+      runner: async () => ({ code: 1, stdout: "", stderr: hostileStatusFailure })
+    });
+    assert.equal(result.code, 2);
+    assert.equal(result.stderr, undefined);
+    assert.equal(result.stdout, "Account Center: status UNPROVEN\nSource: generic-command\n");
+    for (const value of ["/srv/private/account-center/worktree", "/usr/local/bin/private-adapter --dump-config", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
+      assert.equal(result.stdout.includes(value), false, value);
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("status failure renders a fixed public UNPROVEN JSON response", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const result = await runCli(["status", "--source", "generic-command", "--json", "--no-write-export"], process.cwd(), {
+      runner: async () => ({ code: 1, stdout: "", stderr: hostileStatusFailure })
+    });
+    assert.equal(result.code, 2);
+    assert.equal(result.stderr, undefined);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      schemaVersion: "account-center.public-status-error.v1",
+      source: "generic-command",
+      state: "UNPROVEN"
+    });
+    for (const value of ["/srv/private/account-center/worktree", "/usr/local/bin/private-adapter --dump-config", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
+      assert.equal(result.stdout.includes(value), false, value);
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("doctor --json uses a fixed public DTO instead of adapter diagnostics", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";

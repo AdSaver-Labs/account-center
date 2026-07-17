@@ -65,13 +65,25 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
     }
   }
-  const adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
+  let adapter;
+  try {
+    adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
+  } catch (error) {
+    if (command === "status") return statusFailure(options);
+    throw error;
+  }
   if (command === "doctor") {
     const report = await adapter.doctor();
     const view = publicDoctorView(adapter.source, report);
     return ok(options.json ? json(view) : renderDoctorReport(view));
   }
-  const statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
+  let statusExecution;
+  try {
+    statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
+  } catch (error) {
+    if (command === "status") return statusFailure(options);
+    throw error;
+  }
   const status = statusExecution.status!;
   if (command === "status") {
     const view = publicStatusView(status);
@@ -208,6 +220,15 @@ function renderStatus(status: PublicStatusView): string {
     `Routes observed: ${status.routes.length}`,
     "Verification: UNPROVEN"
   ].join("\n") + "\n";
+}
+
+function statusFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-status-error.v1",
+    source: options.source,
+    state: "UNPROVEN" as const
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Account Center: status UNPROVEN\nSource: " + view.source + "\n" };
 }
 
 function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): string {
