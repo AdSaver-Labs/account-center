@@ -141,6 +141,31 @@ test("audit list canonicalizes hostile limits before rendering", async () => {
   }
 });
 
+test("generic-command malformed audit data fails closed at the public audit-list boundary", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const privateValues = ["person@example.test", "sk-hostile-token-value-123456789", "/srv/private/account-center/worktree"];
+  const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
+  hostileStatus.audit = { diagnostic: privateValues.join(" ") };
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const results = await Promise.all([
+      runCli(["audit", "list", "--source", "generic-command"], process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) }) }),
+      runCli(["audit", "list", "--source", "generic-command", "--json"], process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) }) })
+    ]);
+    assert.deepEqual(results.map((result) => result.code), [2, 2]);
+    assert.equal(results[0]?.stdout, "Audit: UNPROVEN\n");
+    assert.deepEqual(JSON.parse(results[1]!.stdout), {
+      schemaVersion: "account-center.public-audit.v1",
+      verificationState: "UNPROVEN",
+      events: []
+    });
+    for (const result of results) for (const value of privateValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 const hostileStatusFailure = "adapter stderr: /srv/private/account-center/worktree\nError: command /usr/local/bin/private-adapter --dump-config failed for person@example.test sk-hostile-token-value-123456789";
 
 test("status failure renders a fixed public UNPROVEN response for humans", async () => {

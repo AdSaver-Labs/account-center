@@ -85,6 +85,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
   } catch (error) {
     if (command === "status") return statusFailure(options);
+    if (command === "audit" && subcommand === "list" && options.source === "generic-command") return auditFailure(options);
     throw error;
   }
   const status = statusExecution.status!;
@@ -349,6 +350,15 @@ function statusFailure(options: CliOptions): CliResult {
     state: "UNPROVEN" as const
   };
   return { code: 2, stdout: options.json ? json(view) : "Account Center: status UNPROVEN\nSource: " + view.source + "\n" };
+}
+
+function auditFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-audit.v1",
+    verificationState: "UNPROVEN" as const,
+    events: []
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Audit: UNPROVEN\n" };
 }
 
 function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): string {

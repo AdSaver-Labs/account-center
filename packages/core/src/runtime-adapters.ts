@@ -14,9 +14,14 @@ export interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
+  outputLimitExceeded?: boolean;
 }
 
-export type CommandRunner = (command: string, args: string[], options?: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv }) => Promise<CommandResult>;
+export type CommandRunner = (command: string, args: string[], options?: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number }) => Promise<CommandResult>;
+
+// Generic commands are untrusted adapters. Keep their status ingestion bounded
+// before JSON parsing or recursive redaction can process attacker-controlled data.
+export const MAX_GENERIC_COMMAND_STATUS_BYTES = 1_048_576;
 
 export interface RuntimeMutationInput {
   action: AuditAction;
@@ -248,7 +253,10 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
   }
 
   async readStatus(): Promise<AccountCenterStatus> {
-    const result = await this.runner(this.command, this.args, { timeoutMs: 60_000 });
+    const result = await this.runner(this.command, this.args, { timeoutMs: 60_000, maxOutputBytes: MAX_GENERIC_COMMAND_STATUS_BYTES });
+    if (result.outputLimitExceeded || Buffer.byteLength(result.stdout, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES) {
+      throw new Error("Generic command status output exceeds safe ingestion limit");
+    }
     if (result.code !== 0) throw new Error(`Generic command status failed (${result.code}): ${result.stderr.slice(0, 500)}`);
     return normalizeGenericCommandStatus(JSON.parse(result.stdout));
   }
@@ -294,6 +302,7 @@ export function parseRuntimeSource(value: string | undefined): RuntimeSource {
 
 export function normalizeGenericCommandStatus(raw: unknown): AccountCenterStatus {
   if (isRecord(raw) && raw.schemaVersion === "account-center.status.v1") {
+    if (!Array.isArray(raw.audit)) throw new Error("Generic command status audit must be an array");
     const status = { ...raw, source: "generic-command", noSecrets: true };
     assertAccountCenterStatus(status);
     return redactJson(status) as AccountCenterStatus;
@@ -401,23 +410,35 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
   return redactJson(status) as AccountCenterStatus;
 }
 
-async function execFileRunner(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<CommandResult> {
+async function execFileRunner(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number } = {}): Promise<CommandResult> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let outputLimitExceeded = false;
     const timeout = options.timeoutMs ? setTimeout(() => child.kill("SIGTERM"), options.timeoutMs) : undefined;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stdout.on("data", (chunk: string) => {
+      if (outputLimitExceeded) return;
+      stdoutBytes += Buffer.byteLength(chunk, "utf8");
+      if (options.maxOutputBytes !== undefined && stdoutBytes > options.maxOutputBytes) {
+        outputLimitExceeded = true;
+        stdout = "";
+        child.kill("SIGTERM");
+        return;
+      }
+      stdout += chunk;
+    });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", (error) => {
       if (timeout) clearTimeout(timeout);
-      resolvePromise({ code: 127, stdout, stderr: `${stderr}${error.message}` });
+      resolvePromise({ code: 127, stdout, stderr: `${stderr}${error.message}`, outputLimitExceeded });
     });
     child.on("close", (code) => {
       if (timeout) clearTimeout(timeout);
-      resolvePromise({ code: code ?? 1, stdout, stderr });
+      resolvePromise({ code: code ?? 1, stdout, stderr, outputLimitExceeded });
     });
   });
 }

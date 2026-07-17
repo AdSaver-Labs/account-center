@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CommandRunner, GenericCommandRuntimeAdapter, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
+import { CommandRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
 
 const routerStatus = {
   at: "2026-07-09T10:55:50.721Z",
@@ -252,6 +252,19 @@ test("Generic command adapter reads no-secret status from any agent command", as
   assert.equal(status.noSecrets, true);
   assert.equal(status.profiles.length, 2);
   assert.deepEqual(calls[0], { command: "agent-status", args: ["--json"] });
+});
+
+test("Generic command adapter rejects oversized stdout before status parsing or redaction", async () => {
+  let requestedCap: number | undefined;
+  const adapter = new GenericCommandRuntimeAdapter({
+    command: "agent-status",
+    runner: async (_command, _args, options) => {
+      requestedCap = options?.maxOutputBytes;
+      return { code: 0, stdout: `${" ".repeat(MAX_GENERIC_COMMAND_STATUS_BYTES)}x`, stderr: "person@example.test sk-hostile-token-value-123456789" };
+    }
+  });
+  await assert.rejects(adapter.readStatus(), /^Error: Generic command status output exceeds safe ingestion limit$/);
+  assert.equal(requestedCap, MAX_GENERIC_COMMAND_STATUS_BYTES);
 });
 
 test("Generic command adapter dry-run mutation never calls apply command", async () => {
