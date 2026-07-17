@@ -14,7 +14,7 @@ Only one checkpoint can be in `IMPLEMENTING`, `REVIEW`, or `QA` at a time. The s
 | Interface designer | Native VPS Codex CLI/app | Only its isolated UI branch | owns visual system, first-run onboarding, interaction polish, and accessible UI implementation |
 | Implementation worker | Jacques/OpenClaw or native Codex, selected per checkpoint | Only its isolated worktree | TDD implementation of one bounded checkpoint |
 | Spec reviewer | fresh read-only reviewer | No | checks exact checkpoint acceptance criteria and prevents scope creep |
-| DRY/performance reviewer | Fresh native Codex review, or a fresh read-only Jacques session when native Codex is quota-limited | No | checks duplication, avoidable complexity, performance regressions, dead code, and maintainability |
+| DRY/performance reviewer | Fresh native Codex review, or a fresh read-only Jacques session when native Codex is unavailable (quota or authentication) | No | checks duplication, avoidable complexity, performance regressions, dead code, and maintainability |
 | QA | deterministic CI + fresh independent QA reviewer | No source writes | runs security, functional, browser, a11y, responsive, and regression proof |
 
 A worker never approves its own code. A failed review or QA gate returns the same checkpoint to `IMPLEMENTING`; the next checkpoint cannot begin.
