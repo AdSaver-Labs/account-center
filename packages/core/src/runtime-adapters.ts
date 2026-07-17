@@ -421,7 +421,12 @@ export async function execFileRunner(command: string, args: string[], options: {
   return new Promise((resolvePromise) => {
     let child;
     try {
-      child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(command, args, {
+        cwd: options.cwd,
+        detached: process.platform !== "win32",
+        env: options.env,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
     } catch {
       resolvePromise({ code: 127, stdout: "", stderr: "command_start_failed" });
       return;
@@ -432,23 +437,26 @@ export async function execFileRunner(command: string, args: string[], options: {
     let stderrBytes = 0;
     let outputLimitExceeded = false;
     let timeoutExceeded = false;
+    let terminationRequested = false;
     let settled = false;
     let escalation: NodeJS.Timeout | undefined;
     const finish = (code: number) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
+      if (terminationRequested) terminateCommandTree(child, "SIGKILL");
       if (escalation) clearTimeout(escalation);
       resolvePromise({ code, stdout, stderr, outputLimitExceeded, timeoutExceeded });
     };
     const terminate = () => {
       if (settled) return;
+      terminationRequested = true;
       // Closing both pipes applies backpressure immediately, so an untrusted
       // command cannot keep this process buffering data while it exits.
       child.stdout?.destroy();
       child.stderr?.destroy();
-      child.kill("SIGTERM");
-      escalation = setTimeout(() => child.kill("SIGKILL"), PROCESS_TERMINATION_GRACE_MS);
+      terminateCommandTree(child, "SIGTERM");
+      escalation = setTimeout(() => terminateCommandTree(child, "SIGKILL"), PROCESS_TERMINATION_GRACE_MS);
     };
     const timeout = options.timeoutMs ? setTimeout(() => {
       timeoutExceeded = true;
@@ -485,6 +493,20 @@ export async function execFileRunner(command: string, args: string[], options: {
       finish(code ?? 1);
     });
   });
+}
+
+function terminateCommandTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+  // A detached POSIX child leads a process group, so termination also reaches
+  // untrusted descendants that could otherwise survive a bounded read.
+  try {
+    if (process.platform !== "win32" && child.pid !== undefined) {
+      process.kill(-child.pid, signal);
+      return;
+    }
+    child.kill(signal);
+  } catch {
+    // The command may have exited between timeout/output handling and cleanup.
+  }
 }
 
 async function exists(path: string): Promise<boolean> {

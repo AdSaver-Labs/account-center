@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
@@ -313,6 +313,16 @@ test("spawn runner records timeout before a SIGTERM handler exits successfully",
   const result = await execFileRunner(process.execPath, ["-e", "process.on('SIGTERM', () => process.exit(0)); process.stdout.write('ready'); setInterval(() => {}, 1000)"], { timeoutMs: 100, maxOutputBytes: 64 });
   assert.equal(result.code, 0);
   assert.equal(result.timeoutExceeded, true);
+});
+
+test("spawn runner terminates a SIGTERM-ignoring descendant with its timed-out command group", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-command-tree-"));
+  const marker = join(workspace, "descendant-survived");
+  const script = `const { spawn } = require("node:child_process"); const marker = process.argv[1]; spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setTimeout(() => require('node:fs').writeFileSync(process.argv[1], 'survived'), 500); setInterval(() => {}, 1000)", marker], { stdio: "ignore" }); process.stdout.write("ready"); setInterval(() => {}, 1000);`;
+  const result = await execFileRunner(process.execPath, ["-e", script, marker], { timeoutMs: 100, maxOutputBytes: 64 });
+  assert.equal(result.timeoutExceeded, true);
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  await assert.rejects(access(marker));
 });
 
 test("generic-command stderr flood is bounded at the actual spawn boundary", async () => {
