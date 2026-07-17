@@ -58,7 +58,7 @@ test("status --json emits fixture-backed no-secret export", async () => {
   assert.equal(JSON.stringify(parsed).includes("token"), false);
 });
 
-test("audit list uses a fixed opaque public view for hostile runtime events", async () => {
+test("audit list canonicalizes hostile dryRun strings in its fixed opaque public view", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   const hostileValues = [
     "evt_person@example.test_target:production-account",
@@ -70,18 +70,18 @@ test("audit list uses a fixed opaque public view for hostile runtime events", as
     "sk-hostile-token-value-123456789"
   ];
   const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
-  hostileStatus.audit = [{
+  hostileStatus.audit = ["true", hostileValues[4]].map((dryRun) => ({
     id: hostileValues[0],
     action: hostileValues[1],
     actor: "person@example.test",
-    dryRun: true,
+    dryRun,
     createdAt: "2026-07-17T12:00:00.000Z",
     target: hostileValues[3],
     summary: hostileValues[2],
     before: { path: hostileValues[4], email: hostileValues[5], token: hostileValues[6] },
     after: { target: hostileValues[3] },
     warnings: [hostileValues[2]]
-  }];
+  }));
   process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
   try {
     const runner = async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) });
@@ -90,17 +90,51 @@ test("audit list uses a fixed opaque public view for hostile runtime events", as
       runCli(["audit", "list", "--source", "generic-command", "--json"], process.cwd(), { runner })
     ]);
     assert.equal(human.code, 0);
-    assert.equal(human.stdout, "Audit event dryRun=true UNPROVEN\n");
+    assert.equal(human.stdout, "Audit event dryRun=false UNPROVEN\nAudit event dryRun=false UNPROVEN\n");
     assert.equal(jsonResult.code, 0);
     assert.deepEqual(JSON.parse(jsonResult.stdout), {
       schemaVersion: "account-center.public-audit.v1",
       verificationState: "UNPROVEN",
-      events: [{ dryRun: true, state: "UNPROVEN" }]
+      events: [{ dryRun: false, state: "UNPROVEN" }, { dryRun: false, state: "UNPROVEN" }]
     });
     for (const result of [human, jsonResult]) {
       assert.equal(result.stderr, undefined);
       for (const value of hostileValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
     }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("audit list canonicalizes hostile limits before rendering", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
+  hostileStatus.audit = Array.from({ length: 125 }, (_, index) => ({
+    id: `evt_${index}`,
+    action: "status.export",
+    actor: "fixture",
+    dryRun: true,
+    createdAt: "2026-07-17T12:00:00.000Z",
+    summary: "Fixture status export loaded",
+    warnings: []
+  }));
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const runner = async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) });
+    const results = await Promise.all([
+      runCli(["audit", "list", "--source", "generic-command", "--json", "--limit", "999999999"], process.cwd(), { runner }),
+      runCli(["audit", "list", "--source", "generic-command", "--json", "--limit", "-1"], process.cwd(), { runner }),
+      runCli(["audit", "list", "--source", "generic-command", "--json", "--limit", "Infinity"], process.cwd(), { runner })
+    ]);
+    for (const result of results) {
+      assert.equal(result.code, 0);
+      assert.equal(result.stderr, undefined);
+      assert.equal(JSON.parse(result.stdout).verificationState, "UNPROVEN");
+    }
+    assert.equal(JSON.parse(results[0]!.stdout).events.length, 100);
+    assert.equal(JSON.parse(results[1]!.stdout).events.length, 20);
+    assert.equal(JSON.parse(results[2]!.stdout).events.length, 20);
   } finally {
     if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
     else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;

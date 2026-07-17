@@ -45,6 +45,9 @@ interface CliOptions {
   ensureRoute: boolean;
 }
 
+const DEFAULT_AUDIT_LIST_LIMIT = 20;
+const MAX_AUDIT_LIST_LIMIT = 100;
+
 export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner?: CommandRunner } = {}): Promise<CliResult> {
   let options: CliOptions;
   try {
@@ -167,7 +170,7 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     provider: valueAfter(argv, "--provider") ?? "openai",
     runtime: valueAfter(argv, "--runtime") ?? "openclaw",
     model: valueAfter(argv, "--model"),
-    limit: Number(valueAfter(argv, "--limit") ?? "20"),
+    limit: parseAuditListLimit(valueAfter(argv, "--limit")),
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
     receiptPath: resolve(cwd, valueAfter(argv, "--receipt-path") ?? `.account-center/receipts/${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
     writeExport: !argv.includes("--no-write-export"),
@@ -175,6 +178,13 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     apply: argv.includes("--apply"),
     ensureRoute: argv.includes("--ensure-route")
   };
+}
+
+function parseAuditListLimit(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_AUDIT_LIST_LIMIT;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) return DEFAULT_AUDIT_LIST_LIMIT;
+  return Math.min(parsed, MAX_AUDIT_LIST_LIMIT);
 }
 
 function isOptionValue(argv: string[], arg: string): boolean {
@@ -527,7 +537,7 @@ function publicAuditView(status: AccountCenterStatus, limit: number) {
   return {
     schemaVersion: "account-center.public-audit.v1" as const,
     verificationState: "UNPROVEN" as const,
-    events: status.audit.slice(0, limit).map((event) => ({ dryRun: event.dryRun, state: "UNPROVEN" as const }))
+    events: status.audit.slice(0, limit).map((event) => ({ dryRun: event.dryRun === true, state: "UNPROVEN" as const }))
   };
 }
 
