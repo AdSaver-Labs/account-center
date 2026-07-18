@@ -58,6 +58,32 @@ test("status --json emits fixture-backed no-secret export", async () => {
   assert.equal(JSON.stringify(parsed).includes("token"), false);
 });
 
+test("provider probe keeps hostile generic-command provider identifiers out of public output", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const hostileProvider = "/srv/private/account-center/person@example.test sk-hostile-token-value-123456789";
+  const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
+  hostileStatus.profiles[0].provider = hostileProvider;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const runner = async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) });
+    const [human, jsonResult] = await Promise.all([
+      runCli(["providers", "probe", "--source", "generic-command", "--provider", "all"], process.cwd(), { runner }),
+      runCli(["providers", "probe", "--source", "generic-command", "--provider", "all", "--json"], process.cwd(), { runner })
+    ]);
+    assert.equal(human.code, 0);
+    for (const result of [human, jsonResult]) {
+      for (const value of [hostileProvider, "/srv/private", "person@example.test", "sk-hostile-token-value-123456789", "generic-command", "status"]) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
+    }
+    const parsed = JSON.parse(jsonResult.stdout);
+    assert.equal(parsed.schemaVersion, "account-center.public-provider-probes.v1");
+    assert.equal(parsed.verificationState, "UNPROVEN");
+    assert.ok(parsed.probes.every((probe: { state: string; profiles: number; usableProfiles: number; limitsObserved: boolean }) => ["OK", "BLOCKED"].includes(probe.state) && Number.isInteger(probe.profiles) && Number.isInteger(probe.usableProfiles) && typeof probe.limitsObserved === "boolean"));
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("audit list canonicalizes hostile dryRun strings in its fixed opaque public view", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   const hostileValues = [

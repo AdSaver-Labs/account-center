@@ -108,7 +108,8 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   }
   if (command === "providers" && subcommand === "probe") {
     const probes = await probeProviders(status, options.provider);
-    return ok(options.json ? json(probes) : renderProviderProbes(probes));
+    const view = publicProviderProbesView(probes);
+    return ok(options.json ? json(view) : renderProviderProbes(view));
   }
   if (command === "models" && subcommand === "list") {
     const view = publicModelsView(status);
@@ -276,6 +277,23 @@ function publicModelsView(status: AccountCenterStatus) {
     verificationState: "UNPROVEN" as const,
     models: listModels(status).map((item, index) => ({ id: `model-${index + 1}`, disabled: item.disabled, accountCount: item.profiles.length }))
   };
+}
+
+function publicProviderProbesView(probes: Array<{ ok: boolean; profiles: number; usableProfiles: number; lowestRemainingPct: number | null; highestRemainingPct: number | null }>) {
+  return {
+    schemaVersion: "account-center.public-provider-probes.v1" as const,
+    verificationState: "UNPROVEN" as const,
+    probes: probes.map((probe) => ({
+      state: probe.ok ? "OK" as const : "BLOCKED" as const,
+      profiles: boundedPublicCount(probe.profiles),
+      usableProfiles: boundedPublicCount(probe.usableProfiles),
+      limitsObserved: probe.lowestRemainingPct !== null || probe.highestRemainingPct !== null
+    }))
+  };
+}
+
+function boundedPublicCount(value: number): number {
+  return Number.isSafeInteger(value) && value >= 0 ? Math.min(value, 100) : 0;
 }
 
 function publicRouteNextView(status: AccountCenterStatus, target?: string) {
@@ -605,8 +623,8 @@ function startReauth(target: string | undefined, status: AccountCenterStatus, op
   ].join("\n") + "\n");
 }
 
-function renderProviderProbes(probes: Array<{ provider: string; ok: boolean; profiles: number; usableProfiles: number; lowestRemainingPct: number | null; highestRemainingPct: number | null; source: string }>): string {
-  return probes.map((probe) => `${probe.provider} ok=${probe.ok} usable=${probe.usableProfiles}/${probe.profiles} remaining=${probe.lowestRemainingPct ?? "unknown"}-${probe.highestRemainingPct ?? "unknown"}% source=${probe.source}`).join("\n") + "\n";
+function renderProviderProbes(view: ReturnType<typeof publicProviderProbesView>): string {
+  return view.probes.map((probe) => `Provider probe ${probe.state} usable=${probe.usableProfiles}/${probe.profiles} limits=${probe.limitsObserved ? "observed" : "unknown"}`).join("\n") + "\n";
 }
 
 function helpText(): string {
