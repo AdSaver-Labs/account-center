@@ -722,7 +722,8 @@ test("routes next gives route selector failure precedence over malformed source 
     ["--provider", "--source"],
     ["--runtime=", "--source=opaque"],
     ["--provider", "openai", "--provider=openai", "--source=--json"],
-    ["--runtime", "openclaw", "--runtime=openclaw", "--source", "unsupported"]
+    ["--runtime", "openclaw", "--runtime=openclaw", "--source", "unsupported"],
+    ["--provider=private-provider-value", "--provider=private-provider-value", "--source=private-source-value"]
   ];
 
   for (const args of selectorAndSourceFailures) {
@@ -743,24 +744,43 @@ test("routes next gives route selector failure precedence over malformed source 
       next: "none"
     });
     assert.equal(jsonResult.stderr, undefined);
-    assert.equal(textResult.stdout.includes("Unsupported Account Center source"), false);
-    assert.equal(jsonResult.stdout.includes("Unsupported Account Center source"), false);
+    for (const value of ["Unsupported Account Center source", "private-provider-value", "private-source-value"]) {
+      assert.equal(textResult.stdout.includes(value), false, `${value} leaked from route text output`);
+      assert.equal(jsonResult.stdout.includes(value), false, `${value} leaked from route JSON output`);
+    }
   }
 });
 
-test("malformed route selectors do not alter help, status, or provider probe commands", async () => {
-  const [help, status, probe] = await Promise.all([
-    runCli(["help", "--provider", "--runtime"]),
-    runCli(["status", "--provider", "--runtime", "--json", "--no-write-export"]),
-    runCli(["providers", "probe", "--provider", "openai", "--runtime", "--json"])
+test("route-selector parsing is isolated from provider probe, guard, and dry-run mutation options", async () => {
+  const [probe, guard, mutation] = await Promise.all([
+    runCli(["providers", "probe", "--provider", "--runtime", "--json"]),
+    runCli(["guard", "--provider", "--runtime", "--json"]),
+    runCli(["routes", "auto", "--provider", "--runtime", "--dry-run", "--json"])
   ]);
 
-  assert.equal(help.code, 0);
-  assert.match(help.stdout, /^account-center commands\n/);
-  assert.equal(status.code, 0);
-  assert.equal(JSON.parse(status.stdout).schemaVersion, "account-center.public-status.v1");
   assert.equal(probe.code, 0);
-  assert.equal(JSON.parse(probe.stdout).schemaVersion, "account-center.public-provider-probes.v1");
+  assert.deepEqual(JSON.parse(probe.stdout), {
+    schemaVersion: "account-center.public-provider-probes.v1",
+    verificationState: "UNPROVEN",
+    probes: [{ state: "BLOCKED", profiles: 0, usableProfiles: 0, limitsObserved: false }]
+  });
+  assert.equal(guard.code, 2);
+  const guarded = JSON.parse(guard.stdout);
+  assert.equal(guarded.schemaVersion, "account-center.public-guard.v1");
+  assert.equal(guarded.state, "BLOCKED");
+  assert.equal(guarded.next, "none");
+  assert.equal(guarded.receipt.target, "redacted-target");
+  assert.equal(mutation.code, 0);
+  const dryRun = JSON.parse(mutation.stdout);
+  assert.equal(dryRun.schemaVersion, "account-center.public-mutation.v1");
+  assert.equal(dryRun.state, "DRY_RUN");
+  assert.equal(dryRun.receipt.action, "route.auto");
+  assert.equal(dryRun.receipt.target, "redacted-target");
+
+  for (const result of [probe, guard, mutation]) {
+    assert.equal(result.stdout.includes("Route selection UNPROVEN"), false);
+    assert.equal(result.stdout.includes("public-route-next"), false);
+  }
 });
 
 test("routes next preserves exact split-form and equals-form route selection", async () => {

@@ -35,7 +35,6 @@ interface CliOptions {
   json: boolean;
   provider: string;
   runtime: string;
-  routeSelectors: RouteSelectors;
   model?: string;
   limit: number;
   statusPath: string;
@@ -63,12 +62,12 @@ const MAX_AUDIT_LIST_LIMIT = 100;
 export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner?: CommandRunner } = {}): Promise<CliResult> {
   const positional = positionalArguments(argv);
   const [command, subcommand, target] = positional;
-  const routeSelectors = parseRouteSelectors(argv);
   // Route selector syntax is meaningful only to `routes next`. Check it before
   // parsing unrelated options so a malformed source cannot replace this
   // fail-closed, redacted response.
-  if (command === "routes" && subcommand === "next" && !routeSelectorsAreValid(routeSelectors)) {
-    return routeSelectorFailure(argv.includes("--json"));
+  if (command === "routes" && subcommand === "next") {
+    const routeSelectors = parseRouteSelectors(argv);
+    if (!routeSelectorsAreValid(routeSelectors)) return routeSelectorFailure(argv.includes("--json"));
   }
   let options: CliOptions;
   try {
@@ -197,12 +196,10 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
 }
 
 function parseOptions(argv: string[], cwd: string): CliOptions {
-  const routeSelectors = parseRouteSelectors(argv);
   return {
     json: argv.includes("--json"),
-    provider: routeSelectorValue(routeSelectors.provider, "openai"),
-    runtime: routeSelectorValue(routeSelectors.runtime, "openclaw"),
-    routeSelectors,
+    provider: valueAfter(argv, "--provider") ?? "openai",
+    runtime: valueAfter(argv, "--runtime") ?? "openclaw",
     model: valueAfter(argv, "--model"),
     limit: parseAuditListLimit(valueAfter(argv, "--limit")),
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
@@ -248,10 +245,6 @@ function parseRouteSelectorOption(argv: string[], key: "--provider" | "--runtime
   if (occurrences === 0) return { state: "absent" };
   if (occurrences > 1) return { state: "repeated" };
   return malformed || value === undefined ? { state: "malformed" } : { state: "valid", value };
-}
-
-function routeSelectorValue(selector: RouteSelectorOption, fallback: string): string {
-  return selector.state === "valid" ? selector.value : fallback;
 }
 
 function routeSelectorsAreValid(selectors: RouteSelectors): boolean {
