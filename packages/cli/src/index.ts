@@ -61,15 +61,21 @@ const DEFAULT_AUDIT_LIST_LIMIT = 20;
 const MAX_AUDIT_LIST_LIMIT = 100;
 
 export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner?: CommandRunner } = {}): Promise<CliResult> {
+  const positional = positionalArguments(argv);
+  const [command, subcommand, target] = positional;
+  const routeSelectors = parseRouteSelectors(argv);
+  // Route selector syntax is meaningful only to `routes next`. Check it before
+  // parsing unrelated options so a malformed source cannot replace this
+  // fail-closed, redacted response.
+  if (command === "routes" && subcommand === "next" && !routeSelectorsAreValid(routeSelectors)) {
+    return routeSelectorFailure(argv.includes("--json"));
+  }
   let options: CliOptions;
   try {
     options = parseOptions(argv, cwd);
   } catch (error) {
     return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
   }
-  if (!routeSelectorsAreValid(options.routeSelectors)) return routeSelectorFailure(options);
-  const positional = argv.filter((arg) => !arg.startsWith("--") && !isOptionValue(argv, arg));
-  const [command, subcommand, target] = positional;
 
   if (!command || command === "help" || command === "--help") return ok(helpText());
   if (command === "auth") {
@@ -206,6 +212,10 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     apply: argv.includes("--apply"),
     ensureRoute: argv.includes("--ensure-route")
   };
+}
+
+function positionalArguments(argv: string[]): string[] {
+  return argv.filter((arg) => !arg.startsWith("--") && !isOptionValue(argv, arg));
 }
 
 function parseRouteSelectors(argv: string[]): RouteSelectors {
@@ -398,7 +408,7 @@ function publicRouteNextView(status: AccountCenterStatus, target: string | undef
   };
 }
 
-function routeSelectorFailure(options: CliOptions): CliResult {
+function routeSelectorFailure(jsonOutput: boolean): CliResult {
   const view = {
     schemaVersion: "account-center.public-route-next.v1" as const,
     verificationState: "UNPROVEN" as const,
@@ -406,7 +416,7 @@ function routeSelectorFailure(options: CliOptions): CliResult {
     eligible: false,
     next: "none"
   };
-  return { code: 2, stdout: options.json ? json(view) : "Route selection UNPROVEN\n" };
+  return { code: 2, stdout: jsonOutput ? json(view) : "Route selection UNPROVEN\n" };
 }
 
 function publicGuardView(status: AccountCenterStatus, guarded: { ok: boolean; next?: string }, receipt: unknown, ensured?: unknown): PublicGuardView {

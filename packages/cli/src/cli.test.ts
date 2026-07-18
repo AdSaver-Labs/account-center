@@ -717,6 +717,52 @@ test("routes next rejects malformed or repeated route selectors without selectin
   }
 });
 
+test("routes next gives route selector failure precedence over malformed source parsing", async () => {
+  const selectorAndSourceFailures = [
+    ["--provider", "--source"],
+    ["--runtime=", "--source=opaque"],
+    ["--provider", "openai", "--provider=openai", "--source=--json"],
+    ["--runtime", "openclaw", "--runtime=openclaw", "--source", "unsupported"]
+  ];
+
+  for (const args of selectorAndSourceFailures) {
+    const [textResult, jsonResult] = await Promise.all([
+      runCli(["routes", "next", ...args]),
+      runCli(["routes", "next", ...args, "--json"])
+    ]);
+
+    assert.equal(textResult.code, 2, args.join(" "));
+    assert.equal(textResult.stdout, "Route selection UNPROVEN\n");
+    assert.equal(textResult.stderr, undefined);
+    assert.equal(jsonResult.code, 2, args.join(" "));
+    assert.deepEqual(JSON.parse(jsonResult.stdout), {
+      schemaVersion: "account-center.public-route-next.v1",
+      verificationState: "UNPROVEN",
+      routeSelection: "no_exact_route",
+      eligible: false,
+      next: "none"
+    });
+    assert.equal(jsonResult.stderr, undefined);
+    assert.equal(textResult.stdout.includes("Unsupported Account Center source"), false);
+    assert.equal(jsonResult.stdout.includes("Unsupported Account Center source"), false);
+  }
+});
+
+test("malformed route selectors do not alter help, status, or provider probe commands", async () => {
+  const [help, status, probe] = await Promise.all([
+    runCli(["help", "--provider", "--runtime"]),
+    runCli(["status", "--provider", "--runtime", "--json", "--no-write-export"]),
+    runCli(["providers", "probe", "--provider", "openai", "--runtime", "--json"])
+  ]);
+
+  assert.equal(help.code, 0);
+  assert.match(help.stdout, /^account-center commands\n/);
+  assert.equal(status.code, 0);
+  assert.equal(JSON.parse(status.stdout).schemaVersion, "account-center.public-status.v1");
+  assert.equal(probe.code, 0);
+  assert.equal(JSON.parse(probe.stdout).schemaVersion, "account-center.public-provider-probes.v1");
+});
+
 test("routes next preserves exact split-form and equals-form route selection", async () => {
   const [splitResult, equalsResult] = await Promise.all([
     runCli(["routes", "next", "--provider", "openai", "--runtime", "openclaw"]),
