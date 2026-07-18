@@ -19,6 +19,7 @@ export interface AuditRecord {
   // targets, request material, and runtime configuration never enter audit state.
   runtime?: string;
   scopeKind?: "agent" | "profile" | "session" | "default" | "all";
+  dedupeKey?: string;
 }
 
 export interface AuditRecordInput {
@@ -31,6 +32,8 @@ export interface AuditRecordInput {
   runtime?: string;
   scopeKind?: "agent" | "profile" | "session" | "default" | "all";
   unsafeContext?: unknown;
+  /** Opaque lifecycle key used to make recovery replay exactly-once. */
+  dedupeKey?: string;
 }
 
 interface PersistedAudit {
@@ -45,8 +48,11 @@ export class AuditStore {
     if (!input.action.trim() || !input.requestDigest.trim()) throw new Error("audit action and request digest are required");
     if (input.runtime !== undefined && !isSafeIdentifier(input.runtime)) throw new Error("invalid_audit_runtime");
     if (input.scopeKind !== undefined && !isScopeKind(input.scopeKind)) throw new Error("invalid_audit_scope_kind");
+    if (input.dedupeKey !== undefined && !isSafeDedupeKey(input.dedupeKey)) throw new Error("invalid_audit_dedupe_key");
     return this.withLock(async () => {
       const state = await this.read();
+      const existing = input.dedupeKey ? state.records.find((record) => record.dedupeKey === input.dedupeKey) : undefined;
+      if (existing) return existing;
       const record: AuditRecord = {
         id: `audit_${randomUUID()}`,
         createdAt: new Date().toISOString(),
@@ -57,7 +63,8 @@ export class AuditStore {
         summary: redactText(input.summary).slice(0, 1_000),
         warnings: input.warnings.map((warning) => redactText(warning).slice(0, 160)).slice(0, 32),
         ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
-        ...(input.scopeKind === undefined ? {} : { scopeKind: input.scopeKind })
+        ...(input.scopeKind === undefined ? {} : { scopeKind: input.scopeKind }),
+        ...(input.dedupeKey === undefined ? {} : { dedupeKey: input.dedupeKey })
       };
       state.records.push(record);
       if (state.records.length > this.maxRecords) state.records.splice(0, state.records.length - this.maxRecords);
@@ -133,7 +140,8 @@ function isAudit(value: unknown): value is PersistedAudit {
 function isRecord(value: unknown): value is AuditRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Partial<AuditRecord>;
-  return typeof record.id === "string" && typeof record.createdAt === "string" && typeof record.action === "string" && typeof record.outcome === "string" && typeof record.proofState === "string" && typeof record.requestDigest === "string" && typeof record.summary === "string" && Array.isArray(record.warnings) && record.warnings.every((warning) => typeof warning === "string") && (record.runtime === undefined || isSafeIdentifier(record.runtime)) && (record.scopeKind === undefined || isScopeKind(record.scopeKind));
+  return typeof record.id === "string" && typeof record.createdAt === "string" && typeof record.action === "string" && typeof record.outcome === "string" && typeof record.proofState === "string" && typeof record.requestDigest === "string" && typeof record.summary === "string" && Array.isArray(record.warnings) && record.warnings.every((warning) => typeof warning === "string") && (record.runtime === undefined || isSafeIdentifier(record.runtime)) && (record.scopeKind === undefined || isScopeKind(record.scopeKind)) && (record.dedupeKey === undefined || isSafeDedupeKey(record.dedupeKey));
 }
 function isSafeIdentifier(value: unknown): value is string { return typeof value === "string" && /^[a-z][a-z0-9._-]{0,63}$/.test(value); }
+function isSafeDedupeKey(value: unknown): value is string { return typeof value === "string" && /^[a-z][a-z0-9._-]{0,127}$/.test(value); }
 function isScopeKind(value: unknown): value is AuditRecord["scopeKind"] { return value === "agent" || value === "profile" || value === "session" || value === "default" || value === "all"; }

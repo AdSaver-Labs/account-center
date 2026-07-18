@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 export type AuthChallengeMode = "add" | "reauth";
 export type AuthChallengeStatus = "pending" | "completed" | "failed" | "cancelled" | "expired";
+export type AuthChallengeAuditState = "pending" | "verified";
 
 export interface AuthChallengeInput {
   mode: AuthChallengeMode;
@@ -18,6 +19,8 @@ export interface AuthChallenge extends Omit<AuthChallengeInput, "target"> {
   status: AuthChallengeStatus;
   createdAt: string;
   updatedAt: string;
+  /** Required only for verifier-confirmed terminal outcomes. */
+  auditState?: AuthChallengeAuditState;
 }
 
 export function createAuthChallenge(input: AuthChallengeInput, existing: AuthChallenge[] = [], now = new Date()): AuthChallenge {
@@ -67,7 +70,9 @@ export function getAuthChallenge(challenges: AuthChallenge[], id: string): AuthC
 function terminalAuthChallenge(challenge: AuthChallenge, status: Exclude<AuthChallengeStatus, "pending" | "expired">, now: Date): AuthChallenge {
   const current = expireAuthChallenge(challenge, now);
   if (current.status !== "pending") return current;
-  return { ...current, status, updatedAt: now.toISOString() };
+  return status === "completed" || status === "failed"
+    ? { ...current, status, auditState: "pending", updatedAt: now.toISOString() }
+    : { ...current, status, updatedAt: now.toISOString() };
 }
 
 function challengeKey(input: AuthChallengeInput): string {

@@ -42,6 +42,18 @@ async function createChallenge(port: number, token: string, body: unknown, origi
   });
 }
 
+class FailOnceAuditStore extends AuditStore {
+  private failures = 1;
+
+  override async append(input: Parameters<AuditStore["append"]>[0]) {
+    if (this.failures > 0) {
+      this.failures -= 1;
+      throw new Error("injected_audit_append_failure");
+    }
+    return super.append(input);
+  }
+}
+
 test("protected guided-auth creation persists distinct redacted add and reauth challenges idempotently", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-guided-auth-"));
   const app = createAccountCenterServer({
@@ -1317,6 +1329,53 @@ test("guided-auth completion and verified failure require the verifier seam, per
     assert.deepEqual((await auditStore.list()).map((record) => record.action), ["guided_auth.fail", "guided_auth.complete"]);
   } finally {
     await app.close();
+  }
+});
+
+test("terminal audit append failure stays UNPROVEN and startup/replay recovery writes one proof without re-verifying", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-terminal-recovery-"));
+  const challengePath = join(root, "challenges.json");
+  const auditPath = join(root, "audit.json");
+  const challenges = new AuthChallengeStore(challengePath);
+  const challenge = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" });
+  let verifierCalls = 0;
+  const failedApp = createAccountCenterServer({
+    token: "test-token",
+    challengeStore: challenges,
+    auditStore: new FailOnceAuditStore(auditPath),
+    guidedAuthVerifier: { verifyTerminal: async () => { verifierCalls += 1; return "completed"; } }
+  });
+  const failedAddress = await failedApp.listen();
+  const path = `/api/auth-challenges/${challenge.id}/complete`;
+  const failedHeaders = { authorization: "Bearer test-token", origin: `http://127.0.0.1:${failedAddress.port}` };
+  try {
+    const response = await fetch(`http://127.0.0.1:${failedAddress.port}${path}`, { method: "POST", headers: failedHeaders });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "audit_recovery_required" });
+    assert.equal((await challenges.get(challenge.id))?.status, "completed");
+    assert.equal((await challenges.get(challenge.id))?.auditState, "pending");
+    assert.equal(verifierCalls, 1);
+  } finally {
+    await failedApp.close();
+  }
+
+  const recoveredChallenges = new AuthChallengeStore(challengePath);
+  const recoveredAudit = new AuditStore(auditPath);
+  const recoveredApp = createAccountCenterServer({ token: "test-token", challengeStore: recoveredChallenges, auditStore: recoveredAudit });
+  const recoveredAddress = await recoveredApp.listen();
+  try {
+    assert.equal((await recoveredChallenges.get(challenge.id))?.auditState, "verified");
+    assert.deepEqual((await recoveredAudit.list()).map((record) => record.action), ["guided_auth.complete"]);
+    const replay = await fetch(`http://127.0.0.1:${recoveredAddress.port}${path}`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${recoveredAddress.port}` }
+    });
+    assert.equal(replay.status, 200);
+    assert.deepEqual((await replay.json() as { result: Record<string, unknown> }).result, { outcome: "completed", verificationState: "verified" });
+    assert.equal((await recoveredAudit.list()).filter((record) => record.action === "guided_auth.complete").length, 1);
+    assert.equal(verifierCalls, 1);
+  } finally {
+    await recoveredApp.close();
   }
 });
 
