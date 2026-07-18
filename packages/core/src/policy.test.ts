@@ -9,6 +9,12 @@ test("nextEligible skips exhausted primary and protected backup", async () => {
   assert.equal(next?.profile.id, "openai:helper-2");
 });
 
+test("nextEligible fails closed without an exact provider runtime route", async () => {
+  const status = await loadFixtureStatus();
+  assert.equal(nextEligible(status, "openai", "hermes"), undefined);
+  assert.equal(nextEligible({ ...status, routes: [] }, "openai", "openclaw"), undefined);
+});
+
 test("guardStatus returns usable account details", async () => {
   const status = await loadFixtureStatus();
   assert.deepEqual(guardStatus(status, "openai", "openclaw"), {

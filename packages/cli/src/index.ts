@@ -124,9 +124,12 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const next = nextEligible(status, options.provider, options.runtime, options.model);
     const routeSelection = status.routes.some((route) => route.provider === options.provider && route.runtime === options.runtime)
       ? "exact_route" as const
-      : "provider_fallback" as const;
+      : "no_exact_route" as const;
     const view = publicRouteNextView(status, next?.profile.id, routeSelection);
-    const label = view.routeSelection === "exact_route" ? "Next eligible" : "Next eligible (provider fallback)";
+    if (view.routeSelection === "no_exact_route") {
+      return { code: 2, stdout: options.json ? json(view) : "Route selection UNPROVEN\n" };
+    }
+    const label = "Next eligible";
     return next ? ok(options.json ? json(view) : `${label}: ${view.next}\n`) : { code: 2, stdout: options.json ? json(view) : `${label}: none\n` };
   }
   if (command === "audit" && subcommand === "list") {
@@ -325,7 +328,7 @@ function boundedPublicCount(value: number): number {
   return Number.isSafeInteger(value) && value >= 0 ? Math.min(value, 100) : 0;
 }
 
-function publicRouteNextView(status: AccountCenterStatus, target: string | undefined, routeSelection: "exact_route" | "provider_fallback") {
+function publicRouteNextView(status: AccountCenterStatus, target: string | undefined, routeSelection: "exact_route" | "no_exact_route") {
   return {
     schemaVersion: "account-center.public-route-next.v1" as const,
     verificationState: "UNPROVEN" as const,

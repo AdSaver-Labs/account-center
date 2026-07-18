@@ -599,11 +599,11 @@ test("accounts list and routes next keep hostile generic-command fixture classes
     const missingRouteNext = JSON.parse(results[5]!.stdout) as { eligible: boolean; next?: string };
     assert.equal(exactRouteNext.eligible, true);
     assert.equal(exactRouteNext.next, "account-1");
-    assert.equal(missingRouteNext.eligible, true, "a missing route falls back to provider profiles");
-    assert.equal(missingRouteNext.next, "account-2", "the fallback result must not satisfy the exact route assertion");
+    assert.equal(missingRouteNext.eligible, false, "a missing exact runtime route is not eligible");
+    assert.equal(missingRouteNext.next, "none", "a missing exact runtime route selects no account");
 
-    for (const result of results) {
-      assert.equal(result.code, 0);
+    for (const [index, result] of results.entries()) {
+      assert.equal(result.code, index >= 4 ? 2 : 0);
       assert.equal(result.stderr, undefined);
       for (const value of hostileValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
     }
@@ -624,19 +624,31 @@ test("accounts list and routes next keep hostile generic-command fixture classes
       eligible: true,
       next: "account-1"
     });
-    assert.equal(results[4]!.code, 0);
-    assert.equal(results[4]!.stdout, "Next eligible (provider fallback): account-2\n");
+    assert.equal(results[4]!.code, 2);
+    assert.equal(results[4]!.stdout, "Route selection UNPROVEN\n");
     assert.deepEqual(JSON.parse(results[5]!.stdout), {
       schemaVersion: "account-center.public-route-next.v1",
       verificationState: "UNPROVEN",
-      routeSelection: "provider_fallback",
-      eligible: true,
-      next: "account-2"
+      routeSelection: "no_exact_route",
+      eligible: false,
+      next: "none"
     });
   } finally {
     if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
     else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
   }
+});
+
+test("routes next reports no eligible account for an exact route with no eligible profiles", async () => {
+  const result = await runCli(["routes", "next", "--model", "openai/gpt-4.1", "--json"]);
+  assert.equal(result.code, 2);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    schemaVersion: "account-center.public-route-next.v1",
+    verificationState: "UNPROVEN",
+    routeSelection: "exact_route",
+    eligible: false,
+    next: "none"
+  });
 });
 
 test("hostile OpenClaw inventory fixtures cannot cross the public CLI boundary", async () => {
