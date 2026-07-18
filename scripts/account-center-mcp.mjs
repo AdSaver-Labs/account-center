@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inspectAuthCommand } from '../packages/cli/dist/auth-bridge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -11,6 +12,7 @@ const ALLOW_MUTATIONS = process.env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS === '1';
 const DEFAULT_SOURCE = process.env.ACCOUNT_CENTER_SOURCE || 'openclaw';
 const MAX_OUTPUT = 12000;
 const OPAQUE_FAILURE_TEXT = 'Account Center request UNPROVEN.\n';
+const INVALID_REQUEST_TEXT = 'Invalid Account Center MCP request.';
 const MUTATION_BLOCKED_TEXT =
   'Blocked potentially mutating Account Center command in Codex MCP.\n\n' +
   'For safety, this MCP bridge allows status/help and dry-runs by default. ' +
@@ -40,7 +42,7 @@ const tools = [
       properties: {
         command: {
           type: 'string',
-          description: 'The /auth command to run, for example: /auth, /auth list, /auth auto, /auth delete nobody@example.invalid --dry-run.',
+          description: 'The /auth command to run, for example: /auth, /auth list, or /auth auto --dry-run.',
         },
       },
       required: ['command'],
@@ -87,66 +89,6 @@ function normalizeCommand(raw) {
   return `/auth ${text}`;
 }
 
-function isMutation(command) {
-  if (/^\/auth\s+(add|reauth|remove|delete|use|auto|ensure|disable|enable|model\s+(enable|disable)|models\s+(enable|disable))\b/i.test(command)) return true;
-  const positionalVerb = command.match(/^\/auth\s+([^\s]+)/i)?.[1];
-  return Boolean(positionalVerb && (positionalVerb.includes('@') || positionalVerb.includes(':')));
-}
-
-function isClearlyDryRun(command) {
-  try {
-    return tokenizeCommand(command).includes('--dry-run');
-  } catch {
-    // A malformed command must never gain mutation authorization from text that
-    // merely resembles a dry-run flag.
-    return false;
-  }
-}
-
-// Keep this quote and escape handling aligned with the manual /auth parser in
-// packages/cli/src/auth-bridge.ts. A dry-run is authorized only when it is an
-// exact standalone token, never when it appears inside an operand.
-function tokenizeCommand(input) {
-  const tokens = [];
-  let current = '';
-  let quote;
-  let escaping = false;
-
-  for (const char of String(input).trim()) {
-    if (escaping) {
-      current += char;
-      escaping = false;
-      continue;
-    }
-    if (char === '\\') {
-      escaping = true;
-      continue;
-    }
-    if (quote) {
-      if (char === quote) quote = undefined;
-      else current += char;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      if (current) {
-        tokens.push(current);
-        current = '';
-      }
-      continue;
-    }
-    current += char;
-  }
-
-  if (quote) throw new Error('Unterminated quote in /auth command.');
-  if (escaping) current += '\\';
-  if (current) tokens.push(current);
-  return tokens;
-}
-
 function opaqueFailure() {
   return {
     isError: true,
@@ -156,7 +98,16 @@ function opaqueFailure() {
 
 function runAuth(command) {
   const normalized = normalizeCommand(command);
-  if (isMutation(normalized) && !isClearlyDryRun(normalized) && !ALLOW_MUTATIONS) {
+  let inspection;
+  try {
+    inspection = inspectAuthCommand(normalized);
+  } catch {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: MUTATION_BLOCKED_TEXT }],
+    };
+  }
+  if (inspection.mutationCapable && !inspection.explicitlyDryRun && !ALLOW_MUTATIONS) {
     return {
       isError: true,
       content: [{ type: 'text', text: MUTATION_BLOCKED_TEXT }],
@@ -218,10 +169,10 @@ function handle(req) {
     if (name === 'account_center_status') respond(result(id, runAuth('/auth')));
     else if (name === 'account_center_help') respond(result(id, runAuth('/auth help')));
     else if (name === 'account_center_auth') respond(result(id, runAuth(args.command || '/auth')));
-    else respond(error(id, -32602, `Unknown tool: ${name}`));
+    else respond(error(id, -32602, INVALID_REQUEST_TEXT));
     return;
   }
-  if (id !== undefined) respond(error(id, -32601, `Unknown method: ${method}`));
+  if (id !== undefined) respond(error(id, -32601, INVALID_REQUEST_TEXT));
 }
 
 process.stdin.on('data', (chunk) => {
@@ -234,8 +185,8 @@ process.stdin.on('data', (chunk) => {
     if (!line) continue;
     try {
       handle(JSON.parse(line));
-    } catch (e) {
-      respond(error(null, -32700, e instanceof Error ? e.message : String(e)));
+    } catch {
+      respond(error(null, -32700, INVALID_REQUEST_TEXT));
     }
   }
 });

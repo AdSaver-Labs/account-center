@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseAuthCommand, renderAuthHelp } from "./auth-bridge.js";
+import { inspectAuthCommand, parseAuthCommand, renderAuthHelp, tokenizeAuthCommand } from "./auth-bridge.js";
 import { runCli } from "./index.js";
 
 test("/auth status maps to account-center status with JSON/no-write preserved", () => {
@@ -54,6 +54,31 @@ test("/auth help promotes auth and never promotes oauth", () => {
 
 test("/oauth is rejected as a manual chat command", () => {
   assert.throws(() => parseAuthCommand("/oauth status"), /Manual command is \/auth/);
+});
+
+test("manual parser preserves quoted operands and marks quoted or escaped dry-run flags ineligible for MCP authorization", () => {
+  assert.deepEqual(tokenizeAuthCommand('/auth use "opaque target" --dry-run'), ["/auth", "use", "opaque target", "--dry-run"]);
+  assert.deepEqual(inspectAuthCommand('/auth use "opaque target" --dry-run'), {
+    invocation: ["routes", "use", "opaque target", "--dry-run"],
+    mutationCapable: true,
+    explicitlyDryRun: true
+  });
+  assert.equal(inspectAuthCommand('/auth use target "--dry-run"').explicitlyDryRun, false);
+  assert.equal(inspectAuthCommand("/auth use target \\--dry-run").explicitlyDryRun, false);
+  assert.equal(inspectAuthCommand("/auth use target --dry-run --apply").explicitlyDryRun, false);
+});
+
+test("manual parser classifies guarded route apply and positional route use as mutation-capable", () => {
+  assert.deepEqual(inspectAuthCommand("/auth guard --ensure-route --apply"), {
+    invocation: ["guard", "--ensure-route", "--apply"],
+    mutationCapable: true,
+    explicitlyDryRun: false
+  });
+  assert.deepEqual(inspectAuthCommand("/auth openai:opaque-target --dry-run"), {
+    invocation: ["routes", "use", "openai:opaque-target", "--dry-run"],
+    mutationCapable: true,
+    explicitlyDryRun: true
+  });
 });
 
 test("CLI auth bridge executes /auth guard against fixture status", async () => {

@@ -10,9 +10,13 @@ const bridge = resolve(root, "scripts/account-center-mcp.mjs");
 
 function call(command, env = {}) {
   const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "account_center_auth", arguments: { command } } };
+  return callRequest(request, env);
+}
+
+function callRequest(request, env = {}, input = `${JSON.stringify(request)}\n`) {
   const result = spawnSync(process.execPath, [bridge], {
     cwd: root,
-    input: `${JSON.stringify(request)}\n`,
+    input,
     encoding: "utf8",
     env: { ...process.env, ...env, ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS: "" },
   });
@@ -51,6 +55,11 @@ for (const { name, command, privateValues } of [
     command: "/auth reauth openai:opaque-identity-05",
     privateValues: ["openai:opaque-identity-05"],
   },
+  {
+    name: "guarded route application",
+    command: "/auth guard --ensure-route --apply --receipt opaque-receipt-06 --path /srv/private/account-center/receipt-06.json",
+    privateValues: ["opaque-receipt-06", "/srv/private/account-center/receipt-06.json"],
+  },
 ]) {
   test(`MCP blocks live ${name} unless mutation authorization is enabled without echoing operands`, () => {
     const response = call(command);
@@ -74,6 +83,25 @@ test("MCP blocks dry-run text embedded in a quoted mutation operand", () => {
   assert.equal(response.result.isError, true);
   assert.equal(response.result.content[0].text, MUTATION_BLOCKED_TEXT);
   assert.equal(JSON.stringify(response).includes(embeddedDryRunOperand), false);
+});
+
+for (const { name, command } of [
+  { name: "a quoted standalone flag", command: '/auth auto "--dry-run"' },
+  { name: "an escaped standalone flag", command: "/auth auto \\--dry-run" },
+  { name: "a dry-run flag paired with apply", command: "/auth auto --dry-run --apply" },
+]) {
+  test(`MCP fails closed for ${name}`, () => {
+    const response = call(command);
+    assert.equal(response.result.isError, true);
+    assert.equal(response.result.content[0].text, MUTATION_BLOCKED_TEXT);
+  });
+}
+
+test("MCP permits a positional route-use dry-run through the canonical parser", () => {
+  const target = "openai:opaque-target-07";
+  const response = call(`/auth ${target} --dry-run`, { ACCOUNT_CENTER_SOURCE: "fixture" });
+  assert.equal(response.result.isError, false);
+  assert.equal(JSON.stringify(response).includes(target), false);
 });
 
 test("MCP fails closed for an unterminated quoted mutation operand", () => {
@@ -112,3 +140,24 @@ for (const [name, command] of [["status", "/auth"], ["help", "/auth help"], ["dr
     assert.equal(publicOutput.includes("sk-"), false, publicOutput);
   });
 }
+
+test("MCP schema and JSON-RPC errors use fixed public text without echoing request values", () => {
+  const opaqueTool = "opaque-tool-target-08";
+  const schema = callRequest({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+  assert.equal(schema.result.tools[0].inputSchema.properties.command.description.includes("@"), false);
+  assert.equal(schema.result.tools[0].inputSchema.properties.command.description.includes("[REDACTED_TARGET]"), false);
+
+  for (const request of [
+    { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: opaqueTool, arguments: {} } },
+    { jsonrpc: "2.0", id: 1, method: "opaque-method-target-09", params: {} },
+  ]) {
+    const response = callRequest(request);
+    assert.equal(response.error.message, "Invalid Account Center MCP request.");
+    assert.equal(JSON.stringify(response).includes(opaqueTool), false);
+    assert.equal(JSON.stringify(response).includes("opaque-method-target-09"), false);
+  }
+
+  const malformed = callRequest({}, {}, '{"jsonrpc":"2.0","method":"opaque-parse-target-10"\n');
+  assert.equal(malformed.error.message, "Invalid Account Center MCP request.");
+  assert.equal(JSON.stringify(malformed).includes("opaque-parse-target-10"), false);
+});
