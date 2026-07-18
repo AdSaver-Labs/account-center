@@ -20,13 +20,44 @@ function call(command, env = {}) {
   return JSON.parse(result.stdout.trim());
 }
 
-for (const command of ["/auth auto", "/auth use openai:example", "/auth remove openai:example", "/auth delete example@example.invalid", "/auth delete person@example.test --receipt_target opaque-receipt-target --path /srv/private/account-center/receipt.json --token sk-hostile-token-value-123456789"]) {
-  test(`MCP blocks live ${command} unless mutation authorization is enabled`, () => {
+const MUTATION_BLOCKED_TEXT =
+  "Blocked potentially mutating Account Center command in Codex MCP.\n\n" +
+  "For safety, this MCP bridge allows status/help and dry-runs by default. " +
+  "Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.";
+
+for (const { name, command, privateValues } of [
+  {
+    name: "positional route-use shortcut",
+    command: "/auth openai:opaque-identity-01",
+    privateValues: ["openai:opaque-identity-01"],
+  },
+  {
+    name: "route target",
+    command: "/auth use opaque-account-target-02",
+    privateValues: ["opaque-account-target-02"],
+  },
+  {
+    name: "routing removal target and receipt",
+    command: "/auth remove opaque-account-target-03 --receipt opaque-receipt-03 --path /srv/private/account-center/receipt-03.json",
+    privateValues: ["opaque-account-target-03", "opaque-receipt-03", "/srv/private/account-center/receipt-03.json"],
+  },
+  {
+    name: "credential identity and path",
+    command: "/auth delete openai:opaque-identity-04 --path /srv/private/account-center/receipt-04.json",
+    privateValues: ["openai:opaque-identity-04", "/srv/private/account-center/receipt-04.json"],
+  },
+  {
+    name: "guided-auth identity",
+    command: "/auth reauth openai:opaque-identity-05",
+    privateValues: ["openai:opaque-identity-05"],
+  },
+]) {
+  test(`MCP blocks live ${name} unless mutation authorization is enabled without echoing operands`, () => {
     const response = call(command);
     assert.equal(response.result.isError, true);
-    assert.match(response.result.content[0].text, /Blocked potentially mutating Account Center command/);
+    assert.equal(response.result.content[0].text, MUTATION_BLOCKED_TEXT);
     const publicOutput = JSON.stringify(response);
-    for (const value of ["person@example.test", "opaque-receipt-target", "/srv/private/account-center/receipt.json", "sk-hostile-token-value-123456789"]) assert.equal(publicOutput.includes(value), false, `${value} leaked from ${publicOutput}`);
+    for (const value of privateValues) assert.equal(publicOutput.includes(value), false, `${value} leaked from ${publicOutput}`);
   });
 }
 

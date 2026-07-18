@@ -11,6 +11,10 @@ const ALLOW_MUTATIONS = process.env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS === '1';
 const DEFAULT_SOURCE = process.env.ACCOUNT_CENTER_SOURCE || 'openclaw';
 const MAX_OUTPUT = 12000;
 const OPAQUE_FAILURE_TEXT = 'Account Center request UNPROVEN.\n';
+const MUTATION_BLOCKED_TEXT =
+  'Blocked potentially mutating Account Center command in Codex MCP.\n\n' +
+  'For safety, this MCP bridge allows status/help and dry-runs by default. ' +
+  'Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.';
 
 if (!existsSync(CHATOPS)) {
   console.error(`Account Center chatops wrapper not found: ${CHATOPS}`);
@@ -84,7 +88,9 @@ function normalizeCommand(raw) {
 }
 
 function isMutation(command) {
-  return /^\/auth\s+(add|reauth|remove|delete|use|auto|ensure|disable|enable|model\s+(enable|disable)|models\s+(enable|disable))\b/i.test(command);
+  if (/^\/auth\s+(add|reauth|remove|delete|use|auto|ensure|disable|enable|model\s+(enable|disable)|models\s+(enable|disable))\b/i.test(command)) return true;
+  const positionalVerb = command.match(/^\/auth\s+([^\s]+)/i)?.[1];
+  return Boolean(positionalVerb && (positionalVerb.includes('@') || positionalVerb.includes(':')));
 }
 
 function isClearlyDryRun(command) {
@@ -103,15 +109,7 @@ function runAuth(command) {
   if (isMutation(normalized) && !isClearlyDryRun(normalized) && !ALLOW_MUTATIONS) {
     return {
       isError: true,
-      content: [
-        {
-          type: 'text',
-          text:
-            `Blocked potentially mutating Account Center command in Codex MCP: ${redact(normalized)}\n\n` +
-            'For safety, this MCP bridge allows status/help and dry-runs by default. ' +
-            'Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.',
-        },
-      ],
+      content: [{ type: 'text', text: MUTATION_BLOCKED_TEXT }],
     };
   }
   let proc;
