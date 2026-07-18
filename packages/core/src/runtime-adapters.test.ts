@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CommandRunner, GenericCommandRuntimeAdapter, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
+import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
 
 const routerStatus = {
   at: "2026-07-09T10:55:50.721Z",
@@ -252,6 +252,87 @@ test("Generic command adapter reads no-secret status from any agent command", as
   assert.equal(status.noSecrets, true);
   assert.equal(status.profiles.length, 2);
   assert.deepEqual(calls[0], { command: "agent-status", args: ["--json"] });
+});
+
+test("Generic command adapter rejects oversized stdout before status parsing or redaction", async () => {
+  let requestedCap: number | undefined;
+  const adapter = new GenericCommandRuntimeAdapter({
+    command: "agent-status",
+    runner: async (_command, _args, options) => {
+      requestedCap = options?.maxOutputBytes;
+      return { code: 0, stdout: `${" ".repeat(MAX_GENERIC_COMMAND_STATUS_BYTES)}x`, stderr: "person@example.test sk-hostile-token-value-123456789" };
+    }
+  });
+  await assert.rejects(adapter.readStatus(), /^Error: Generic command status output exceeds safe ingestion limit$/);
+  assert.equal(requestedCap, MAX_GENERIC_COMMAND_STATUS_BYTES);
+});
+
+test("Generic command adapter keeps command failures and malformed JSON fixed and redacted", async () => {
+  const hostile = "person@example.test sk-hostile-token-value-123456789 /srv/private/adapter";
+  for (const result of [
+    { code: 23, stdout: "", stderr: hostile },
+    { code: 0, stdout: `{${hostile}`, stderr: "" }
+  ]) {
+    const adapter = new GenericCommandRuntimeAdapter({ command: "agent-status", runner: async () => result });
+    await assert.rejects(adapter.readStatus(), /^Error: Generic command status is unavailable or unproven$/);
+  }
+});
+
+test("Generic command adapter rejects a timeout even when the child reports zero with valid JSON", async () => {
+  const adapter = new GenericCommandRuntimeAdapter({
+    command: "agent-status",
+    runner: async () => ({ code: 0, stdout: JSON.stringify({ ...routerStatus, source: "generic-command" }), stderr: "", timeoutExceeded: true })
+  });
+  await assert.rejects(adapter.readStatus(), /^Error: Generic command status is unavailable or unproven$/);
+});
+
+test("spawn runner accepts exactly the output cap and rejects both stream overflows", async () => {
+  for (const stream of ["stdout", "stderr"] as const) {
+    const exact = await execFileRunner(process.execPath, ["-e", `process.${stream}.write('x'.repeat(64))`], { maxOutputBytes: 64 });
+    assert.equal(exact.code, 0, stream);
+    assert.equal(exact.outputLimitExceeded, false, stream);
+    assert.equal(Buffer.byteLength(exact[stream]), 64, stream);
+  }
+
+  for (const stream of ["stdout", "stderr"]) {
+    const result = await execFileRunner(process.execPath, ["-e", `process.${stream}.write('x'.repeat(65)); setInterval(() => {}, 1000)`], { maxOutputBytes: 64 });
+    assert.equal(result.outputLimitExceeded, true, stream);
+    assert.equal(result.stdout, "", stream);
+    assert.equal(result.stderr, "", stream);
+  }
+});
+
+test("spawn runner escalates after timeout even when SIGTERM is ignored", async () => {
+  const startedAt = Date.now();
+  const result = await execFileRunner(process.execPath, ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('ready'); setInterval(() => {}, 1000)"], { timeoutMs: 100, maxOutputBytes: 64 });
+  assert.notEqual(result.code, 0);
+  assert.ok(Date.now() - startedAt < 2_000, "timeout must escalate instead of waiting for an untrusted process");
+});
+
+test("spawn runner records timeout before a SIGTERM handler exits successfully", async () => {
+  const result = await execFileRunner(process.execPath, ["-e", "process.on('SIGTERM', () => process.exit(0)); process.stdout.write('ready'); setInterval(() => {}, 1000)"], { timeoutMs: 100, maxOutputBytes: 64 });
+  assert.equal(result.code, 0);
+  assert.equal(result.timeoutExceeded, true);
+});
+
+test("spawn runner terminates a SIGTERM-ignoring descendant with its timed-out command group", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-command-tree-"));
+  const marker = join(workspace, "descendant-survived");
+  const script = `const { spawn } = require("node:child_process"); const marker = process.argv[1]; spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setTimeout(() => require('node:fs').writeFileSync(process.argv[1], 'survived'), 500); setInterval(() => {}, 1000)", marker], { stdio: "ignore" }); process.stdout.write("ready"); setInterval(() => {}, 1000);`;
+  const result = await execFileRunner(process.execPath, ["-e", script, marker], { timeoutMs: 100, maxOutputBytes: 64 });
+  assert.equal(result.timeoutExceeded, true);
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  await assert.rejects(access(marker));
+});
+
+test("generic-command stderr flood is bounded at the actual spawn boundary", async () => {
+  const startedAt = Date.now();
+  const adapter = new GenericCommandRuntimeAdapter({
+    command: process.execPath,
+    args: ["-e", `process.stderr.write('x'.repeat(${MAX_GENERIC_COMMAND_STATUS_BYTES + 1})); setInterval(() => {}, 1000)`]
+  });
+  await assert.rejects(adapter.readStatus(), /^Error: Generic command status output exceeds safe ingestion limit$/);
+  assert.ok(Date.now() - startedAt < 3_000, "stderr flood must terminate promptly");
 });
 
 test("Generic command adapter dry-run mutation never calls apply command", async () => {

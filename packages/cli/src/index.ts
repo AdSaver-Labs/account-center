@@ -45,6 +45,9 @@ interface CliOptions {
   ensureRoute: boolean;
 }
 
+const DEFAULT_AUDIT_LIST_LIMIT = 20;
+const MAX_AUDIT_LIST_LIMIT = 100;
+
 export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner?: CommandRunner } = {}): Promise<CliResult> {
   let options: CliOptions;
   try {
@@ -69,7 +72,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   try {
     adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
   } catch (error) {
-    if (command === "status") return statusFailure(options);
+    if (options.source === "generic-command") return genericCommandFailure(options, command, subcommand);
     throw error;
   }
   if (command === "doctor") {
@@ -81,7 +84,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   try {
     statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
   } catch (error) {
-    if (command === "status") return statusFailure(options);
+    if (options.source === "generic-command") return genericCommandFailure(options, command, subcommand);
     throw error;
   }
   const status = statusExecution.status!;
@@ -96,20 +99,36 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const ensured = options.ensureRoute && guarded.ok
       ? (await adapter.mutate({ action: "route.auto", target: guarded.next, apply: options.apply, provider: options.provider, runtime: options.runtime, receiptPath: options.receiptPath })).payload
       : undefined;
-    const payload = { ...guarded, receipt, ...(ensured ? { ensured } : {}) };
+    const payload = publicGuardView(status, guarded, receipt, ensured);
     return { code: guarded.ok ? 0 : 2, stdout: options.json ? json(payload) : renderGuard(payload) };
   }
-  if (command === "accounts" && subcommand === "list") return ok(options.json ? json(status.profiles) : renderAccounts(status));
-  if (command === "providers" && subcommand === "probe") {
-    const probes = await probeProviders(status, options.provider);
-    return ok(options.json ? json(probes) : renderProviderProbes(probes));
+  if (command === "accounts" && subcommand === "list") {
+    const view = publicAccountsView(status);
+    return ok(options.json ? json(view) : renderAccounts(view));
   }
-  if (command === "models" && subcommand === "list") return ok(options.json ? json(listModels(status)) : renderModels(status));
+  if (command === "providers" && subcommand === "probe") {
+    let probes;
+    try {
+      probes = await probeProviders(status, options.provider);
+    } catch {
+      return providerProbeFailure(options);
+    }
+    const view = publicProviderProbesView(probes);
+    return ok(options.json ? json(view) : renderProviderProbes(view));
+  }
+  if (command === "models" && subcommand === "list") {
+    const view = publicModelsView(status);
+    return ok(options.json ? json(view) : renderModels(view));
+  }
   if (command === "routes" && subcommand === "next") {
     const next = nextEligible(status, options.provider, options.runtime, options.model);
-    return next ? ok(options.json ? json(next) : `Next eligible: ${next.profile.id}\n`) : { code: 2, stdout: "", stderr: "No eligible account found\n" };
+    const view = publicRouteNextView(status, next?.profile.id);
+    return next ? ok(options.json ? json(view) : `Next eligible: ${view.next}\n`) : { code: 2, stdout: options.json ? json(view) : "Next eligible: none\n" };
   }
-  if (command === "audit" && subcommand === "list") return ok(options.json ? json(status.audit.slice(0, options.limit)) : renderAudit(status, options.limit));
+  if (command === "audit" && subcommand === "list") {
+    const view = publicAuditView(status, options.limit);
+    return ok(options.json ? json(view) : renderAudit(view));
+  }
   if (command === "reauth" && subcommand === "start") return startReauth(target, status, options);
   if (command === "routes" && ["auto", "use", "remove"].includes(subcommand ?? "")) {
     const action = routeAction(subcommand);
@@ -121,7 +140,8 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       runtime: options.runtime,
       receiptPath: options.receiptPath
     }, { adapter });
-    return { code: execution.code, stdout: options.json ? json(execution.mutation) : renderMutation(execution.mutation) };
+    const view = publicMutationView(execution.mutation);
+    return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
   if (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) {
     const mutation = await adapter.mutate({
@@ -132,7 +152,8 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       runtime: options.runtime,
       receiptPath: options.receiptPath
     });
-    return { code: mutation.code, stdout: options.json ? json(mutation.payload) : renderMutation(mutation.payload) };
+    const view = publicMutationView(mutation.payload);
+    return { code: mutation.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
   if (command === "models" && ["disable", "enable"].includes(subcommand ?? "")) {
     const mutation = await adapter.mutate({
@@ -143,7 +164,8 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       runtime: options.runtime,
       receiptPath: options.receiptPath
     });
-    return { code: mutation.code, stdout: options.json ? json(mutation.payload) : renderMutation(mutation.payload) };
+    const view = publicMutationView(mutation.payload);
+    return { code: mutation.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
   return { code: 1, stdout: "", stderr: `Unknown command. Run account-center help.\n` };
 }
@@ -154,7 +176,7 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     provider: valueAfter(argv, "--provider") ?? "openai",
     runtime: valueAfter(argv, "--runtime") ?? "openclaw",
     model: valueAfter(argv, "--model"),
-    limit: Number(valueAfter(argv, "--limit") ?? "20"),
+    limit: parseAuditListLimit(valueAfter(argv, "--limit")),
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
     receiptPath: resolve(cwd, valueAfter(argv, "--receipt-path") ?? `.account-center/receipts/${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
     writeExport: !argv.includes("--no-write-export"),
@@ -162,6 +184,13 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     apply: argv.includes("--apply"),
     ensureRoute: argv.includes("--ensure-route")
   };
+}
+
+function parseAuditListLimit(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_AUDIT_LIST_LIMIT;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) return DEFAULT_AUDIT_LIST_LIMIT;
+  return Math.min(parsed, MAX_AUDIT_LIST_LIMIT);
 }
 
 function isOptionValue(argv: string[], arg: string): boolean {
@@ -212,6 +241,120 @@ function listModels(status: AccountCenterStatus): Array<{ model: string; disable
   }));
 }
 
+type PublicGuardView = {
+  schemaVersion: "account-center.public-guard.v1";
+  verificationState: "UNPROVEN";
+  ok: boolean;
+  state: "OK" | "BLOCKED";
+  next: string;
+  receipt: { id: string; action: string; dryRun: boolean; target: "redacted-target" };
+  ensured?: PublicMutationView;
+};
+type PublicMutationView = {
+  schemaVersion: "account-center.public-mutation.v1";
+  verificationState: "UNPROVEN";
+  applied: boolean;
+  dryRun: boolean;
+  liveRuntimeMutation: boolean;
+  state: "APPLIED" | "DRY_RUN" | "BLOCKED";
+  receipt: { id: string; action: string; dryRun: boolean; target: "redacted-target" };
+};
+
+function publicAccountsView(status: AccountCenterStatus) {
+  const publicStatus = publicStatusView(status);
+  return {
+    schemaVersion: "account-center.public-accounts.v1" as const,
+    verificationState: "UNPROVEN" as const,
+    accounts: publicStatus.profiles.map((profile) => ({
+      id: profile.id,
+      provider: profile.provider,
+      role: profile.role,
+      health: profile.usage.health,
+      auth: profile.usage.auth.state,
+      limits: profile.usage.windows.map((window) => ({ name: window.name, remainingPct: window.remainingPct }))
+    }))
+  };
+}
+
+function publicModelsView(status: AccountCenterStatus) {
+  return {
+    schemaVersion: "account-center.public-models.v1" as const,
+    verificationState: "UNPROVEN" as const,
+    models: listModels(status).map((item, index) => ({ id: `model-${index + 1}`, disabled: item.disabled, accountCount: item.profiles.length }))
+  };
+}
+
+function publicProviderProbesView(probes: Array<{ ok: boolean; profiles: number; usableProfiles: number; lowestRemainingPct: number | null; highestRemainingPct: number | null }>) {
+  return {
+    schemaVersion: "account-center.public-provider-probes.v1" as const,
+    verificationState: "UNPROVEN" as const,
+    probes: probes.map((probe) => ({
+      state: probe.ok ? "OK" as const : "BLOCKED" as const,
+      profiles: boundedPublicCount(probe.profiles),
+      usableProfiles: boundedPublicCount(probe.usableProfiles),
+      limitsObserved: probe.lowestRemainingPct !== null || probe.highestRemainingPct !== null
+    }))
+  };
+}
+
+function boundedPublicCount(value: number): number {
+  return Number.isSafeInteger(value) && value >= 0 ? Math.min(value, 100) : 0;
+}
+
+function publicRouteNextView(status: AccountCenterStatus, target?: string) {
+  return {
+    schemaVersion: "account-center.public-route-next.v1" as const,
+    verificationState: "UNPROVEN" as const,
+    eligible: target !== undefined,
+    next: publicAccountRef(status, target)
+  };
+}
+
+function publicGuardView(status: AccountCenterStatus, guarded: { ok: boolean; next?: string }, receipt: unknown, ensured?: unknown): PublicGuardView {
+  return {
+    schemaVersion: "account-center.public-guard.v1",
+    verificationState: "UNPROVEN",
+    ok: guarded.ok,
+    state: guarded.ok ? "OK" : "BLOCKED",
+    next: publicAccountRef(status, guarded.next),
+    receipt: publicReceipt(receipt),
+    ...(ensured ? { ensured: publicMutationView(ensured) } : {})
+  };
+}
+
+function publicMutationView(payload: unknown): PublicMutationView {
+  const report = isReport(payload) ? payload : {};
+  const receipt = isReport(report.receipt) ? report.receipt : {};
+  const applied = report.applied === true;
+  const dryRun = report.dryRun === true || receipt.dryRun === true;
+  const liveRuntimeMutation = report.liveRuntimeMutation === true;
+  return {
+    schemaVersion: "account-center.public-mutation.v1",
+    verificationState: "UNPROVEN",
+    applied,
+    dryRun,
+    liveRuntimeMutation,
+    state: applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
+    receipt: publicReceipt(receipt)
+  };
+}
+
+function publicReceipt(value: unknown): PublicMutationView["receipt"] {
+  const receipt = isReport(value) ? value : {};
+  return {
+    id: typeof receipt.id === "string" ? receipt.id : "receipt-redacted",
+    action: typeof receipt.action === "string" ? receipt.action : "unknown",
+    dryRun: receipt.dryRun === true,
+    target: "redacted-target"
+  };
+}
+
+function publicAccountRef(status: AccountCenterStatus, target?: string): string {
+  if (!target) return "none";
+  const index = status.profiles.findIndex((profile) => profile.id === target || profile.label === target || profile.usage.profileId === target);
+  return index >= 0 ? `account-${index + 1}` : "account-redacted";
+}
+
 function renderStatus(status: PublicStatusView): string {
   return [
     "Account Center: status observed",
@@ -229,6 +372,54 @@ function statusFailure(options: CliOptions): CliResult {
     state: "UNPROVEN" as const
   };
   return { code: 2, stdout: options.json ? json(view) : "Account Center: status UNPROVEN\nSource: " + view.source + "\n" };
+}
+
+function auditFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-audit.v1",
+    verificationState: "UNPROVEN" as const,
+    events: []
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Audit: UNPROVEN\n" };
+}
+
+function providerProbeFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-provider-probes.v1",
+    verificationState: "UNPROVEN" as const,
+    probes: []
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Provider probe UNPROVEN\n" };
+}
+
+function genericCommandFailure(options: CliOptions, command?: string, subcommand?: string): CliResult {
+  if (command === "status") return statusFailure(options);
+  if (command === "audit" && subcommand === "list") return auditFailure(options);
+  const action = command === "routes"
+    ? subcommand === "use" ? "route.use" : subcommand === "remove" ? "route.remove" : "route.auto"
+    : command === "accounts"
+      ? subcommand === "delete" ? "account.delete" : subcommand === "enable" ? "account.enable" : "account.disable"
+      : command === "models"
+        ? subcommand === "enable" ? "model.enable" : "model.disable"
+        : undefined;
+  if (action) {
+    const view: PublicMutationView = {
+      schemaVersion: "account-center.public-mutation.v1",
+      verificationState: "UNPROVEN",
+      applied: false,
+      dryRun: true,
+      liveRuntimeMutation: false,
+      state: "BLOCKED",
+      receipt: { id: "receipt-redacted", action, dryRun: true, target: "redacted-target" }
+    };
+    return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
+  }
+  const view = {
+    schemaVersion: "account-center.public-command-error.v1",
+    source: "generic-command" as const,
+    state: "UNPROVEN" as const
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Account Center: command UNPROVEN\nSource: generic-command\n" };
 }
 
 function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): string {
@@ -362,41 +553,23 @@ function meta(profile: AccountCenterStatus["profiles"][number], key: string): un
   return profile.metadata?.[key];
 }
 
-function renderGuard(payload: { ok: boolean; reason: string; next?: string }): string {
-  return `Guard: ${payload.ok ? "OK" : "BLOCKED"}\nReason: ${payload.reason}\nNext: ${payload.next ?? "none"}\n`;
+function renderGuard(payload: PublicGuardView): string {
+  return `Guard: ${payload.state}\nNext: ${payload.next}\nVerification: ${payload.verificationState}\n`;
 }
 
-function renderMutation(payload: unknown): string {
-  if (!isReport(payload)) return `${json(payload)}\n`;
-  const receipt = isReport(payload.receipt) ? payload.receipt : {};
-  const action = String(receipt.action ?? "mutation");
-  const target = String(receipt.target ?? "unknown");
-  const summary = String(receipt.summary ?? "No summary returned.");
-  const applied = payload.applied === true;
-  const dryRun = payload.dryRun === true || receipt.dryRun === true;
-  const liveRuntimeMutation = payload.liveRuntimeMutation === true;
-  const receiptPath = typeof payload.receiptPath === "string" ? payload.receiptPath : undefined;
-  const rollback = typeof payload.rollback === "string" ? payload.rollback : undefined;
+function renderMutation(payload: PublicMutationView): string {
+  const { action, target } = payload.receipt;
+  const { applied, dryRun, liveRuntimeMutation } = payload;
   const lines: string[] = [];
 
   if (dryRun || !applied || !liveRuntimeMutation) {
     lines.push("DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.");
     lines.push(`Action: ${action}`);
     lines.push(`Target: ${target}`);
-    lines.push(`Result: ${summary}`);
+    lines.push(`Result: ${payload.state}`);
     if (action === "account.delete") {
-      const warnings = Array.isArray(receipt.warnings) ? receipt.warnings.map(String) : [];
-      if (warnings.includes("target_not_found") || warnings.includes("exact_match_required")) {
-        lines.push("");
-        lines.push("No matching connected account was found. Nothing was deleted.");
-        lines.push("Run /auth list, copy the exact email/profile shown there, then run /auth delete <exact-email-or-profile> only if you really want credential deletion.");
-      } else {
-        lines.push("");
-        lines.push("To actually delete it yourself, run:");
-        lines.push(`/auth delete ${target}`);
-        lines.push("");
-        lines.push("Then run /auth to confirm the account no longer appears.");
-      }
+      lines.push("");
+      lines.push("Exact connected-target confirmation remains required before credential deletion.");
     } else if (action === "route.remove") {
       lines.push("");
       lines.push("This is routing removal only. It does not delete credentials.");
@@ -410,18 +583,16 @@ function renderMutation(payload: unknown): string {
     : "APPLIED — live Sentinel/OpenClaw runtime store was changed.");
   lines.push(`Action: ${action}`);
   lines.push(`Target: ${target}`);
-  lines.push(`Result: ${summary}`);
-  if (rollback) lines.push(`Backup: ${rollback}`);
-  if (receiptPath) lines.push(`Receipt: ${receiptPath}`);
+  lines.push(`Result: ${payload.state}`);
   if (action === "account.delete") lines.push("Run /auth to confirm the account no longer appears.");
   return `${lines.join("\n")}\n`;
 }
 
-function renderAccounts(status: AccountCenterStatus): string {
-  return status.profiles.map((profile) => {
-    const five = profile.usage.windows.find((window) => window.name === "five-hour")?.remainingPct ?? "unknown";
-    const weekly = profile.usage.windows.find((window) => window.name === "weekly")?.remainingPct ?? "unknown";
-    return `${profile.id} role=${profile.role} health=${profile.usage.health} auth=${profile.usage.auth.state} 5h=${five}% weekly=${weekly}%`;
+function renderAccounts(view: ReturnType<typeof publicAccountsView>): string {
+  return view.accounts.map((account) => {
+    const five = account.limits.find((window) => window.name === "five-hour")?.remainingPct ?? "unknown";
+    const weekly = account.limits.find((window) => window.name === "weekly")?.remainingPct ?? "unknown";
+    return `${account.id} role=${account.role} health=${account.health} auth=${account.auth} 5h=${five}% weekly=${weekly}%`;
   }).join("\n") + "\n";
 }
 
@@ -429,38 +600,45 @@ function renderDoctorReport(report: ReturnType<typeof publicDoctorView>): string
   return `Doctor: ${report.state}\nSource: ${report.source}\n`;
 }
 
-function renderModels(status: AccountCenterStatus): string {
-  return listModels(status).map((item) => `${item.model} disabled=${item.disabled} profiles=${item.profiles.length}`).join("\n") + "\n";
+function renderModels(view: ReturnType<typeof publicModelsView>): string {
+  return view.models.map((item) => `${item.id} disabled=${item.disabled} accounts=${item.accountCount}`).join("\n") + "\n";
 }
 
-function renderAudit(status: AccountCenterStatus, limit: number): string {
-  return status.audit.slice(0, limit).map((event) => `${event.id} ${event.action} dryRun=${event.dryRun} ${event.summary}`).join("\n") + "\n";
+function publicAuditView(status: AccountCenterStatus, limit: number) {
+  return {
+    schemaVersion: "account-center.public-audit.v1" as const,
+    verificationState: "UNPROVEN" as const,
+    events: status.audit.slice(0, limit).map((event) => ({ dryRun: event.dryRun === true, state: "UNPROVEN" as const }))
+  };
+}
+
+function renderAudit(view: ReturnType<typeof publicAuditView>): string {
+  return view.events.map((event) => `Audit event dryRun=${event.dryRun} ${event.state}`).join("\n") + "\n";
 }
 
 function startReauth(target: string | undefined, status: AccountCenterStatus, options: CliOptions): CliResult {
   if (!target) return { code: 1, stdout: "", stderr: "Usage: /auth add <email> or /auth reauth <email>\n" };
-  const script = "/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-device-auth-telegram.mjs";
   const payload = {
+    schemaVersion: "account-center.public-reauth-start.v1",
+    verificationState: "UNPROVEN" as const,
     started: false,
     dryRun: !options.apply,
     noLlmTokens: true,
-    target,
-    command: `node ${script} start --email ${target}`,
+    target: publicAccountRef(status, target),
     note: options.apply
-      ? "Live device-code auth start is reserved for the native Telegram bridge in this build; run the printed fallback command if Account Center cannot start it in this chat."
-      : "Dry-run only. Add --apply to request a live device-code auth start, or run the printed fallback command."
+      ? "Live device-code auth start is reserved for the native Telegram bridge in this build."
+      : "Dry-run only. Add --apply to request a live device-code auth start."
   };
   if (options.json) return ok(json(payload));
   return ok([
-    `OpenAI Codex device-code auth for ${target}`,
+    `OpenAI Codex device-code auth for ${payload.target}`,
     `No LLM/model tokens are used by this command.`,
-    payload.note,
-    `Fallback CLI: ${payload.command}`
+    payload.note
   ].join("\n") + "\n");
 }
 
-function renderProviderProbes(probes: Array<{ provider: string; ok: boolean; profiles: number; usableProfiles: number; lowestRemainingPct: number | null; highestRemainingPct: number | null; source: string }>): string {
-  return probes.map((probe) => `${probe.provider} ok=${probe.ok} usable=${probe.usableProfiles}/${probe.profiles} remaining=${probe.lowestRemainingPct ?? "unknown"}-${probe.highestRemainingPct ?? "unknown"}% source=${probe.source}`).join("\n") + "\n";
+function renderProviderProbes(view: ReturnType<typeof publicProviderProbesView>): string {
+  return view.probes.map((probe) => `Provider probe ${probe.state} usable=${probe.usableProfiles}/${probe.profiles} limits=${probe.limitsObserved ? "observed" : "unknown"}`).join("\n") + "\n";
 }
 
 function helpText(): string {
