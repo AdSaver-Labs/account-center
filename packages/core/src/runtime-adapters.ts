@@ -294,7 +294,7 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
   }
 }
 
-export function createRuntimeAdapter(source: RuntimeSource, options: { cwd?: string; runner?: CommandRunner } = {}): RuntimeAdapter {
+export function createRuntimeAdapter(source: unknown, options: { cwd?: string; runner?: CommandRunner } = {}): RuntimeAdapter {
   if (source === "openclaw") return new OpenClawRuntimeAdapter({ runner: options.runner });
   if (source === "generic-command") return new GenericCommandRuntimeAdapter({ runner: options.runner });
   if (source === "fixture") return new FixtureRuntimeAdapter(resolve(options.cwd ?? process.cwd(), "tests/fixtures/status.fixture.json"));
