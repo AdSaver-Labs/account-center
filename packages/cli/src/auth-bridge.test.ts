@@ -17,12 +17,13 @@ test("/auth accounts and /auth next map to existing CLI commands", () => {
   assert.deepEqual(parseAuthCommand("/auth probe --provider all --json"), ["providers", "probe", "--provider", "all", "--json"]);
 });
 
-test("manual /auth route/delete commands apply by default and support explicit dry-run", () => {
+test("manual /auth route/delete commands preserve their guarded defaults", () => {
   assert.deepEqual(parseAuthCommand("/auth auto"), ["routes", "auto", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth auto --dry-run"), ["routes", "auto", "--dry-run"]);
   assert.deepEqual(parseAuthCommand("/auth use openai:helper-2"), ["routes", "use", "openai:helper-2", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth use openai:helper-2 --dry-run"), ["routes", "use", "openai:helper-2", "--dry-run"]);
-  assert.deepEqual(parseAuthCommand("/auth remove helper-1"), ["routes", "remove", "helper-1", "--apply"]);
+  assert.deepEqual(parseAuthCommand("/auth remove helper-1"), ["routes", "remove", "helper-1", "--dry-run"]);
+  assert.deepEqual(parseAuthCommand("/auth remove helper-1 --apply"), ["routes", "remove", "helper-1", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth delete helper-1"), ["accounts", "delete", "helper-1", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth delete helper-1 --dry-run"), ["accounts", "delete", "helper-1", "--dry-run"]);
   assert.deepEqual(parseAuthCommand("/auth delete old@example.com --apply"), ["accounts", "delete", "old@example.com", "--apply"]);

@@ -25,7 +25,7 @@ The manual/chat compatibility command is:
 | `/auth next` | read | read-only | n/a | no secrets |
 | `/auth auto` | route mutation | live apply | `--dry-run` | eligible target, runtime lock, receipt, proof |
 | `/auth use <target>` | route mutation | live apply | `--dry-run` | exact connected target, runtime lock, receipt, proof |
-| `/auth remove <target>` | route mutation | live apply | `--dry-run` | exact connected route target, routing-only, receipt, proof |
+| `/auth remove <target>` | route mutation | preview first; exact confirmed apply | default | exact connected route target, one explicit agent scope, routing-only, receipt, proof |
 | `/auth delete <target>` | credential mutation | live apply | `--dry-run` | exact connected credential target, backup, receipt, proof |
 | `/auth add <email>` | guided auth | create local guided challenge | n/a | explicit observed runtime/default scope, valid email, mode-specific idempotency, no raw tokens |
 | `/auth reauth <email>` | guided auth | create local guided challenge | n/a | explicit observed runtime/default scope, valid email, mode-specific idempotency, no raw tokens |

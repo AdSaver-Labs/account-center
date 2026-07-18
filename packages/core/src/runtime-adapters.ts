@@ -926,7 +926,11 @@ function routeMutationVerified(status: AccountCenterStatus, action: AuditAction,
 
 function canonicalRouteTarget(status: AccountCenterStatus, target: string, provider: string, runtime: string): string | undefined {
   if (!target || target.startsWith("-") || /\s/.test(target)) return undefined;
-  const matches = status.profiles.filter((profile) => profile.id === target && profile.provider === provider && profile.runtimeCompatibility.includes(runtime as RuntimeKey));
+  const matches = status.profiles.filter((profile) =>
+    profile.provider === provider &&
+    profile.runtimeCompatibility.includes(runtime as RuntimeKey) &&
+    profile.id === target
+  );
   return matches.length === 1 ? matches[0]!.id : undefined;
 }
 function routeScopeMatches(route: AccountCenterStatus["routes"][number], agent: string): boolean { return route.scope === `agent:${agent}`; }
@@ -1016,7 +1020,10 @@ function routeOrder(raw: unknown, fallback: string[]): string[] {
     nestedArray(raw, ["currentAuthOrder"]),
     nestedArray(raw, ["routePolicy", "order"])
   ].find((item) => item.length > 0);
-  return [...new Set([...(candidates ?? []), ...fallback])];
+  // An authoritative runtime order is not an account inventory. Appending
+  // every connected account would make a route-only removal appear to remain
+  // in the route, even when credentials correctly stay connected.
+  return [...new Set(candidates ?? fallback)];
 }
 
 function activeProfile(raw: unknown, order: string[]): string | undefined {

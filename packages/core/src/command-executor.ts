@@ -114,7 +114,14 @@ function replayMutation(action: AuditAction, target: string | undefined, outcome
 
 function resolveRouteTarget(status: AccountCenterStatus, action: AuditAction, requested: string | undefined, provider: string, runtime: string): string | undefined {
   if (!requested || requested.startsWith("-") || /\s/.test(requested)) return undefined;
-  const matches = status.profiles.filter((profile) => profile.id === requested && profile.provider === provider && profile.runtimeCompatibility.includes(runtime as RuntimeKey));
+  // Route actions accept only an exactly observed canonical profile id, before
+  // a review is minted, so the native argv builder never receives a user
+  // operand that could alter its option shape.
+  const matches = status.profiles.filter((profile) =>
+    profile.provider === provider &&
+    profile.runtimeCompatibility.includes(runtime as RuntimeKey) &&
+    profile.id === requested
+  );
   return matches.length === 1 ? matches[0]!.id : undefined;
 }
 

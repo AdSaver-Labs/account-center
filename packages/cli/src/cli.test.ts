@@ -583,6 +583,30 @@ test("public route preview requires an exact agent scope and returns an exact co
   assert.notEqual(JSON.parse(confirmed.stdout).state, "BLOCKED", "the exact public preview token must be accepted by --confirm");
 });
 
+test("public /auth remove is preview-first and exact confirmation cannot authorize a different target", async () => {
+  const previousDataDir = process.env.ACCOUNT_CENTER_DATA_DIR;
+  process.env.ACCOUNT_CENTER_DATA_DIR = await mkdtemp(join(tmpdir(), "account-center-auth-remove-"));
+  try {
+    const preview = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--json"]);
+    assert.equal(preview.code, 0);
+    const planned = JSON.parse(preview.stdout);
+    assert.equal(planned.applied, false);
+    assert.equal(planned.receipt.action, "route.remove");
+    assert.equal(typeof planned.confirmationToken, "string");
+
+    const confirmed = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
+    assert.equal(JSON.parse(confirmed.stdout).liveRuntimeMutation, false, "fixture confirmation never performs a live apply");
+    const replay = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
+    assert.equal(JSON.parse(replay.stdout).state, "REPLAYED", "an exact public confirmation is idempotent");
+
+    const changedTarget = await runCli(["auth", "/auth", "remove", "openai:helper-1", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-002", "--json"]);
+    assert.equal(JSON.parse(changedTarget.stdout).state, "DRY_RUN", "a confirmation token cannot authorize a different route target");
+  } finally {
+    if (previousDataDir === undefined) delete process.env.ACCOUNT_CENTER_DATA_DIR;
+    else process.env.ACCOUNT_CENTER_DATA_DIR = previousDataDir;
+  }
+});
+
 test("/auth delete --dry-run renders a clear redacted no-deletion message", async () => {
   const result = await runCli(["auth", "/auth", "delete", "helper-1", "--dry-run"]);
   assert.equal(result.code, 0);
