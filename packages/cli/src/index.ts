@@ -180,7 +180,7 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
     receiptPath: resolve(cwd, valueAfter(argv, "--receipt-path") ?? `.account-center/receipts/${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
     writeExport: !argv.includes("--no-write-export"),
-    source: parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE),
+    source: parseRuntimeSource(sourceOption(argv)),
     apply: argv.includes("--apply"),
     ensureRoute: argv.includes("--ensure-route")
   };
@@ -201,6 +201,13 @@ function isOptionValue(argv: string[], arg: string): boolean {
 function valueAfter(argv: string[], key: string): string | undefined {
   const index = argv.indexOf(key);
   return index >= 0 ? argv[index + 1] : undefined;
+}
+
+function sourceOption(argv: string[]): string | undefined {
+  if (!argv.includes("--source")) return process.env.ACCOUNT_CENTER_SOURCE;
+  const value = valueAfter(argv, "--source");
+  if (value === undefined || value.startsWith("--")) throw new Error("Unsupported Account Center source.");
+  return value;
 }
 
 async function maybeWriteStatus(status: unknown, options: CliOptions): Promise<void> {

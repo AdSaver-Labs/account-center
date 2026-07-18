@@ -67,6 +67,22 @@ test("CLI rejects hostile adapter source labels without echoing them", async () 
   assert.equal(`${result.stdout}${result.stderr}`.includes(hostileSource), false);
 });
 
+test("CLI rejects explicit empty or missing adapter sources without falling back to fixture", async () => {
+  const previousSource = process.env.ACCOUNT_CENTER_SOURCE;
+  process.env.ACCOUNT_CENTER_SOURCE = "";
+  try {
+    for (const args of [["status", "--source", "", "--no-write-export"], ["status", "--source", "--no-write-export"], ["status", "--no-write-export"]]) {
+      const result = await runCli(args);
+      assert.equal(result.code, 1);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "Unsupported Account Center source.\n");
+    }
+  } finally {
+    if (previousSource === undefined) delete process.env.ACCOUNT_CENTER_SOURCE;
+    else process.env.ACCOUNT_CENTER_SOURCE = previousSource;
+  }
+});
+
 test("provider probe keeps hostile generic-command provider identifiers out of public output", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   const hostileProvider = "/srv/private/account-center/person@example.test sk-hostile-token-value-123456789";

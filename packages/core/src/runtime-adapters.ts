@@ -302,7 +302,7 @@ export function createRuntimeAdapter(source: unknown, options: { cwd?: string; r
 }
 
 export function parseRuntimeSource(value: string | undefined): RuntimeSource {
-  if (!value || value === "fixture") return "fixture";
+  if (value === undefined || value === "fixture") return "fixture";
   if (value === "openclaw") return "openclaw";
   if (value === "generic-command") return "generic-command";
   throw new Error("Unsupported Account Center source.");

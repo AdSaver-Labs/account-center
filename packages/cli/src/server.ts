@@ -13,8 +13,8 @@ export interface AccountCenterServerOptions {
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // Only an omitted source selects the fixture adapter. Any explicit value,
-  // including null, remains untrusted input for the adapter to reject.
-  const source = options.source === undefined ? "fixture" : options.source;
+  // including undefined or null, remains untrusted input for the adapter to reject.
+  const source = Object.hasOwn(options, "source") ? options.source : "fixture";
   const server = createServer(async (request, response) => {
     try {
       setSafetyHeaders(response);

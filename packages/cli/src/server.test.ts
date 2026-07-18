@@ -71,6 +71,18 @@ test("status API fails closed for an explicit null source instead of selecting t
   }
 });
 
+test("status API fails closed for an explicitly undefined source instead of selecting the fixture", async () => {
+  const app = createAccountCenterServer({ token: "test-token", source: undefined });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "internal_error" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("status API omits OAuth device codes and verification URLs despite a noSecrets fixture assertion", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
