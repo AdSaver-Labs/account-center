@@ -107,7 +107,12 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return ok(options.json ? json(view) : renderAccounts(view));
   }
   if (command === "providers" && subcommand === "probe") {
-    const probes = await probeProviders(status, options.provider);
+    let probes;
+    try {
+      probes = await probeProviders(status, options.provider);
+    } catch {
+      return providerProbeFailure(options);
+    }
     const view = publicProviderProbesView(probes);
     return ok(options.json ? json(view) : renderProviderProbes(view));
   }
@@ -376,6 +381,15 @@ function auditFailure(options: CliOptions): CliResult {
     events: []
   };
   return { code: 2, stdout: options.json ? json(view) : "Audit: UNPROVEN\n" };
+}
+
+function providerProbeFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-provider-probes.v1",
+    verificationState: "UNPROVEN" as const,
+    probes: []
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Provider probe UNPROVEN\n" };
 }
 
 function genericCommandFailure(options: CliOptions, command?: string, subcommand?: string): CliResult {
