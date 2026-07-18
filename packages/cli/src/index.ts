@@ -206,7 +206,7 @@ function valueAfter(argv: string[], key: string): string | undefined {
 function sourceOption(argv: string[]): string | undefined {
   if (!argv.includes("--source")) return process.env.ACCOUNT_CENTER_SOURCE;
   const value = valueAfter(argv, "--source");
-  if (value === undefined || value.startsWith("--")) throw new Error("Unsupported Account Center source.");
+  if (value === undefined || value === "" || value.startsWith("--")) throw new Error("Unsupported Account Center source.");
   return value;
 }
 
@@ -719,7 +719,7 @@ async function serveControlPanel(argv: string[]): Promise<void> {
   // local, token-protected beta smoke safe to run without competing for 4317.
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
   const token = valueAfter(argv, "--token") ?? randomBytes(24).toString("base64url");
-  const source = parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE);
+  const source = parseRuntimeSource(sourceOption(argv));
   const app = createPersistentControlPanel({ token, source });
   const address = await app.listen(port);
   process.stdout.write(`Account Center local panel: http://127.0.0.1:${address.port}/\nLaunch token: ${token}\nPress Ctrl+C to stop.\n`);
