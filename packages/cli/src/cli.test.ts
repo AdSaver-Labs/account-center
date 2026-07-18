@@ -555,51 +555,66 @@ test("accounts list and routes next keep hostile generic-command fixture classes
     "/fixture/private/path",
     "fixture adapter error",
     "fixture-profile-identity",
+    "fixture-fallback-profile-identity",
     "fixture-adapter-error"
   ];
-  const fixtureProvider = "custom:[REDACTED_EMAIL]";
+  const rawFixtureProvider = "custom:fixture-person@example.test";
+  const normalizedFixtureProvider = "custom:[REDACTED_EMAIL]";
+  const fixtureRuntime = "custom:fixture-adapter-error";
+  const missingFixtureRuntime = "custom:fixture-missing-route";
   const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
   const profile = hostileStatus.profiles[0];
   profile.id = "custom:fixture-profile-identity";
-  profile.provider = fixtureProvider;
+  profile.provider = rawFixtureProvider;
   profile.label = "fixture-person@example.test /fixture/private/path";
-  profile.runtimeCompatibility = ["custom:fixture-adapter-error"];
+  profile.runtimeCompatibility = [fixtureRuntime];
   profile.models = ["sk-fixture-secret-value-123456789"];
   profile.metadata = { adapterError: "fixture adapter error", authorization: "Bearer fixture-bearer-token-value-123456789" };
   profile.usage.profileId = profile.id;
   profile.usage.provider = profile.provider;
-  profile.usage.windows = [{ name: "five-hour", remainingPct: 99 }, { name: "weekly", remainingPct: 99 }];
+  profile.usage.windows = [{ name: "five-hour", remainingPct: 50 }, { name: "weekly", remainingPct: 50 }];
   profile.usage.warnings = ["fixture adapter error"];
-  hostileStatus.profiles = [profile];
+  const fallbackProfile = structuredClone(profile);
+  fallbackProfile.id = "custom:fixture-fallback-profile-identity";
+  fallbackProfile.role = "secondary";
+  fallbackProfile.usage.profileId = fallbackProfile.id;
+  fallbackProfile.usage.windows = [{ name: "five-hour", remainingPct: 99 }, { name: "weekly", remainingPct: 99 }];
+  hostileStatus.profiles = [profile, fallbackProfile];
   hostileStatus.providers = [{ key: profile.provider, displayName: "/fixture/private/path" }];
-  hostileStatus.runtimes = [{ key: "custom:fixture-adapter-error", displayName: "fixture adapter error", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }];
-  hostileStatus.routes = [{ provider: profile.provider, runtime: "custom:fixture-adapter-error", activeProfileId: profile.id, order: [profile.id], updatedAt: hostileStatus.generatedAt }];
+  hostileStatus.runtimes = [{ key: fixtureRuntime, displayName: "fixture adapter error", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }];
+  hostileStatus.routes = [{ provider: rawFixtureProvider, runtime: fixtureRuntime, activeProfileId: profile.id, order: [profile.id], updatedAt: hostileStatus.generatedAt }];
   process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
   try {
     const commands = [
       ["accounts", "list", "--source", "generic-command"],
       ["accounts", "list", "--source", "generic-command", "--json"],
-      ["routes", "next", "--source", "generic-command", "--provider", fixtureProvider, "--runtime", "custom:fixture-adapter-error"],
-      ["routes", "next", "--source", "generic-command", "--provider", fixtureProvider, "--runtime", "custom:fixture-adapter-error", "--json"]
+      ["routes", "next", "--source", "generic-command", "--provider", normalizedFixtureProvider, "--runtime", fixtureRuntime],
+      ["routes", "next", "--source", "generic-command", "--provider", normalizedFixtureProvider, "--runtime", fixtureRuntime, "--json"],
+      ["routes", "next", "--source", "generic-command", "--provider", normalizedFixtureProvider, "--runtime", missingFixtureRuntime],
+      ["routes", "next", "--source", "generic-command", "--provider", normalizedFixtureProvider, "--runtime", missingFixtureRuntime, "--json"]
     ];
     const results = await Promise.all(commands.map((command) => runCli(command, process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) }) })));
 
-    const routeNext = JSON.parse(results[3]!.stdout) as { eligible: boolean; next?: string };
-    assert.notEqual(results[2]!.stdout.trim(), "");
-    assert.equal(routeNext.eligible, true);
-    assert.equal(typeof routeNext.next, "string");
-    assert.notEqual(routeNext.next, "");
+    const exactRouteNext = JSON.parse(results[3]!.stdout) as { eligible: boolean; next?: string };
+    const missingRouteNext = JSON.parse(results[5]!.stdout) as { eligible: boolean; next?: string };
+    assert.equal(exactRouteNext.eligible, true);
+    assert.equal(exactRouteNext.next, "account-1");
+    assert.equal(missingRouteNext.eligible, true, "a missing route falls back to provider profiles");
+    assert.equal(missingRouteNext.next, "account-2", "the fallback result must not satisfy the exact route assertion");
 
     for (const result of results) {
       assert.equal(result.code, 0);
       assert.equal(result.stderr, undefined);
       for (const value of hostileValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
     }
-    assert.equal(results[0]!.stdout, "account-1 role=primary health=warn auth=ok 5h=99% weekly=99%\n");
+    assert.equal(results[0]!.stdout, "account-1 role=primary health=warn auth=ok 5h=50% weekly=50%\naccount-2 role=secondary health=warn auth=ok 5h=99% weekly=99%\n");
     assert.deepEqual(JSON.parse(results[1]!.stdout), {
       schemaVersion: "account-center.public-accounts.v1",
       verificationState: "UNPROVEN",
-      accounts: [{ id: "account-1", provider: "custom", role: "primary", health: "warn", auth: "ok", limits: [{ name: "five-hour", remainingPct: 99 }, { name: "weekly", remainingPct: 99 }] }]
+      accounts: [
+        { id: "account-1", provider: "custom", role: "primary", health: "warn", auth: "ok", limits: [{ name: "five-hour", remainingPct: 50 }, { name: "weekly", remainingPct: 50 }] },
+        { id: "account-2", provider: "custom", role: "secondary", health: "warn", auth: "ok", limits: [{ name: "five-hour", remainingPct: 99 }, { name: "weekly", remainingPct: 99 }] }
+      ]
     });
     assert.equal(results[2]!.stdout, "Next eligible: account-1\n");
     assert.deepEqual(JSON.parse(results[3]!.stdout), {
@@ -607,6 +622,14 @@ test("accounts list and routes next keep hostile generic-command fixture classes
       verificationState: "UNPROVEN",
       eligible: true,
       next: "account-1"
+    });
+    assert.equal(results[4]!.code, 0);
+    assert.equal(results[4]!.stdout, "Next eligible: account-2\n");
+    assert.deepEqual(JSON.parse(results[5]!.stdout), {
+      schemaVersion: "account-center.public-route-next.v1",
+      verificationState: "UNPROVEN",
+      eligible: true,
+      next: "account-2"
     });
   } finally {
     if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
