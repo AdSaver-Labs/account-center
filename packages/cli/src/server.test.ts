@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository, RuntimeAdapter } from "@account-center/core";
+import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
@@ -379,13 +379,14 @@ test("protected inventory projections allowlist schema-valid hostile generic-com
     audit: [],
     warnings: ["provider=private-account; routing=production"]
   } as unknown as AccountCenterStatus;
-  const adapter: RuntimeAdapter = {
-    source: "generic-command",
-    async readStatus() { return status; },
-    async doctor() { return { ok: true }; },
-    async mutate() { return { code: 2, payload: { applied: false } }; }
-  };
-  const app = createAccountCenterServer({ token: "test-token", source: "generic-command", adapter });
+  const directory = await mkdtemp(join(tmpdir(), "account-center-hostile-status-"));
+  const command = join(directory, "status.js");
+  await writeFile(command, `process.stdout.write(${JSON.stringify(JSON.stringify(status))});\n`);
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = `${process.execPath} ${command}`;
+  process.env.ACCOUNT_CENTER_GENERIC_ARGS = "";
+  const app = createAccountCenterServer({ token: "test-token", source: "generic-command" });
   const address = await app.listen();
   try {
     for (const path of ["/api/limits", "/api/models", "/api/scopes"]) {
@@ -405,13 +406,16 @@ test("protected inventory projections allowlist schema-valid hostile generic-com
         schemaVersion: "account-center.runtime-scopes.v1",
         generatedAt: "unknown",
         scopes: [
-          { runtime: "custom", scope: { kind: "default", id: "default" }, capabilities: { readStatus: false, mutateRoutes: false, startReauth: false, mutateModels: false } },
           { runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: true, mutateModels: false } }
         ]
       });
     }
   } finally {
     await app.close();
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
   }
 });
 

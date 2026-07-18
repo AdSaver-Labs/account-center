@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeAdapter, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
@@ -9,8 +9,6 @@ export interface AccountCenterServerOptions {
   auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
   mutationRepository?: MutationRepository;
-  /** Test-only seam for fixture-backed protected read projection coverage. */
-  adapter?: RuntimeAdapter;
 }
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
@@ -90,7 +88,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/models") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = statusAdapter(options.adapter, source);
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicModelCatalogView(result.status, query.runtime) : { error: "status_unavailable" });
@@ -98,13 +96,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/limits") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = statusAdapter(options.adapter, source);
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicLimitsInventoryView(result.status, query.runtime) : { error: "status_unavailable" });
     }
     if (request.url === "/api/scopes") {
-      const adapter = statusAdapter(options.adapter, source);
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicRuntimeScopeCatalogView(result.status) : { error: "status_unavailable" });
     }
@@ -281,10 +279,6 @@ function isObservedRuntimeScope(status: AccountCenterStatus, query: RuntimeInven
 
 function isObservedRuntime(status: AccountCenterStatus, runtime: string | undefined): boolean {
   return !runtime || status.runtimes.some((candidate) => candidate.key === runtime);
-}
-
-function statusAdapter(adapter: RuntimeAdapter | undefined, source: unknown): RuntimeAdapter {
-  return adapter ?? createRuntimeAdapter(source as RuntimeSource);
 }
 
 function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery | undefined {

@@ -1,11 +1,11 @@
 import type { AccountCenterStatus, HealthState, ProfileRole } from "./schemas.js";
 import type { RuntimeSource } from "./runtime-adapters.js";
+import { isPublicModelId } from "./model-catalog-policy.js";
 
 type PublicProvider = "anthropic" | "github-copilot" | "openai" | "openrouter" | "custom";
 type PublicRuntime = "codex" | "generic-command" | "hermes" | "openclaw" | "custom";
 export type PublicSource = "fixture" | "generic-command" | "openclaw" | "unknown";
 
-const PUBLIC_MODEL_IDS = new Set(["openai/gpt-4.1", "openai/gpt-5.3-codex", "openai/gpt-5.5"]);
 
 export interface PublicStatusView {
   schemaVersion: "account-center.public-status.v1";
@@ -112,7 +112,7 @@ export function publicModelCatalogView(status: AccountCenterStatus, runtime?: st
     ...status.profiles.flatMap((profile) => profile.models),
     ...status.policy.disabledModels
   ]);
-  const models = Array.from(known).filter((id) => PUBLIC_MODEL_IDS.has(id)).sort();
+  const models = Array.from(known).filter(isPublicModelId).sort();
   return {
     schemaVersion: "account-center.models.v1",
     ...publicGeneratedAt(status.generatedAt),
@@ -162,9 +162,13 @@ export function publicLimitsInventoryView(status: AccountCenterStatus, runtime?:
 }
 
 export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unknown {
-  const scopes = new Map<PublicRuntime, { readStatus: boolean; mutateRoutes: boolean; startReauth: boolean; mutateModels: boolean }>();
+  const scopes = new Map<Exclude<PublicRuntime, "custom">, { readStatus: boolean; mutateRoutes: boolean; startReauth: boolean; mutateModels: boolean }>();
   for (const runtime of status.runtimes) {
-    const key = publicRuntime(runtime.key);
+    // Runtime keys come from adapter status. Unknown keys must not be renamed
+    // to a shared synthetic entry: that would merge distinct evidence and turn
+    // unsupported capabilities into an apparently authoritative catalog.
+    const key = publicCatalogRuntime(runtime.key);
+    if (!key) continue;
     const existing = scopes.get(key);
     scopes.set(key, {
       readStatus: existing?.readStatus === true || runtime.capabilities.readStatus === true,
@@ -192,6 +196,9 @@ export function publicSourceCategory(value: unknown): PublicSource {
 }
 function publicRuntime(value: string): PublicRuntime {
   return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command" ? value : "custom";
+}
+function publicCatalogRuntime(value: string): Exclude<PublicRuntime, "custom"> | undefined {
+  return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command" ? value : undefined;
 }
 function publicRole(value: string): ProfileRole | "unknown" {
   return value === "primary" || value === "secondary" || value === "backup" || value === "monitor-only" || value === "disabled" ? value : "unknown";
