@@ -58,6 +58,15 @@ test("status --json emits fixture-backed no-secret export", async () => {
   assert.equal(JSON.stringify(parsed).includes("token"), false);
 });
 
+test("CLI rejects hostile adapter source labels without echoing them", async () => {
+  const hostileSource = "/srv/private/account-center/adapter --source=production";
+  const result = await runCli(["status", "--source", hostileSource, "--no-write-export"]);
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "Unsupported Account Center source.\n");
+  assert.equal(`${result.stdout}${result.stderr}`.includes(hostileSource), false);
+});
+
 test("provider probe keeps hostile generic-command provider identifiers out of public output", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   const hostileProvider = "/srv/private/account-center/person@example.test sk-hostile-token-value-123456789";

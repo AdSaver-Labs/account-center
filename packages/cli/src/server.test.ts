@@ -44,6 +44,21 @@ test("local API requires bearer token and returns no-store status", async () => 
   }
 });
 
+test("status API fails closed for a hostile adapter source label without echoing it", async () => {
+  const hostileSource = "/srv/private/account-center/adapter --source=production";
+  const app = createAccountCenterServer({ token: "test-token", source: hostileSource as never });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 500);
+    const body = await response.text();
+    assert.deepEqual(JSON.parse(body), { error: "internal_error" });
+    assert.equal(body.includes(hostileSource), false);
+  } finally {
+    await app.close();
+  }
+});
+
 test("status API omits OAuth device codes and verification URLs despite a noSecrets fixture assertion", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();

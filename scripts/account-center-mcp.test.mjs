@@ -155,6 +155,14 @@ test("MCP keeps hostile generic-command provider-probe failures opaque", () => {
   assert.equal(response.result.content[0].text, "Account Center request UNPROVEN.\n");
 });
 
+test("MCP keeps hostile adapter source labels opaque", () => {
+  const hostileSource = "/srv/private/account-center/adapter --source=production";
+  const response = call("/auth", { ACCOUNT_CENTER_SOURCE: hostileSource });
+  assert.equal(response.result.isError, true);
+  assert.equal(response.result.content[0].text, "Account Center request UNPROVEN.\n");
+  assert.equal(JSON.stringify(response).includes(hostileSource), false);
+});
+
 for (const [name, command] of [["status", "/auth"], ["help", "/auth help"], ["dry-run", "/auth delete person@example.test --dry-run"]]) {
   test(`MCP ${name} success path is a redacted public response`, () => {
     const response = call(command, { ACCOUNT_CENTER_SOURCE: "fixture" });

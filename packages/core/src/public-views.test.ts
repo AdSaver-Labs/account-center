@@ -58,4 +58,19 @@ test("public status and doctor DTOs never serialize adapter diagnostics or priva
     source: "openclaw",
     state: "UNPROVEN"
   });
+
+  const hostileSource = "/srv/private/account-center/adapter --source=production";
+  const hostileStatusView = publicStatusView({ ...status, source: hostileSource } as unknown as AccountCenterStatus);
+  assert.deepEqual(hostileStatusView, {
+    ...publicStatusView(status),
+    source: "unknown",
+    verificationState: "UNPROVEN"
+  });
+  const hostileDoctorView = publicDoctorView(hostileSource, { ok: true, command: hostileSource });
+  assert.deepEqual(hostileDoctorView, {
+    schemaVersion: "account-center.public-doctor.v1",
+    source: "unknown",
+    state: "UNPROVEN"
+  });
+  assert.equal(JSON.stringify({ hostileStatusView, hostileDoctorView }).includes(hostileSource), false);
 });
