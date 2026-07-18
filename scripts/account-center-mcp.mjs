@@ -69,7 +69,10 @@ function redact(text) {
     .replace(/rt\.1\.[A-Za-z0-9._~+/=-]{12,}/g, '[REDACTED]')
     .replace(/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{12,}/g, '[REDACTED]')
     .replace(/sk-[A-Za-z0-9_-]{20,}/g, '[REDACTED]')
-    .replace(/(access_token|refresh_token|id_token|api_key|agent_key)(["'\s:=]+)([^\s"']{4,})/gi, '$1$2[REDACTED]');
+    .replace(/(?:gh[pousr]_|xox[baprs]-)[A-Za-z0-9_-]{16,}/gi, '[REDACTED]')
+    .replace(/\/(?:[A-Za-z0-9._-]+\/){1,}[A-Za-z0-9._-]+/g, '[REDACTED_PATH]')
+    .replace(/(access_token|refresh_token|id_token|api_key|agent_key|authorization|oauth[_-]?code)(["'\s:=]+)([^\s"']{4,})/gi, '$1$2[REDACTED]')
+    .replace(/\b(target|receipt[_-]?target|account|profile|identity|runtime[_-]?command|command|path)(["'\s:=]+)([^\s"',;]{3,})/gi, '$1$2[REDACTED]');
 }
 
 function normalizeCommand(raw) {

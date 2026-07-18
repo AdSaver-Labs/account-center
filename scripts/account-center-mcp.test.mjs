@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bridge = resolve(root, "scripts/account-center-mcp.mjs");
 
@@ -19,11 +20,13 @@ function call(command, env = {}) {
   return JSON.parse(result.stdout.trim());
 }
 
-for (const command of ["/auth auto", "/auth use openai:example", "/auth remove openai:example", "/auth delete example@example.invalid"]) {
+for (const command of ["/auth auto", "/auth use openai:example", "/auth remove openai:example", "/auth delete example@example.invalid", "/auth delete person@example.test --receipt_target opaque-receipt-target --path /srv/private/account-center/receipt.json --token sk-hostile-token-value-123456789"]) {
   test(`MCP blocks live ${command} unless mutation authorization is enabled`, () => {
     const response = call(command);
     assert.equal(response.result.isError, true);
     assert.match(response.result.content[0].text, /Blocked potentially mutating Account Center command/);
+    const publicOutput = JSON.stringify(response);
+    for (const value of ["person@example.test", "opaque-receipt-target", "/srv/private/account-center/receipt.json", "sk-hostile-token-value-123456789"]) assert.equal(publicOutput.includes(value), false, `${value} leaked from ${publicOutput}`);
   });
 }
 
@@ -51,3 +54,13 @@ test("MCP keeps hostile generic-command provider-probe failures opaque", () => {
   for (const value of hostileValues) assert.equal(publicOutput.includes(value), false, `${value} leaked from ${publicOutput}`);
   assert.equal(response.result.content[0].text, "Account Center request UNPROVEN.\n");
 });
+
+for (const [name, command] of [["status", "/auth"], ["help", "/auth help"], ["dry-run", "/auth delete person@example.test --dry-run"]]) {
+  test(`MCP ${name} success path is a redacted public response`, () => {
+    const response = call(command, { ACCOUNT_CENTER_SOURCE: "fixture" });
+    assert.equal(response.result.isError, false);
+    const publicOutput = JSON.stringify(response);
+    assert.equal(publicOutput.includes("person@example.test"), false, publicOutput);
+    assert.equal(publicOutput.includes("sk-"), false, publicOutput);
+  });
+}
