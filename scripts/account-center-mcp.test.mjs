@@ -62,8 +62,25 @@ for (const { name, command, privateValues } of [
 }
 
 test("MCP permits an explicitly dry-run mutation without mutation authorization", () => {
-  const response = call("/auth auto --dry-run");
-  assert.notEqual(response.result.content[0].text.includes("Blocked potentially mutating"), true);
+  const response = call("/auth auto --dry-run", { ACCOUNT_CENTER_SOURCE: "fixture" });
+  assert.equal(response.result.isError, false);
+  assert.equal(response.result.content[0].text.includes("Blocked potentially mutating"), false);
+});
+
+test("MCP blocks dry-run text embedded in a quoted mutation operand", () => {
+  const embeddedDryRunOperand = "opaque-target --dry-run";
+  const response = call(`/auth delete "${embeddedDryRunOperand}" --apply`);
+
+  assert.equal(response.result.isError, true);
+  assert.equal(response.result.content[0].text, MUTATION_BLOCKED_TEXT);
+  assert.equal(JSON.stringify(response).includes(embeddedDryRunOperand), false);
+});
+
+test("MCP fails closed for an unterminated quoted mutation operand", () => {
+  const response = call('/auth delete "opaque-target --dry-run --apply');
+
+  assert.equal(response.result.isError, true);
+  assert.equal(response.result.content[0].text, MUTATION_BLOCKED_TEXT);
 });
 
 test("MCP keeps hostile generic-command provider-probe failures opaque", () => {

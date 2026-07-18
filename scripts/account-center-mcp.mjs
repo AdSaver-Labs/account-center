@@ -94,7 +94,57 @@ function isMutation(command) {
 }
 
 function isClearlyDryRun(command) {
-  return /\s--dry-run\b/i.test(command);
+  try {
+    return tokenizeCommand(command).includes('--dry-run');
+  } catch {
+    // A malformed command must never gain mutation authorization from text that
+    // merely resembles a dry-run flag.
+    return false;
+  }
+}
+
+// Keep this quote and escape handling aligned with the manual /auth parser in
+// packages/cli/src/auth-bridge.ts. A dry-run is authorized only when it is an
+// exact standalone token, never when it appears inside an operand.
+function tokenizeCommand(input) {
+  const tokens = [];
+  let current = '';
+  let quote;
+  let escaping = false;
+
+  for (const char of String(input).trim()) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = undefined;
+      else current += char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (quote) throw new Error('Unterminated quote in /auth command.');
+  if (escaping) current += '\\';
+  if (current) tokens.push(current);
+  return tokens;
 }
 
 function opaqueFailure() {
