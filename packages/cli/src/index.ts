@@ -217,7 +217,8 @@ function parseSourceOption(argv: string[]): CliOptions["source"] {
     hasExplicitSource = true;
     if (value === undefined || value === "" || value.startsWith("--")) throw new Error("Unsupported Account Center source.");
     const parsedSource = parseRuntimeSource(value);
-    source ??= parsedSource;
+    if (source !== undefined) throw new Error("Unsupported Account Center source.");
+    source = parsedSource;
   }
   return hasExplicitSource ? source! : parseRuntimeSource(process.env.ACCOUNT_CENTER_SOURCE);
 }
@@ -725,7 +726,14 @@ export function createPersistentControlPanel(options: { token: string; source: C
 }
 
 async function serveControlPanel(argv: string[]): Promise<void> {
-  const source = parseSourceOption(argv);
+  let source: CliOptions["source"];
+  try {
+    source = parseSourceOption(argv);
+  } catch {
+    process.stderr.write("Unsupported Account Center source.\n");
+    process.exitCode = 1;
+    return;
+  }
   const portValue = valueAfter(argv, "--port") ?? "4317";
   const port = Number(portValue);
   // Port zero asks the kernel for an ephemeral loopback port. This makes the

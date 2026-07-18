@@ -86,6 +86,36 @@ test("serve rejects every explicit empty, missing, or option-like source value w
   }
 });
 
+test("serve rejects repeated valid source options without launching", async () => {
+  const invalidArgs = [
+    ["--source", "fixture", "--source=openclaw"],
+    ["--source=fixture", "--source", "openclaw"],
+    ["--source", "fixture", "--source=fixture"],
+    ["--source=fixture", "--source", "fixture"]
+  ];
+
+  for (const args of invalidArgs) {
+    const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    let errors = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { output += chunk; });
+    child.stderr.on("data", (chunk: string) => { errors += chunk; });
+    const code = await new Promise<number | null>((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        child.kill("SIGINT");
+        reject(new Error(`serve launched for repeated source arguments: ${args.join(" ")}`));
+      }, 2_000);
+      child.once("error", (error) => { clearTimeout(deadline); reject(error); });
+      child.once("exit", (exitCode) => { clearTimeout(deadline); resolve(exitCode); });
+    });
+    assert.equal(code, 1);
+    assert.equal(output, "");
+    assert.equal(errors, "Unsupported Account Center source.\n");
+  }
+});
+
 test("status --json emits fixture-backed no-secret export", async () => {
   const result = await runCli(["status", "--json", "--no-write-export"]);
   assert.equal(result.code, 0);
@@ -113,6 +143,22 @@ test("CLI gives valid equals-form sources the same fixture behavior as split-for
   ]);
   assert.equal(equalsForm.code, 0);
   assert.deepEqual(JSON.parse(equalsForm.stdout), JSON.parse(splitForm.stdout));
+});
+
+test("status rejects repeated valid source options with opaque errors", async () => {
+  const argumentSets = [
+    ["--source", "fixture", "--source=openclaw"],
+    ["--source=openclaw", "--source", "fixture"],
+    ["--source", "fixture", "--source=fixture"],
+    ["--source=fixture", "--source", "fixture"]
+  ];
+
+  for (const sourceArgs of argumentSets) {
+    const result = await runCli(["status", ...sourceArgs, "--no-write-export"]);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Unsupported Account Center source.\n");
+  }
 });
 
 test("CLI rejects explicit empty or missing adapter sources without falling back to fixture", async () => {
