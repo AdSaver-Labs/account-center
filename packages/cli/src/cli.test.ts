@@ -557,12 +557,12 @@ test("accounts list and routes next keep hostile generic-command fixture classes
     "fixture-profile-identity",
     "fixture-adapter-error"
   ];
-  const redactedProvider = "custom:[REDACTED_EMAIL]";
+  const fixtureProvider = "custom:[REDACTED_EMAIL]";
   const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
   const profile = hostileStatus.profiles[0];
   profile.id = "custom:fixture-profile-identity";
-  profile.provider = "custom:fixture-person@example.test";
-  profile.label = "/fixture/private/path";
+  profile.provider = fixtureProvider;
+  profile.label = "fixture-person@example.test /fixture/private/path";
   profile.runtimeCompatibility = ["custom:fixture-adapter-error"];
   profile.models = ["sk-fixture-secret-value-123456789"];
   profile.metadata = { adapterError: "fixture adapter error", authorization: "Bearer fixture-bearer-token-value-123456789" };
@@ -579,10 +579,16 @@ test("accounts list and routes next keep hostile generic-command fixture classes
     const commands = [
       ["accounts", "list", "--source", "generic-command"],
       ["accounts", "list", "--source", "generic-command", "--json"],
-      ["routes", "next", "--source", "generic-command", "--provider", redactedProvider, "--runtime", "custom:fixture-adapter-error"],
-      ["routes", "next", "--source", "generic-command", "--provider", redactedProvider, "--runtime", "custom:fixture-adapter-error", "--json"]
+      ["routes", "next", "--source", "generic-command", "--provider", fixtureProvider, "--runtime", "custom:fixture-adapter-error"],
+      ["routes", "next", "--source", "generic-command", "--provider", fixtureProvider, "--runtime", "custom:fixture-adapter-error", "--json"]
     ];
     const results = await Promise.all(commands.map((command) => runCli(command, process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) }) })));
+
+    const routeNext = JSON.parse(results[3]!.stdout) as { eligible: boolean; next?: string };
+    assert.notEqual(results[2]!.stdout.trim(), "");
+    assert.equal(routeNext.eligible, true);
+    assert.equal(typeof routeNext.next, "string");
+    assert.notEqual(routeNext.next, "");
 
     for (const result of results) {
       assert.equal(result.code, 0);
