@@ -47,13 +47,27 @@ export function expireAuthChallenge(challenge: AuthChallenge, now = new Date()):
 }
 
 export function cancelAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
-  const current = expireAuthChallenge(challenge, now);
-  if (current.status !== "pending") return current;
-  return { ...current, status: "cancelled", updatedAt: now.toISOString() };
+  return terminalAuthChallenge(challenge, "cancelled", now);
+}
+
+/** Records only a verifier-confirmed completion; terminal evidence is immutable. */
+export function completeAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
+  return terminalAuthChallenge(challenge, "completed", now);
+}
+
+/** Records only a verifier-confirmed failure; no credential or identity detail is retained. */
+export function failAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
+  return terminalAuthChallenge(challenge, "failed", now);
 }
 
 export function getAuthChallenge(challenges: AuthChallenge[], id: string): AuthChallenge | undefined {
   return challenges.find((challenge) => challenge.id === id);
+}
+
+function terminalAuthChallenge(challenge: AuthChallenge, status: Exclude<AuthChallengeStatus, "pending" | "expired">, now: Date): AuthChallenge {
+  const current = expireAuthChallenge(challenge, now);
+  if (current.status !== "pending") return current;
+  return { ...current, status, updatedAt: now.toISOString() };
 }
 
 function challengeKey(input: AuthChallengeInput): string {

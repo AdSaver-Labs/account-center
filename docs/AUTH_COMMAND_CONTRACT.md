@@ -71,6 +71,8 @@ Account Center challenge state is authoritative for the app/API. Runtime worker/
 
 The supported local initiation endpoint is bearer-protected, same-origin `POST /api/auth-challenges`. Its JSON body is exactly `mode`, `provider`, `runtime`, `scope`, and `target`; only an observed runtime with the authoritative `default` scope is currently accepted. `target` is a valid email used only to derive the durable mode-specific uniqueness key and is never returned or stored. Replaying the same active mode/provider/runtime/email/scope returns the existing redacted challenge with `idempotent: true`; `add` and `reauth` never share that key.
 
+Terminal lifecycle actions use bearer-protected, same-origin, body-free `POST /api/auth-challenges/:id/complete` and `POST /api/auth-challenges/:id/fail`. They are available only when a server-owned local verifier adapter observes the matching terminal outcome. The response contains only the redacted challenge plus `{ outcome, verificationState: "verified" }`; replaying the same terminal action is idempotent, and cancelled or expired challenges reject terminal transitions. No endpoint accepts or returns OAuth payloads, credentials, identity data, or device codes.
+
 ## Post-operation proof
 
 Mutations must report one of:

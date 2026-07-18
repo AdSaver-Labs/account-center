@@ -18,6 +18,24 @@ test("challenge store persists redacted lifecycle state without credentials or a
   assert.equal(JSON.stringify(cancelled).includes("new@example.com"), false);
 });
 
+test("challenge store durably records verified completion or failure once and preserves invalid terminal states", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
+  const store = new AuthChallengeStore(path);
+  const complete = await store.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "complete@example.test", scope: "default" });
+  const failed = await store.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "failed@example.test", scope: "default" });
+  const cancelled = await store.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "cancelled@example.test", scope: "default" });
+  await store.cancel(cancelled.id);
+
+  assert.deepEqual(await store.completeWithResult(complete.id), { challenge: { ...(await store.get(complete.id))!, status: "completed" }, changed: true });
+  assert.equal((await store.completeWithResult(complete.id))?.changed, false);
+  assert.equal((await store.failWithResult(failed.id))?.challenge.status, "failed");
+  assert.equal((await store.failWithResult(failed.id))?.changed, false);
+  assert.equal((await store.completeWithResult(cancelled.id))?.changed, false);
+  assert.equal((await store.get(cancelled.id))?.status, "cancelled");
+  const persisted = await readFile(path, "utf8");
+  assert.equal(persisted.includes("@example.test"), false);
+});
+
 test("independent challenge stores serialize competing creation of the same active challenge", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
   const input = { mode: "reauth" as const, provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" };
