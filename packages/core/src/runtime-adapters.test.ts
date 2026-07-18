@@ -4,6 +4,9 @@ import { access, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
+import { executeAccountCenterCommand } from "./command-executor.js";
+import { createMutationReview } from "./mutation-contract.js";
+import { MutationRepository } from "./mutation-repository.js";
 
 const routerStatus = {
   at: "2026-07-09T10:55:50.721Z",
@@ -25,6 +28,31 @@ const routerStatus = {
   },
   effectiveAuthOrder: ["openai:helper-1", "openai:helper-2"]
 };
+
+async function capabilityRoute(adapter: OpenClawRuntimeAdapter, action: "route.auto" | "route.use" | "route.remove", target: string, agent: string, receiptPath: string) {
+  const scope = { kind: "agent" as const, id: agent };
+  const secret = "test-shared-mutation-secret";
+  const review = createMutationReview({ action, target, provider: "openai", runtime: "openclaw", scope }, { secret });
+  return executeAccountCenterCommand({ command: action, target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, idempotencyKey: "routeapplycapabilitykey0001", receiptPath }, { adapter, mutation: { secret, repository: new MutationRepository(await mkdtemp(join(tmpdir(), "account-center-capability-"))) } });
+}
+
+function routedStatus(activeProfileId: string, order: string[], agent = "main") {
+  return { ...routerStatus, scope: `agent:${agent}`, override: { enabled: true, profileId: activeProfileId }, effectiveAuthOrder: order };
+}
+
+async function openClawWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), "account-center-openclaw-route-"));
+  const cli = join(root, "oauth_routing_cli.py");
+  const scripts = join(root, "3-Resources", "codex-account-ops", "scripts");
+  const switchScript = join(scripts, "codex-auth-switch.mjs");
+  const sentinel = join(scripts, "codex-account-sentinel.mjs");
+  await mkdir(scripts, { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(switchScript, "#!/usr/bin/env node\n", "utf8");
+  await writeFile(sentinel, "#!/usr/bin/env node\n", "utf8");
+  await writeFile(join(root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
+  return { root, cli, switchScript, sentinel };
+}
 
 test("normalizes OpenClaw router status into Account Center no-secret status", () => {
   const status = normalizeOpenClawStatus(routerStatus);
@@ -76,7 +104,7 @@ test("OpenClaw dry-run mutations do not call runner", async () => {
   assert.equal((result.payload as { liveRuntimeMutation: boolean }).liveRuntimeMutation, false);
 });
 
-test("OpenClaw live route apply is blocked until scoped confirmation and authoritative verification exist", async () => {
+test("OpenClaw route apply never invokes the native script before shared confirmation", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-"));
   const cli = join(workspace, "oauth_routing_cli.py");
   const switchScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
@@ -105,8 +133,113 @@ test("OpenClaw live route apply is blocked until scoped confirmation and authori
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, false);
   assert.equal(receipt.liveRuntimeMutation, false);
-  assert.ok(receipt.receipt.warnings.includes("route_apply_requires_verified_mutation_contract"));
-  assert.ok(receipt.receipt.warnings.includes("no_implicit_all_scope"));
+  assert.ok(receipt.warningCodes.includes("explicit_agent_scope_required"));
+});
+
+test("a deep-imported public core surface cannot mint a route capability for direct live apply", async () => {
+  const capabilityModule = await import(new URL("../dist/executor-route-capability.js", import.meta.url).href) as Record<string, unknown>;
+  assert.equal(typeof capabilityModule.mintExecutorRouteCapability, "undefined");
+  const workspace = await openClawWorkspace();
+  let nativeCalls = 0;
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command) => {
+    if (command === process.execPath) nativeCalls += 1;
+    return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+  } });
+  const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw", scope: { kind: "agent", id: "main" }, routeCapability: capabilityModule.mintExecutorRouteCapability, receiptPath: join(workspace.root, "receipt.json") });
+  assert.equal(result.code, 2);
+  assert.equal(nativeCalls, 0);
+});
+
+test("hostile direct adapter callers cannot supply a verifier secret or forge a route capability", async () => {
+  const workspace = await openClawWorkspace();
+  let nativeCalls = 0;
+  const hostileConfig: unknown = {
+    workspace: workspace.root,
+    cli: workspace.cli,
+    // Runtime config is deliberately ignored even if an untyped caller tries it.
+    routeCapabilitySecret: "attacker-controlled-secret",
+    runner: async (command: string) => {
+      if (command === process.execPath) nativeCalls += 1;
+      return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+    }
+  };
+  const adapter = new OpenClawRuntimeAdapter(hostileConfig as ConstructorParameters<typeof OpenClawRuntimeAdapter>[0]);
+  const result = await adapter.mutate({
+    action: "route.use", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw",
+    scope: { kind: "agent", id: "main" }, routeCapability: "attacker-forged-capability", receiptPath: join(workspace.root, "receipt.json")
+  });
+  assert.equal(result.code, 2);
+  assert.equal(nativeCalls, 0);
+  assert.equal((result.payload as { reason: string }).reason, "route_apply_requires_executor_capability");
+});
+
+test("OpenClaw confirmed manual route uses the exact scoped native command and verifies fresh status", async () => {
+  const workspace = await openClawWorkspace();
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const fresh = routedStatus("openai:helper-2", ["openai:helper-2", "openai:helper-1"], "jacques");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command, args) => {
+    calls.push({ command, args });
+    if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ action: "route.use", agent: "jacques", selected: { profileId: "openai:helper-2" } }), stderr: "" };
+  } });
+  const result = await capabilityRoute(adapter, "route.use", "openai:helper-2", "jacques", join(workspace.root, "receipt.json"));
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls[0], { command: process.execPath, args: [workspace.switchScript, "openai:helper-2", "--apply", "--agent", "jacques"] });
+  assert.deepEqual(calls[1], { command: process.execPath, args: [workspace.sentinel, "--print"] });
+  assert.equal(result.mutation?.applied, true);
+  const persisted = await readFile(join(workspace.root, "receipt.json"), "utf8");
+  assert.match(persisted, /persisted-route-receipt/);
+  assert.doesNotMatch(persisted, /helper-1|helper-2|jacques|activeProfileId|effectiveAuthOrder|stdout|stderr|@|oauth_routing_cli|codex-auth-switch|sk-/);
+  assert.match(persisted, /id_[a-f0-9]{24}/);
+});
+
+test("OpenClaw confirmed automatic route invokes --auto for one exact agent and verifies the selected native result", async () => {
+  const workspace = await openClawWorkspace();
+  const fresh = routedStatus("openai:helper-2", ["openai:helper-2", "openai:helper-1"]);
+  const calls: string[][] = [];
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
+    calls.push(args);
+    if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ action: "route.auto", agent: "main", selected: { profileId: "openai:helper-2" } }), stderr: "" };
+  } });
+  const result = await capabilityRoute(adapter, "route.auto", "openai:helper-2", "main", join(workspace.root, "receipt.json"));
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls[0], [workspace.switchScript, "--auto", "--apply", "--agent", "main"]);
+});
+
+test("OpenClaw route apply rejects implicit, all, and non-agent scopes without native invocation", async () => {
+  const workspace = await openClawWorkspace();
+  let calls = 0;
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => { calls += 1; return { code: 0, stdout: "{}", stderr: "" }; } });
+  for (const scope of [undefined, { kind: "all" as const, id: "all" }, { kind: "default" as const, id: "default" }]) {
+    const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, scope, provider: "openai", runtime: "openclaw", receiptPath: join(workspace.root, `receipt-${calls}.json`) });
+    assert.equal(result.code, 2);
+  }
+  assert.equal(calls, 0);
+});
+
+test("OpenClaw native route failure returns a truthful non-applied receipt", async () => {
+  const workspace = await openClawWorkspace();
+  const receiptPath = join(workspace.root, "receipt.json");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 9, stdout: "", stderr: "private@example.test sk-secret" }) });
+  const result = await capabilityRoute(adapter, "route.use", "openai:helper-2", "main", receiptPath);
+  assert.equal(result.code, 2);
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+  assert.equal(receipt.applied, false);
+  assert.equal(JSON.stringify(receipt).includes("sk-secret"), false);
+  assert.ok(receipt.warningCodes.includes("native_route_command_failed"));
+});
+
+test("OpenClaw read-after-write mismatch never reports applied", async () => {
+  const workspace = await openClawWorkspace();
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
+    if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ action: "route.use", agent: "main", selected: { profileId: "openai:helper-2" } }), stderr: "" };
+  } });
+  const result = await capabilityRoute(adapter, "route.use", "openai:helper-2", "main", join(workspace.root, "receipt.json"));
+  assert.equal(result.code, 2);
+  assert.equal(result.mutation?.applied, false);
+  assert.equal((result.mutation as unknown as { reason: string }).reason, "route_read_after_write_mismatch");
 });
 
 test("OpenClaw account delete remains blocked until atomic transaction support exists", async () => {
@@ -140,7 +273,7 @@ test("OpenClaw account delete remains blocked until atomic transaction support e
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, false);
   assert.equal(receipt.liveRuntimeMutation, false);
-  assert.ok(receipt.receipt.warnings.includes("atomic_delete_transaction_not_implemented"));
+  assert.ok(receipt.warningCodes.includes("atomic_delete_transaction_not_implemented"));
 });
 
 test("OpenClaw account delete blocks profile labels rather than treating them as canonical identities", async () => {
@@ -213,7 +346,7 @@ test("OpenClaw account delete blocks targets that do not exactly match a connect
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, false);
   assert.equal(receipt.liveRuntimeMutation, false);
-  assert.ok(receipt.receipt.warnings.includes("exact_match_required"));
+  assert.ok(receipt.warningCodes.includes("exact_match_required"));
 });
 
 test("OpenClaw route apply remains structured-blocked even when a runtime lock exists", async () => {
@@ -376,5 +509,5 @@ test("Generic command adapter blocks live apply instead of shelling to an arbitr
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, false);
   assert.equal(receipt.liveRuntimeMutation, false);
-  assert.equal(receipt.reason, "generic_apply_requires_protected_native_adapter");
+  assert.ok(receipt.warningCodes.includes("generic_apply_requires_protected_native_adapter"));
 });

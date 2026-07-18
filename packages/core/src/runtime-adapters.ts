@@ -3,11 +3,14 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { AccountCenterStatus, AuditAction, Profile, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
+import { createHash } from "node:crypto";
+import { verifiesExecutorRouteCapability } from "./command-executor.js";
+import { AccountCenterStatus, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
 import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
 import { DEFAULT_OPENCLAW_OBSERVED_MODEL_IDS } from "./model-catalog-policy.js";
+import type { MutationScope } from "./mutation-contract.js";
 
 export type RuntimeSource = "fixture" | "openclaw" | "generic-command";
 
@@ -34,6 +37,10 @@ export interface RuntimeMutationInput {
   provider: string;
   runtime: string;
   receiptPath: string;
+  /** Opaque, executor-minted, one-operation authorization; a boolean is never sufficient. */
+  routeCapability?: unknown;
+  /** OpenClaw route mutations are deliberately limited to one exact agent. */
+  scope?: MutationScope;
 }
 
 export interface RuntimeMutationResult {
@@ -160,17 +167,82 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       return { code: 2, payload: { applied: false, dryRun: true, liveRuntimeMutation: false, receipt } };
     }
 
-    const routeApplyReceipt = createReceipt({
+    return this.applyRoute(input, status);
+  }
+
+  private async applyRoute(input: RuntimeMutationInput, before: AccountCenterStatus): Promise<RuntimeMutationResult> {
+    const blocked = async (reason: string, warning: string): Promise<RuntimeMutationResult> => {
+      const receipt = createReceipt({ action: input.action, dryRun: true, target: input.target, summary: "OpenClaw route apply was not authorized or could not be proven; no applied receipt was issued.", before: routeBefore(before), warnings: [warning, "no_live_mutation"] });
+      const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason };
+      await writeReceipt(input.receiptPath, payload);
+      return { code: 2, payload };
+    };
+    if (input.scope?.kind !== "agent" || !isExactAgentScope(input.scope.id)) return blocked("explicit_agent_scope_required", "explicit_agent_scope_required");
+    if (!input.target || !verifiesExecutorRouteCapability(input.routeCapability, { action: input.action, target: input.target, provider: input.provider, runtime: input.runtime, scope: input.scope })) return blocked("route_apply_requires_executor_capability", "route_apply_requires_executor_capability");
+    if (input.provider !== "openai" || input.runtime !== "openclaw") return blocked("openclaw_route_provider_runtime_required", "openclaw_route_provider_runtime_required");
+
+    const switchScript = join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
+    if (!(await exists(switchScript))) return blocked("missing_existing_routing_script", "missing_existing_routing_script");
+    const target = input.action === "route.auto" ? undefined : canonicalRouteTarget(before, requiredTarget(input.target, input.action), input.provider, input.runtime);
+    if (input.action !== "route.auto" && !target) return blocked("canonical_route_target_required", "canonical_route_target_required");
+    const args = input.action === "route.auto"
+      ? [switchScript, "--auto", "--apply", "--agent", input.scope.id]
+      : input.action === "route.remove"
+        ? [switchScript, "remove", target!, "--apply", "--agent", input.scope.id]
+        : [switchScript, target!, "--apply", "--agent", input.scope.id];
+    let native: CommandResult;
+    try {
+      native = await this.runner(process.execPath, args, { cwd: this.workspace, timeoutMs: 60_000, maxOutputBytes: 256 * 1024 });
+    } catch {
+      return this.routeFailure(input, before, "native_route_command_failed", "native_route_command_failed");
+    }
+    if (native.code !== 0 || native.timeoutExceeded || native.outputLimitExceeded) return this.routeFailure(input, before, "native_route_command_failed", "native_route_command_failed");
+    const nativeEvent = parseNativeEvent(native.stdout);
+    const nativeTarget = input.action === "route.auto" ? nativeSelectedProfile(nativeEvent) : target;
+    // The shared review binds the previewed automatic candidate. The native
+    // script remains the selector, but a changed selection is not silently
+    // accepted as confirmation for a different profile.
+    if (!nativeEventProof(nativeEvent, input.action, nativeTarget, input.scope.id) || !nativeTarget || canonicalRouteTarget(before, nativeTarget, input.provider, input.runtime) !== nativeTarget || (input.action === "route.auto" && nativeTarget !== input.target)) return this.routeFailure(input, before, "native_route_result_unproven", "native_route_result_unproven");
+    const expectedTarget = nativeTarget;
+    let after: AccountCenterStatus;
+    try {
+      after = await this.readFreshStatus();
+    } catch {
+      return this.routeFailure(input, before, "route_read_after_write_unproven", "route_read_after_write_unproven");
+    }
+    if (!routeMutationVerified(after, input.action, expectedTarget, input.scope.id)) return this.routeFailure(input, before, "route_read_after_write_mismatch", "route_read_after_write_mismatch");
+    const receipt = createReceipt({
       action: input.action,
-      dryRun: true,
-      target: input.target,
-      summary: "Live OpenClaw route apply is unavailable until Account Center has a scoped confirmation contract and authoritative read-after-write verification; no routing script was invoked.",
-      before: routeBefore(status),
-      warnings: ["route_apply_requires_verified_mutation_contract", "no_implicit_all_scope", "no_live_mutation"]
+      dryRun: false,
+      target: expectedTarget,
+      summary: `Applied and verified OpenClaw ${input.action} for the confirmed agent scope.`,
+      before: routeBefore(before),
+      after: routeBefore(after),
+      warnings: ["openclaw_account_routing_only", "native_backup_and_event_receipt", "fresh_read_after_write_verified", "sessions_prompts_memory_bootstrap_untouched"]
     });
-    const routeApplyPayload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt: routeApplyReceipt, reason: "route_apply_requires_verified_mutation_contract" };
-    await writeReceipt(input.receiptPath, routeApplyPayload);
-    return { code: 2, payload: routeApplyPayload };
+    const payload = {
+      applied: true,
+      dryRun: false,
+      liveRuntimeMutation: true,
+      receipt,
+      verification: { kind: "verified", route: routeBefore(after) },
+      proof: routeApplyProof(input.action, input.scope.id, expectedTarget, before, after)
+    };
+    await writeReceipt(input.receiptPath, payload);
+    return { code: 0, payload };
+  }
+
+  private async routeFailure(input: RuntimeMutationInput, before: AccountCenterStatus, reason: string, warning: string): Promise<RuntimeMutationResult> {
+    const receipt = createReceipt({ action: input.action, dryRun: false, target: input.target, summary: "OpenClaw route operation did not receive an applied receipt because its native result or fresh verification was not proven.", before: routeBefore(before), warnings: [warning, "recovery_required"] });
+    const payload = { applied: false, dryRun: false, liveRuntimeMutation: true, receipt, reason, verification: { kind: "unproven" } };
+    await writeReceipt(input.receiptPath, payload);
+    return { code: 2, payload };
+  }
+
+  private async readFreshStatus(): Promise<AccountCenterStatus> {
+    const fresh = await this.tryRefreshSentinelStatus();
+    if (!fresh) throw new Error("fresh_status_unavailable");
+    return normalizeOpenClawStatus(fresh, "fresh codex-account-sentinel --print");
   }
 
   private async deleteAccountCredentials(input: RuntimeMutationInput, status: AccountCenterStatus): Promise<RuntimeMutationResult> {
@@ -401,7 +473,8 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
       runtime: "openclaw",
       activeProfileId,
       order,
-      updatedAt: generatedAt
+      updatedAt: generatedAt,
+      ...(stringFrom(raw, ["scope"]) ? { scope: stringFrom(raw, ["scope"]) } : {})
     }],
     policy: {
       minFiveHourRemainingPct: 5,
@@ -720,9 +793,54 @@ function safeStamp(): string {
 
 async function writeReceipt(path: string, payload: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify(redactJson(payload), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  // Receipts cross a persistence boundary.  Redacting arbitrary payloads is
+  // insufficient because route snapshots contain identity-bearing ids and
+  // route order.  Persist a small allow-list projection instead.
+  await writeFile(path, `${JSON.stringify(persistedReceipt(payload), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   await chmod(path, 0o600);
 }
+
+function persistedReceipt(payload: unknown): Record<string, unknown> {
+  const value = isRecord(payload) ? payload : {};
+  const receipt = isRecord(value.receipt) ? value.receipt : {};
+  const action = typeof receipt.action === "string" && /^(route\.(auto|use|remove)|account\.delete)$/.test(receipt.action) ? receipt.action : "unknown";
+  const warnings = Array.isArray(receipt.warnings)
+    ? receipt.warnings.filter((warning): warning is string => typeof warning === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(warning)).slice(0, 16)
+    : [];
+  const persisted: Record<string, unknown> = {
+    schemaVersion: "account-center.persisted-route-receipt.v1",
+    action,
+    outcome: value.applied === true ? "applied" : value.liveRuntimeMutation === true ? "unproven" : "not_applied",
+    applied: value.applied === true,
+    dryRun: value.dryRun === true,
+    liveRuntimeMutation: value.liveRuntimeMutation === true,
+    receiptId: typeof receipt.id === "string" && /^evt_[A-Za-z0-9_-]{1,100}$/.test(receipt.id) ? receipt.id : "receipt-redacted",
+    warningCodes: warnings
+  };
+  const proof = persistedRouteProof(value.proof);
+  if (proof) persisted.proof = proof;
+  return persisted;
+}
+
+function persistedRouteProof(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value) || !isRecord(value.nativeEvent) || !isRecord(value.verification)) return undefined;
+  const native = value.nativeEvent;
+  const verification = value.verification;
+  if ((native.action !== "route.auto" && native.action !== "route.use" && native.action !== "route.remove") || native.status !== "verified" || !opaqueProofId(native.scopeId) || !opaqueProofId(native.targetId) || !opaqueProofId(verification.scopeId) || native.scopeId !== verification.scopeId) return undefined;
+  const before = persistedScopeProof(verification.before);
+  const after = persistedScopeProof(verification.after);
+  if (!before || !after) return undefined;
+  return { nativeEvent: { action: native.action, scopeId: native.scopeId, targetId: native.targetId, status: "verified" }, verification: { scopeId: verification.scopeId, before, after } };
+}
+
+function persistedScopeProof(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value) || (value.status !== "observed" && value.status !== "absent") || !Array.isArray(value.orderTargetIds) || value.orderTargetIds.length > 10 || !value.orderTargetIds.every(opaqueProofId)) return undefined;
+  const activeTargetId = value.activeTargetId;
+  if (activeTargetId !== undefined && !opaqueProofId(activeTargetId)) return undefined;
+  return { status: value.status, ...(typeof activeTargetId === "string" ? { activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] };
+}
+
+function opaqueProofId(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
 
 function requiredTarget(target: string | undefined, action: AuditAction): string {
   if (!target) throw new Error(`${action} requires a target profile`);
@@ -762,6 +880,60 @@ function resolveExactDeleteTarget(target: string, status: AccountCenterStatus): 
 
 function routeBefore(status: AccountCenterStatus): unknown {
   return status.routes.map((route) => ({ provider: route.provider, runtime: route.runtime, activeProfileId: route.activeProfileId, order: route.order }));
+}
+
+/** Bounded, opaque proof retained by the immutable mutation operation only. */
+function routeApplyProof(action: AuditAction, agent: string, target: string, before: AccountCenterStatus, after: AccountCenterStatus) {
+  const scopeId = opaqueIdentifier(agent);
+  return {
+    nativeEvent: { action, scopeId, targetId: opaqueIdentifier(target), status: "verified" as const },
+    verification: {
+      scopeId,
+      before: scopedRouteEvidence(before, agent),
+      after: scopedRouteEvidence(after, agent)
+    }
+  };
+}
+
+function scopedRouteEvidence(status: AccountCenterStatus, agent: string) {
+  const route = status.routes.find((item) => item.runtime === "openclaw" && item.provider === "openai" && routeScopeMatches(item, agent));
+  return route
+    ? { status: "observed" as const, activeTargetId: opaqueIdentifier(route.activeProfileId), orderTargetIds: route.order.slice(0, 10).map(opaqueIdentifier) }
+    : { status: "absent" as const, orderTargetIds: [] as string[] };
+}
+
+function opaqueIdentifier(value: string): string { return `id_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
+
+function isExactAgentScope(value: string): boolean {
+  return /^[a-z][a-z0-9_-]{0,63}$/.test(value) && value !== "all";
+}
+
+function parseNativeEvent(stdout: string): Record<string, unknown> | undefined {
+  try { const parsed: unknown = JSON.parse(stdout); return isRecord(parsed) ? parsed : undefined; } catch { return undefined; }
+}
+
+function nativeSelectedProfile(event: Record<string, unknown> | undefined): string | undefined {
+  const selected = event?.selected;
+  return isRecord(selected) && typeof selected.profileId === "string" && selected.profileId.trim() ? selected.profileId : undefined;
+}
+
+function routeMutationVerified(status: AccountCenterStatus, action: AuditAction, target: string, agent: string): boolean {
+  const route = status.routes.find((item) => item.runtime === "openclaw" && item.provider === "openai" && routeScopeMatches(item, agent));
+  if (!route) return false;
+  if (action === "route.remove") return !route.order.includes(target) && route.activeProfileId !== target;
+  return route.activeProfileId === target && route.order[0] === target;
+}
+
+function canonicalRouteTarget(status: AccountCenterStatus, target: string, provider: string, runtime: string): string | undefined {
+  if (!target || target.startsWith("-") || /\s/.test(target)) return undefined;
+  const matches = status.profiles.filter((profile) => profile.id === target && profile.provider === provider && profile.runtimeCompatibility.includes(runtime as RuntimeKey));
+  return matches.length === 1 ? matches[0]!.id : undefined;
+}
+function routeScopeMatches(route: AccountCenterStatus["routes"][number], agent: string): boolean { return route.scope === `agent:${agent}`; }
+function nativeEventProof(event: Record<string, unknown> | undefined, action: AuditAction, target: string | undefined, agent: string): boolean {
+  if (!event || event.action !== action || event.agent !== agent || !target) return false;
+  const selected = nativeSelectedProfile(event);
+  return action === "route.remove" ? event.target === target : selected === target;
 }
 
 function redactProfileArg(value: string): string {

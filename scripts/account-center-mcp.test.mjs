@@ -95,7 +95,7 @@ for (const { name, command, privateValues } of [
 }
 
 test("MCP permits an explicitly dry-run mutation without mutation authorization", () => {
-  const response = call("/auth auto --dry-run", { ACCOUNT_CENTER_SOURCE: "fixture" });
+  const response = call("/auth auto --dry-run --scope agent:main", { ACCOUNT_CENTER_SOURCE: "fixture" });
   assert.equal(response.result.isError, false);
   assert.equal(response.result.content[0].text.includes("Blocked potentially mutating"), false);
 });
@@ -122,8 +122,8 @@ for (const { name, command } of [
 }
 
 test("MCP permits a positional route-use dry-run through the canonical parser", () => {
-  const target = "openai:opaque-target-07";
-  const response = call(`/auth ${target} --dry-run`, { ACCOUNT_CENTER_SOURCE: "fixture" });
+  const target = "openai:helper-2";
+  const response = call(`/auth ${target} --dry-run --scope agent:main`, { ACCOUNT_CENTER_SOURCE: "fixture" });
   assert.equal(response.result.isError, false);
   assert.equal(JSON.stringify(response).includes(target), false);
 });

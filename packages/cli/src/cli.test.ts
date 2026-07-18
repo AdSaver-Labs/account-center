@@ -125,6 +125,22 @@ test("status --json emits fixture-backed no-secret export", async () => {
   assert.equal(JSON.stringify(parsed).includes("token"), false);
 });
 
+test("read-only status does not initialize mutation lifecycle when ACCOUNT_CENTER_DATA_DIR is a file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-read-only-data-dir-"));
+  const invalidDataDir = join(root, "not-a-directory");
+  await writeFile(invalidDataDir, "not a directory", "utf8");
+  const prior = process.env.ACCOUNT_CENTER_DATA_DIR;
+  process.env.ACCOUNT_CENTER_DATA_DIR = invalidDataDir;
+  try {
+    const result = await runCli(["status", "--json", "--no-write-export"]);
+    assert.equal(result.code, 0);
+    assert.equal(JSON.parse(result.stdout).schemaVersion, "account-center.public-status.v1");
+  } finally {
+    if (prior === undefined) delete process.env.ACCOUNT_CENTER_DATA_DIR;
+    else process.env.ACCOUNT_CENTER_DATA_DIR = prior;
+  }
+});
+
 test("CLI rejects hostile adapter source labels without echoing them", async () => {
   const hostileSource = "/srv/private/account-center/adapter --source=production";
   for (const args of [["--source", hostileSource], ["--source=fixture", `--source=${hostileSource}`]]) {
@@ -535,9 +551,9 @@ test("guard --ensure-route plans automatic route switch without apply", async ()
 
 test("dry-run route and account commands produce non-mutating receipts", async () => {
   for (const argv of [
-    ["routes", "auto"],
-    ["routes", "use", "helper-2"],
-    ["routes", "remove", "helper-1"],
+    ["routes", "auto", "--scope", "agent:main"],
+    ["routes", "use", "openai:helper-2", "--scope", "agent:main"],
+    ["routes", "remove", "openai:helper-1", "--scope", "agent:main"],
     ["accounts", "disable", "helper-1"],
     ["accounts", "enable", "helper-1"],
     ["accounts", "delete", "helper-1"],
@@ -552,6 +568,19 @@ test("dry-run route and account commands produce non-mutating receipts", async (
     assert.equal(parsed.liveRuntimeMutation, false);
     assert.match(parsed.receipt.id, /^evt_/);
   }
+});
+
+test("public route preview requires an exact agent scope and returns an exact confirmation token", async () => {
+  const blocked = await runCli(["routes", "use", "openai:helper-2", "--json"]);
+  assert.equal(blocked.code, 2);
+  const preview = await runCli(["routes", "use", "openai:helper-2", "--scope", "agent:main", "--json"]);
+  assert.equal(preview.code, 0);
+  const payload = JSON.parse(preview.stdout);
+  assert.equal(typeof payload.confirmationToken, "string");
+  assert.notEqual(payload.confirmationToken, "[REDACTED]");
+  assert.equal(payload.liveRuntimeMutation, false);
+  const confirmed = await runCli(["routes", "use", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", payload.confirmationToken, "--idempotency-key", "route-preview-confirm-regression-001", "--json"]);
+  assert.notEqual(JSON.parse(confirmed.stdout).state, "BLOCKED", "the exact public preview token must be accepted by --confirm");
 });
 
 test("/auth delete --dry-run renders a clear redacted no-deletion message", async () => {
