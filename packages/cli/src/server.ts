@@ -77,7 +77,6 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
       if (!options.challengeStore) return send(response, 503, { error: "challenge_store_unavailable" });
       if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
-      if (!options.guidedAuthVerifier) return send(response, 503, { error: "guided_auth_verifier_unavailable" });
       try {
         await options.auditStore.list({ limit: 1 });
       } catch {
@@ -86,29 +85,29 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const challenge = await options.challengeStore.get(terminal.id);
       if (!challenge) return send(response, 404, { error: "not_found" });
       if (challenge.status !== "pending" && challenge.status !== terminal.outcome) return send(response, 409, { error: "invalid_lifecycle_transition" });
-      if (challenge.status === "pending" && await options.guidedAuthVerifier.verifyTerminal(challenge) !== terminal.outcome) return send(response, 409, { error: "terminal_verification_mismatch" });
+      if (challenge.status === "pending") {
+        if (!options.guidedAuthVerifier) return send(response, 503, { error: "guided_auth_verifier_unavailable" });
+        if (await options.guidedAuthVerifier.verifyTerminal(challenge) !== terminal.outcome) return send(response, 409, { error: "terminal_verification_mismatch" });
+      }
       const result = terminal.outcome === "completed"
         ? await options.challengeStore.completeWithResult(terminal.id)
         : await options.challengeStore.failWithResult(terminal.id);
       if (!result || result.challenge.status !== terminal.outcome) return send(response, 409, { error: "invalid_lifecycle_transition" });
-      if (result.changed) {
-        await options.auditStore.append({
-          action: terminal.outcome === "completed" ? "guided_auth.complete" : "guided_auth.fail",
-          outcome: "applied",
-          proofState: "verified",
-          requestDigest: createHash("sha256").update(`guided_auth.${terminal.outcome}\0${result.challenge.id}`).digest("hex"),
-          summary: terminal.outcome === "completed" ? "Local guided-auth completion verified." : "Local guided-auth failure verified.",
-          warnings: [],
-          runtime: result.challenge.runtime,
-          ...(auditScopeKind(result.challenge.scope) ? { scopeKind: auditScopeKind(result.challenge.scope) } : {})
-        });
+      let proven;
+      try {
+        proven = await persistTerminalAudit(options.challengeStore, options.auditStore, result.challenge);
+      } catch {
+        // The terminal observation is durable but explicitly UNPROVEN until the
+        // same opaque challenge can be replayed or startup reconciliation writes
+        // its one deduplicated proof record.
+        return send(response, 503, { error: "audit_recovery_required" });
       }
       return send(response, 200, {
         schemaVersion: terminal.outcome === "completed" ? "account-center.auth-challenge-complete.v1" : "account-center.auth-challenge-fail.v1",
         generatedAt: new Date().toISOString(),
         idempotent: !result.changed,
         result: { outcome: terminal.outcome, verificationState: "verified" },
-        challenge: authChallengeView(result.challenge)
+        challenge: authChallengeView(proven)
       });
     }
     const allowedMethods = endpointMethods(request.url);
@@ -199,6 +198,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   });
   return {
     async listen(port = 0): Promise<{ port: number }> {
+      if (options.challengeStore && options.auditStore) {
+        try { await reconcileTerminalAudits(options.challengeStore, options.auditStore); } catch { /* retry remains available after startup */ }
+      }
       await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
       return { port: (server.address() as AddressInfo).port };
     },
@@ -434,8 +436,33 @@ function auditScopeKind(scope: string): AuditRecord["scopeKind"] | undefined {
   return kind === "agent" || kind === "profile" || kind === "session" || kind === "default" || kind === "all" ? kind : undefined;
 }
 
-function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
-  return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
+async function reconcileTerminalAudits(challenges: AuthChallengeStore, audit: AuditStore): Promise<void> {
+  for (const challenge of await challenges.list()) {
+    if ((challenge.status === "completed" || challenge.status === "failed") && challenge.auditState !== "verified") {
+      await persistTerminalAudit(challenges, audit, challenge);
+    }
+  }
+}
+
+async function persistTerminalAudit(challenges: AuthChallengeStore, audit: AuditStore, challenge: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  if (challenge.status !== "completed" && challenge.status !== "failed") throw new Error("invalid_terminal_challenge");
+  await audit.append({
+    action: challenge.status === "completed" ? "guided_auth.complete" : "guided_auth.fail",
+    outcome: "applied",
+    proofState: "verified",
+    requestDigest: createHash("sha256").update(`guided_auth.${challenge.status}\0${challenge.id}`).digest("hex"),
+    dedupeKey: `guided-auth-${challenge.id}-${challenge.status}`,
+    summary: challenge.status === "completed" ? "Local guided-auth completion verified." : "Local guided-auth failure verified.",
+    warnings: [],
+    runtime: challenge.runtime,
+    ...(auditScopeKind(challenge.scope) ? { scopeKind: auditScopeKind(challenge.scope) } : {})
+  });
+  return (await challenges.markTerminalAuditVerified(challenge.id)) ?? challenge;
+}
+
+function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt, auditState }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  const verificationState = (status === "completed" || status === "failed") ? auditState === "verified" ? "verified" : "UNPROVEN" : undefined;
+  return { id, mode, provider, runtime, scope, status, ...(verificationState ? { verificationState } : {}), ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
 }
 
 function endpointMethods(path: string | undefined): string[] | undefined {
