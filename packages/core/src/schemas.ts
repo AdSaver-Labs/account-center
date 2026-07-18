@@ -71,6 +71,8 @@ export interface RouteState {
   activeProfileId: string;
   order: string[];
   updatedAt: string;
+  /** Authoritative selected runtime scope when the runtime reports one. */
+  scope?: string;
 }
 
 export interface Policy {

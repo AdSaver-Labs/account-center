@@ -535,9 +535,9 @@ test("guard --ensure-route plans automatic route switch without apply", async ()
 
 test("dry-run route and account commands produce non-mutating receipts", async () => {
   for (const argv of [
-    ["routes", "auto"],
-    ["routes", "use", "helper-2"],
-    ["routes", "remove", "helper-1"],
+    ["routes", "auto", "--scope", "agent:main"],
+    ["routes", "use", "openai:helper-2", "--scope", "agent:main"],
+    ["routes", "remove", "openai:helper-1", "--scope", "agent:main"],
     ["accounts", "disable", "helper-1"],
     ["accounts", "enable", "helper-1"],
     ["accounts", "delete", "helper-1"],
@@ -552,6 +552,16 @@ test("dry-run route and account commands produce non-mutating receipts", async (
     assert.equal(parsed.liveRuntimeMutation, false);
     assert.match(parsed.receipt.id, /^evt_/);
   }
+});
+
+test("public route preview requires an exact agent scope and returns an exact confirmation token", async () => {
+  const blocked = await runCli(["routes", "use", "openai:helper-2", "--json"]);
+  assert.equal(blocked.code, 2);
+  const preview = await runCli(["routes", "use", "openai:helper-2", "--scope", "agent:main", "--json"]);
+  assert.equal(preview.code, 0);
+  const payload = JSON.parse(preview.stdout);
+  assert.equal(typeof payload.confirmationToken, "string");
+  assert.equal(payload.liveRuntimeMutation, false);
 });
 
 test("/auth delete --dry-run renders a clear redacted no-deletion message", async () => {

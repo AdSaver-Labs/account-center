@@ -22,6 +22,7 @@ export interface MutationReceipt {
   createdAt: string;
   completedAt: string;
   audit: MutationAudit & { warningCodes: string[] };
+  evidence?: { receiptId: string; verification: "verified" | "unproven" };
 }
 export interface MutationOperationView {
   operationId: string;
@@ -72,7 +73,7 @@ export class MutationRepository {
     });
   }
 
-  async complete(input: { operationId: string; outcome: MutationOutcome; warningCodes?: string[] }): Promise<MutationReceipt> {
+  async complete(input: { operationId: string; outcome: MutationOutcome; warningCodes?: string[]; evidence?: { receiptId: string; verification: "verified" | "unproven" } }): Promise<MutationReceipt> {
     assertIdentifier(input.operationId); assertOutcome(input.outcome); const warningCodes = validateWarnings(input.warningCodes ?? []);
     return this.withLock(async () => {
       const state = await this.read();
@@ -83,7 +84,8 @@ export class MutationRepository {
         if (existing.receipt.outcome === input.outcome && equalWarnings(existing.receipt.audit.warningCodes, warningCodes)) return existing.receipt;
         throw new Error("immutable_receipt_conflict");
       }
-      const receipt: MutationReceipt = { schemaVersion: "account-center.mutation-receipt.v1", operationId: existing.operationId, requestDigest: existing.requestDigest, idempotencyKeyDigest: existing.idempotencyKeyDigest, state: "completed", outcome: input.outcome, createdAt: existing.createdAt, completedAt: this.now().toISOString(), audit: { ...existing.audit, warningCodes } };
+      const evidence = validateEvidence(input.evidence);
+      const receipt: MutationReceipt = { schemaVersion: "account-center.mutation-receipt.v1", operationId: existing.operationId, requestDigest: existing.requestDigest, idempotencyKeyDigest: existing.idempotencyKeyDigest, state: "completed", outcome: input.outcome, createdAt: existing.createdAt, completedAt: this.now().toISOString(), audit: { ...existing.audit, warningCodes }, ...(evidence ? { evidence } : {}) };
       state.operations[index] = { receipt }; await this.write(state); return receipt;
     });
   }
@@ -143,8 +145,10 @@ function isOperation(value: unknown): value is Operation {
 function isReceipt(value: unknown): value is MutationReceipt {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const receipt = value as Partial<MutationReceipt>;
-  return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit);
+  return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit) && (receipt.evidence === undefined || isEvidence(receipt.evidence));
 }
+function validateEvidence(value: MutationReceipt["evidence"]): MutationReceipt["evidence"] { if (value === undefined) return undefined; if (!isEvidence(value)) throw new Error("invalid_receipt_evidence"); return { ...value }; }
+function isEvidence(value: unknown): value is NonNullable<MutationReceipt["evidence"]> { return !!value && typeof value === "object" && !Array.isArray(value) && /^evt_[A-Za-z0-9_-]{1,100}$/.test((value as { receiptId?: unknown }).receiptId as string) && ["verified", "unproven"].includes((value as { verification?: unknown }).verification as string); }
 function isAudit(value: unknown): value is MutationAudit {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const audit = value as Partial<MutationAudit>;

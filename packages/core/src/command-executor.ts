@@ -1,8 +1,8 @@
-import { AccountCenterStatus, AuditAction, AuditEvent } from "./schemas.js";
+import { AccountCenterStatus, AuditAction, AuditEvent, RuntimeKey } from "./schemas.js";
 import { createReceipt, guardStatus, nextEligible } from "./policy.js";
 import { RuntimeAdapter } from "./runtime-adapters.js";
-import { createHash } from "node:crypto";
-import { MutationReview, MutationScope, verifyMutationApply } from "./mutation-contract.js";
+import { createHash, createHmac } from "node:crypto";
+import { createMutationReview, MutationReview, MutationScope, verifyMutationApply } from "./mutation-contract.js";
 import { MutationRepository } from "./mutation-repository.js";
 
 export type AccountCenterCommand =
@@ -47,7 +47,16 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   if (request.command === "guard") return { code: guardStatus(status, provider, runtime, request.model).ok ? 0 : 2, kind: "guard", guard: guardStatus(status, provider, runtime, request.model) };
 
   const action: AuditAction = request.command as AuditAction;
-  const target = action === "route.auto" ? request.target ?? nextEligible(status, provider, runtime, request.model)?.profile.id : request.target;
+  const target = resolveRouteTarget(status, action, request.target ?? (action === "route.auto" ? nextEligible(status, provider, runtime, request.model)?.profile.id : undefined), provider, runtime);
+  if (["route.auto", "route.use", "route.remove"].includes(action) && !target) return { code: 2, kind: "mutation", mutation: blockedMutation(action, request.target, "canonical_route_target_required") };
+  if (["route.auto", "route.use", "route.remove"].includes(action) && (provider !== "openai" || runtime !== "openclaw")) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "openclaw_route_provider_runtime_required") };
+  if (["route.auto", "route.use", "route.remove"].includes(action) && request.scope && !isExactAgentScope(request.scope)) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "explicit_agent_scope_required") };
+  if (["route.auto", "route.use", "route.remove"].includes(action) && request.apply !== true && deps.mutation && request.scope && target) {
+    const review = createMutationReview({ action, provider, runtime, scope: request.scope, target }, { secret: deps.mutation.secret });
+    const preview = await deps.adapter.mutate({ action, target, apply: false, provider, runtime, receiptPath: request.receiptPath ?? ".account-center/receipts/executor.json", scope: request.scope });
+    const payload = asMutation(preview.payload, action, target)!;
+    return { code: preview.code, kind: "mutation", mutation: { ...payload, review, confirmationToken: encodeReview(review) } };
+  }
   const authorization = await routeAuthorization(request, action, target, provider, runtime, deps.mutation);
   if (authorization.kind === "blocked") return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, authorization.reason) };
   if (authorization.kind === "replay") return { code: authorization.receipt.outcome === "applied" ? 0 : 2, kind: "mutation", mutation: replayMutation(action, target, authorization.receipt.outcome) };
@@ -58,12 +67,12 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
     provider,
     runtime,
     receiptPath: request.receiptPath ?? ".account-center/receipts/executor.json",
-    ...(authorization.kind === "confirmed" ? { authorized: true, scope: request.scope } : {})
+    ...(authorization.kind === "confirmed" ? { routeCapability: mintRouteCapability(action, target!, provider, runtime, request.scope!, deps.mutation!.secret), scope: request.scope } : {})
   });
   const payload = asMutation(result.payload, action, target);
   if (authorization.kind === "confirmed") {
     const protectedPayload = payload!;
-    await deps.mutation!.repository.complete({ operationId: authorization.operationId, outcome: protectedPayload.applied === true ? "applied" : "failed", warningCodes: protectedPayload.applied === true ? ["fresh_read_after_write_verified"] : ["runtime_result_unproven"] });
+    await deps.mutation!.repository.complete({ operationId: authorization.operationId, outcome: protectedPayload.applied === true ? "applied" : "failed", warningCodes: protectedPayload.applied === true ? ["fresh_read_after_write_verified"] : ["runtime_result_unproven"], evidence: redactedEvidence(protectedPayload) });
   }
   return { code: result.code, kind: "mutation", mutation: payload };
 }
@@ -86,7 +95,30 @@ function blockedMutation(action: AuditAction, target: string | undefined, reason
 
 function replayMutation(action: AuditAction, target: string | undefined, outcome: "applied" | "not_applied" | "blocked" | "failed"): NonNullable<CommandExecution["mutation"]> {
   const applied = outcome === "applied";
-  return { applied, dryRun: !applied, liveRuntimeMutation: applied, receipt: createReceipt({ action, dryRun: !applied, target, summary: "Replayed immutable protected mutation result.", warnings: ["idempotency_replay"] }) };
+  return { applied, dryRun: !applied, liveRuntimeMutation: false, replayed: true, historicalOutcome: outcome, receipt: createReceipt({ action, dryRun: !applied, target, summary: "Replayed immutable protected mutation result; no current runtime mutation was attempted.", warnings: ["idempotency_replay", "historical_outcome"] }) };
+}
+
+function resolveRouteTarget(status: AccountCenterStatus, action: AuditAction, requested: string | undefined, provider: string, runtime: string): string | undefined {
+  if (!requested || requested.startsWith("-") || /\s/.test(requested)) return undefined;
+  const matches = status.profiles.filter((profile) => profile.id === requested && profile.provider === provider && profile.runtimeCompatibility.includes(runtime as RuntimeKey));
+  return matches.length === 1 ? matches[0]!.id : undefined;
+}
+
+function isExactAgentScope(scope: MutationScope): boolean { return scope.kind === "agent" && /^[a-z][a-z0-9_-]{0,63}$/.test(scope.id) && scope.id !== "all"; }
+
+/** Internal signed, single-operation authorization. It is deliberately not an exported public API. */
+function mintRouteCapability(action: string, target: string, provider: string, runtime: string, scope: MutationScope, secret: string): string {
+  const body = JSON.stringify({ action, target, provider, runtime, scope, nonce: crypto.randomUUID() });
+  return `${Buffer.from(body).toString("base64url")}.${createHmac("sha256", secret).update(body).digest("base64url")}`;
+}
+
+function encodeReview(review: MutationReview): string { return `${Buffer.from(JSON.stringify(review)).toString("base64url")}.${review.token}`; }
+export function decodeConfirmationToken(token: string): MutationReview | undefined {
+  const [body, signature, ...rest] = token.split("."); if (!body || !signature || rest.length) return undefined;
+  try { const review = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as MutationReview; return review.token === signature ? review : undefined; } catch { return undefined; }
+}
+function redactedEvidence(payload: NonNullable<CommandExecution["mutation"]>): { receiptId: string; verification: "verified" | "unproven" } {
+  return { receiptId: payload.receipt.id, verification: payload.applied === true && payload.liveRuntimeMutation === true ? "verified" : "unproven" };
 }
 
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }

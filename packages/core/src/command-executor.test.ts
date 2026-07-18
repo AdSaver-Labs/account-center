@@ -29,9 +29,9 @@ test("core executor invokes route apply only after exact review confirmation and
     source: "fixture" as const,
     readStatus: () => new FixtureRuntimeAdapter().readStatus(),
     doctor: async () => ({}),
-    mutate: async () => { mutations += 1; return { code: 0, payload: { applied: true, dryRun: false, liveRuntimeMutation: true, receipt: { id: "receipt", action: "route.use", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "verified", warnings: [] } } }; }
+    mutate: async () => { mutations += 1; return { code: 0, payload: { applied: true, dryRun: false, liveRuntimeMutation: true, receipt: { id: "evt_test", action: "route.use", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "verified", warnings: [] } } }; }
   };
-  const request = { command: "route.use" as const, target: "openai:secondary@example.test", apply: true, provider: "openai", runtime: "openclaw", scope: { kind: "agent" as const, id: "main" } };
+  const request = { command: "route.use" as const, target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw", scope: { kind: "agent" as const, id: "main" } };
   const blocked = await executeAccountCenterCommand(request, { adapter });
   assert.equal(blocked.code, 2);
   assert.equal(mutations, 0);
@@ -40,5 +40,10 @@ test("core executor invokes route apply only after exact review confirmation and
   const root = await mkdtemp(join(tmpdir(), "account-center-command-executor-"));
   const result = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, idempotencyKey: "route-apply-idempotency-key-0001" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
   assert.equal(result.code, 0);
+  assert.equal(mutations, 1);
+  const replay = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, idempotencyKey: "route-apply-idempotency-key-0001" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
+  assert.equal(replay.mutation?.liveRuntimeMutation, false);
+  assert.equal(replay.mutation?.replayed, true);
+  assert.equal(replay.mutation?.historicalOutcome, "applied");
   assert.equal(mutations, 1);
 });

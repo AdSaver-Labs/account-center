@@ -3,7 +3,8 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { AccountCenterStatus, AuditAction, Profile, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { AccountCenterStatus, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
 import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
@@ -35,8 +36,8 @@ export interface RuntimeMutationInput {
   provider: string;
   runtime: string;
   receiptPath: string;
-  /** Set only by Account Center's protected mutation executor after review confirmation. */
-  authorized?: boolean;
+  /** Opaque, executor-minted, one-operation authorization; a boolean is never sufficient. */
+  routeCapability?: string;
   /** OpenClaw route mutations are deliberately limited to one exact agent. */
   scope?: MutationScope;
 }
@@ -59,6 +60,8 @@ export interface OpenClawAdapterConfig {
   agentDir?: string;
   receiptDir?: string;
   runner?: CommandRunner;
+  /** Private lifecycle secret; never accepted from CLI/API request input. */
+  routeCapabilitySecret?: string;
 }
 
 export interface GenericCommandAdapterConfig {
@@ -101,6 +104,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   private readonly agentDir: string;
   private readonly receiptDir: string;
   private readonly runner: CommandRunner;
+  private readonly routeCapabilitySecret?: string;
 
   constructor(config: OpenClawAdapterConfig = {}) {
     this.workspace = resolve(config.workspace ?? process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE ?? join(homedir(), ".openclaw", "workspace"));
@@ -108,6 +112,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     this.agentDir = resolve(config.agentDir ?? process.env.ACCOUNT_CENTER_OPENCLAW_AGENT_DIR ?? join(dirname(this.workspace), "agents", "main", "agent"));
     this.receiptDir = resolve(config.receiptDir ?? process.env.ACCOUNT_CENTER_RECEIPT_DIR ?? ".account-center/receipts");
     this.runner = config.runner ?? execFileRunner;
+    this.routeCapabilitySecret = config.routeCapabilitySecret;
   }
 
   async readStatus(): Promise<AccountCenterStatus> {
@@ -175,12 +180,14 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       await writeReceipt(input.receiptPath, payload);
       return { code: 2, payload };
     };
-    if (input.authorized !== true) return blocked("route_apply_requires_confirmed_shared_mutation", "route_apply_requires_confirmed_shared_mutation");
     if (input.scope?.kind !== "agent" || !isExactAgentScope(input.scope.id)) return blocked("explicit_agent_scope_required", "explicit_agent_scope_required");
+    if (!this.routeCapabilitySecret || !validRouteCapability(input.routeCapability, input.action, input.target, input.provider, input.runtime, input.scope, this.routeCapabilitySecret)) return blocked("route_apply_requires_executor_capability", "route_apply_requires_executor_capability");
+    if (input.provider !== "openai" || input.runtime !== "openclaw") return blocked("openclaw_route_provider_runtime_required", "openclaw_route_provider_runtime_required");
 
     const switchScript = join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
     if (!(await exists(switchScript))) return blocked("missing_existing_routing_script", "missing_existing_routing_script");
-    const target = input.action === "route.auto" ? undefined : requiredTarget(input.target, input.action);
+    const target = input.action === "route.auto" ? undefined : canonicalRouteTarget(before, requiredTarget(input.target, input.action), input.provider, input.runtime);
+    if (input.action !== "route.auto" && !target) return blocked("canonical_route_target_required", "canonical_route_target_required");
     const args = input.action === "route.auto"
       ? [switchScript, "--auto", "--apply", "--agent", input.scope.id]
       : input.action === "route.remove"
@@ -198,7 +205,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     // The shared review binds the previewed automatic candidate. The native
     // script remains the selector, but a changed selection is not silently
     // accepted as confirmation for a different profile.
-    if (!nativeTarget || (input.action === "route.auto" && nativeTarget !== input.target)) return this.routeFailure(input, before, "native_route_result_unproven", "native_route_result_unproven");
+    if (!nativeEventProof(nativeEvent, input.action, nativeTarget, input.scope.id) || !nativeTarget || canonicalRouteTarget(before, nativeTarget, input.provider, input.runtime) !== nativeTarget || (input.action === "route.auto" && nativeTarget !== input.target)) return this.routeFailure(input, before, "native_route_result_unproven", "native_route_result_unproven");
     const expectedTarget = nativeTarget;
     let after: AccountCenterStatus;
     try {
@@ -206,7 +213,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     } catch {
       return this.routeFailure(input, before, "route_read_after_write_unproven", "route_read_after_write_unproven");
     }
-    if (!routeMutationVerified(after, input.action, expectedTarget)) return this.routeFailure(input, before, "route_read_after_write_mismatch", "route_read_after_write_mismatch");
+    if (!routeMutationVerified(after, input.action, expectedTarget, input.scope.id)) return this.routeFailure(input, before, "route_read_after_write_mismatch", "route_read_after_write_mismatch");
     const receipt = createReceipt({
       action: input.action,
       dryRun: false,
@@ -356,8 +363,8 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
   }
 }
 
-export function createRuntimeAdapter(source: unknown, options: { cwd?: string; runner?: CommandRunner } = {}): RuntimeAdapter {
-  if (source === "openclaw") return new OpenClawRuntimeAdapter({ runner: options.runner });
+export function createRuntimeAdapter(source: unknown, options: { cwd?: string; runner?: CommandRunner; routeCapabilitySecret?: string } = {}): RuntimeAdapter {
+  if (source === "openclaw") return new OpenClawRuntimeAdapter({ runner: options.runner, routeCapabilitySecret: options.routeCapabilitySecret });
   if (source === "generic-command") return new GenericCommandRuntimeAdapter({ runner: options.runner });
   if (source === "fixture") return new FixtureRuntimeAdapter(resolve(options.cwd ?? process.cwd(), "tests/fixtures/status.fixture.json"));
   throw new Error("Unsupported Account Center source.");
@@ -462,7 +469,8 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
       runtime: "openclaw",
       activeProfileId,
       order,
-      updatedAt: generatedAt
+      updatedAt: generatedAt,
+      ...(stringFrom(raw, ["scope"]) ? { scope: stringFrom(raw, ["scope"]) } : {})
     }],
     policy: {
       minFiveHourRemainingPct: 5,
@@ -838,11 +846,33 @@ function nativeSelectedProfile(event: Record<string, unknown> | undefined): stri
   return isRecord(selected) && typeof selected.profileId === "string" && selected.profileId.trim() ? selected.profileId : undefined;
 }
 
-function routeMutationVerified(status: AccountCenterStatus, action: AuditAction, target: string): boolean {
-  const route = status.routes.find((item) => item.runtime === "openclaw");
+function routeMutationVerified(status: AccountCenterStatus, action: AuditAction, target: string, agent: string): boolean {
+  const route = status.routes.find((item) => item.runtime === "openclaw" && item.provider === "openai" && routeScopeMatches(item, agent));
   if (!route) return false;
   if (action === "route.remove") return !route.order.includes(target) && route.activeProfileId !== target;
   return route.activeProfileId === target && route.order[0] === target;
+}
+
+function canonicalRouteTarget(status: AccountCenterStatus, target: string, provider: string, runtime: string): string | undefined {
+  if (!target || target.startsWith("-") || /\s/.test(target)) return undefined;
+  const matches = status.profiles.filter((profile) => profile.id === target && profile.provider === provider && profile.runtimeCompatibility.includes(runtime as RuntimeKey));
+  return matches.length === 1 ? matches[0]!.id : undefined;
+}
+function routeScopeMatches(route: AccountCenterStatus["routes"][number], agent: string): boolean { return route.scope === `agent:${agent}`; }
+function nativeEventProof(event: Record<string, unknown> | undefined, action: AuditAction, target: string | undefined, agent: string): boolean {
+  if (!event || event.action !== action || event.agent !== agent || !target) return false;
+  const selected = nativeSelectedProfile(event);
+  return action === "route.remove" ? event.target === target : selected === target;
+}
+function validRouteCapability(capability: string | undefined, action: AuditAction, target: string | undefined, provider: string, runtime: string, scope: MutationScope, secret: string): boolean {
+  if (!capability) return false;
+  const [body, signature, ...rest] = capability.split("."); if (!body || !signature || rest.length) return false;
+  try {
+    const raw = Buffer.from(body, "base64url").toString("utf8"); const expected = createHmac("sha256", secret).update(raw).digest("base64url");
+    if (Buffer.byteLength(signature) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return false;
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    return value.action === action && value.target === target && value.provider === provider && value.runtime === runtime && isRecord(value.scope) && value.scope.kind === scope.kind && value.scope.id === scope.id && typeof value.nonce === "string" && value.nonce.length >= 8;
+  } catch { return false; }
 }
 
 function redactProfileArg(value: string): string {

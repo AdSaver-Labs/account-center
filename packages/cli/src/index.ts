@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -8,12 +8,14 @@ import {
   AuditStore,
   AuthChallengeStore,
   CommandRunner,
+  decodeConfirmationToken,
   createReceipt,
   createRuntimeAdapter,
   executeAccountCenterCommand,
   guardStatus,
   isValidGuidedAuthStart,
   MutationRepository,
+  MutationScope,
   nextEligible,
   parseRuntimeSource,
   probeProviders,
@@ -45,6 +47,8 @@ interface CliOptions {
   writeExport: boolean;
   source: "fixture" | "openclaw" | "generic-command";
   apply: boolean;
+  confirm?: string;
+  idempotencyKey?: string;
   ensureRoute: boolean;
 }
 
@@ -71,9 +75,10 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
     }
   }
+  const lifecycle = await mutationLifecycle();
   let adapter;
   try {
-    adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
+    adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner, routeCapabilitySecret: lifecycle.secret });
   } catch (error) {
     if (options.source === "generic-command") return genericCommandFailure(options, command, subcommand);
     throw error;
@@ -135,14 +140,20 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   if (command === "reauth" && subcommand === "start") return startReauth(target, status, options, deps.challengeStore);
   if (command === "routes" && ["auto", "use", "remove"].includes(subcommand ?? "")) {
     const action = routeAction(subcommand);
+    const scope = parseAgentScope(options.scope);
+    if (!scope) return { code: 2, stdout: options.json ? json(blockedRouteView(action)) : renderMutation(blockedRouteView(action)) };
+    const review = options.confirm ? decodeConfirmationToken(options.confirm) : undefined;
     const execution = await executeAccountCenterCommand({
       command: action,
       target: action === "route.auto" ? target ?? nextEligible(status, options.provider, options.runtime)?.profile.id : target,
       apply: options.apply,
       provider: options.provider,
       runtime: options.runtime,
-      receiptPath: options.receiptPath
-    }, { adapter });
+      receiptPath: options.receiptPath,
+      scope,
+      ...(review ? { review, reviewToken: review.token } : {}),
+      ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {})
+    }, { adapter, mutation: lifecycle });
     const view = publicMutationView(execution.mutation);
     return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
@@ -187,6 +198,8 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     writeExport: !argv.includes("--no-write-export"),
     source: parseSourceOption(argv),
     apply: argv.includes("--apply"),
+    confirm: valueAfter(argv, "--confirm"),
+    idempotencyKey: valueAfter(argv, "--idempotency-key"),
     ensureRoute: argv.includes("--ensure-route")
   };
 }
@@ -283,6 +296,9 @@ type PublicMutationView = {
   liveRuntimeMutation: boolean;
   state: "APPLIED" | "DRY_RUN" | "BLOCKED";
   receipt: { id: string; action: string; dryRun: boolean; target: "redacted-target" };
+  replayed?: true;
+  historicalOutcome?: string;
+  confirmationToken?: string;
 };
 
 function publicAccountsView(status: AccountCenterStatus) {
@@ -360,8 +376,31 @@ function publicMutationView(payload: unknown): PublicMutationView {
     dryRun,
     liveRuntimeMutation,
     state: applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
-    receipt: publicReceipt(receipt)
+    receipt: publicReceipt(receipt),
+    ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown" } : {}),
+    ...(typeof report.confirmationToken === "string" ? { confirmationToken: report.confirmationToken } : {})
   };
+}
+
+function parseAgentScope(value: string): MutationScope | undefined {
+  const match = value.match(/^agent:([a-z][a-z0-9_-]{0,63})$/);
+  return match && match[1] !== "all" ? { kind: "agent", id: match[1]! } : undefined;
+}
+
+function blockedRouteView(action: "route.auto" | "route.use" | "route.remove"): PublicMutationView {
+  return { schemaVersion: "account-center.public-mutation.v1", verificationState: "UNPROVEN", applied: false, dryRun: true, liveRuntimeMutation: false, state: "BLOCKED", receipt: { id: "receipt-redacted", action, dryRun: true, target: "redacted-target" } };
+}
+
+async function mutationLifecycle(): Promise<{ secret: string; repository: MutationRepository }> {
+  const root = resolve(process.env.ACCOUNT_CENTER_DATA_DIR ?? join(homedir(), ".account-center"));
+  const secretPath = join(root, "mutation-review.secret");
+  let secret: string;
+  try { secret = (await readFile(secretPath, "utf8")).trim(); } catch {
+    secret = randomBytes(32).toString("base64url");
+    await mkdir(root, { recursive: true, mode: 0o700 }); await writeFile(secretPath, `${secret}\n`, { mode: 0o600 }); await chmod(secretPath, 0o600);
+  }
+  if (secret.length < 32) throw new Error("mutation review secret unavailable");
+  return { secret, repository: new MutationRepository(join(root, "mutation-operations")) };
 }
 
 function publicReceipt(value: unknown): PublicMutationView["receipt"] {
@@ -684,9 +723,10 @@ function helpText(): string {
   accounts enable <profile> [--apply] -- dry-run unless apply is supported and explicit
   accounts delete <email-or-profile> [--apply] -- destructive credential deletion; backs up first; dry-run unless --apply
   routes next
-  routes auto [--apply] -- lower-level CLI dry-run unless --apply; manual /auth auto applies by default
-  routes use <profile> [--apply] -- lower-level CLI dry-run unless --apply; manual /auth use applies by default
-  routes remove <profile> [--apply] -- lower-level CLI dry-run unless --apply; manual /auth remove applies by default
+  routes auto --scope agent:<id> -- preview returns a confirmation token
+  routes use <canonical-profile-id> --scope agent:<id> -- preview returns a confirmation token
+  routes remove <canonical-profile-id> --scope agent:<id> -- preview returns a confirmation token
+  routes <auto|use|remove> ... --scope agent:<id> --apply --confirm <confirmation-token> --idempotency-key <key> -- apply exactly the previewed route
   models disable <provider/model> [--apply] -- dry-run unless apply is supported and explicit
   models enable <provider/model> [--apply] -- dry-run unless apply is supported and explicit
   models list

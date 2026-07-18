@@ -37,6 +37,17 @@ test("mutation repository persists only fixed redacted schema in owner-only stat
   assert.deepEqual(await repository.claim({ ...input, requestDigest: "d".repeat(64) }), { kind: "blocked", reason: "idempotency_key_reused_with_different_request" });
 });
 
+test("completed operation links only a redacted adapter receipt reference and verification state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-mutations-evidence-"));
+  const repository = new MutationRepository(root, { operationId: () => "op_evidence" });
+  const claim = await repository.claim(input);
+  if (claim.kind !== "execute") throw new Error("expected executable operation");
+  await repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: "evt_route_verified", verification: "verified" } });
+  const raw = await readFile(join(root, "mutation-repository.v1.json"), "utf8");
+  assert.match(raw, /evt_route_verified/);
+  assert.doesNotMatch(raw, /helper-2|private@example/);
+});
+
 test("mutation repository rejects malformed persisted operations before a redacted history view can expose them", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-mutations-corrupt-"));
   const statePath = join(root, "mutation-repository.v1.json");
