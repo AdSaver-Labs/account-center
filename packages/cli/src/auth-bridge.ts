@@ -121,7 +121,9 @@ function withApplyByDefault(rest: string[]): string[] {
 }
 
 function withModeAndApplyByDefault(rest: string[], mode: "add" | "reauth"): string[] {
-  const withMode = rest.includes("--mode") ? rest : [...rest, "--mode", mode];
+  const explicitModes = rest.flatMap((value, index) => value === "--mode" ? [rest[index + 1]] : []);
+  if (explicitModes.length > 1 || explicitModes[0] !== undefined && explicitModes[0] !== mode) throw new Error("Guided-auth mode must match the /auth command.");
+  const withMode = explicitModes.length ? rest : [...rest, "--mode", mode];
   return withApplyByDefault(withMode);
 }
 

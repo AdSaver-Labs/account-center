@@ -28,6 +28,20 @@ test("independent challenge stores serialize competing creation of the same acti
   assert.equal(JSON.stringify(persisted).includes("private@example.test"), false);
 });
 
+test("challenge store reports whether durable guided-auth creation reused an active challenge", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
+  const store = new AuthChallengeStore(path);
+  const input = { mode: "add" as const, provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "default" };
+  const first = await store.createWithResult(input);
+  const retry = await store.createWithResult({ ...input, target: "NEW@example.com" });
+  const distinctMode = await store.createWithResult({ ...input, mode: "reauth" });
+  assert.equal(first.created, true);
+  assert.equal(retry.created, false);
+  assert.equal(retry.challenge.id, first.challenge.id);
+  assert.equal(distinctMode.created, true);
+  assert.notEqual(distinctMode.challenge.id, first.challenge.id);
+});
+
 test("challenge store removes raw account targets from legacy records on read", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
   await writeFile(path, JSON.stringify([{ id: "auth_legacy", key: "key", mode: "add", status: "pending", target: "legacy@example.com", provider: "openai", runtime: "openclaw", scope: "agent:main", createdAt: "2026-07-14T00:00:00.000Z", updatedAt: "2026-07-14T00:00:00.000Z" }]));

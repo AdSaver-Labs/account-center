@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AuthChallengeStore } from "@account-center/core";
 import { inspectAuthCommand, parseAuthCommand, renderAuthHelp, tokenizeAuthCommand } from "./auth-bridge.js";
 import { runCli } from "./index.js";
 
@@ -98,6 +102,24 @@ test("CLI auth bridge executes /auth probe against fixture status with an opaque
   assert.equal(parsed.probes[0].state, "OK");
   assert.equal(parsed.probes[0].usableProfiles, 2);
   assert.equal("provider" in parsed.probes[0], false);
+});
+
+test("/auth add and reauth create distinct durable redacted local challenges", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-cli-auth-")), "challenges.json");
+  const store = new AuthChallengeStore(path);
+  const [add, retry, reauth] = await Promise.all([
+    runCli(["auth", "/auth", "add", "new@example.com", "--json"], process.cwd(), { challengeStore: store }),
+    runCli(["auth", "/auth", "add", "NEW@example.com", "--json"], process.cwd(), { challengeStore: store }),
+    runCli(["auth", "/auth", "reauth", "new@example.com", "--json"], process.cwd(), { challengeStore: store })
+  ]);
+  const addPayload = JSON.parse(add.stdout);
+  const retryPayload = JSON.parse(retry.stdout);
+  const reauthPayload = JSON.parse(reauth.stdout);
+  assert.equal(addPayload.challenge.mode, "add");
+  assert.equal(reauthPayload.challenge.mode, "reauth");
+  assert.notEqual(addPayload.challenge.id, reauthPayload.challenge.id);
+  assert.equal(JSON.stringify([addPayload, retryPayload, reauthPayload]).includes("new@example.com"), false);
+  assert.equal((await readFile(path, "utf8")).includes("new@example.com"), false);
 });
 
 test("CLI auth bridge rejects oauth manual command", async () => {

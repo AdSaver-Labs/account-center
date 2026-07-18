@@ -3,6 +3,7 @@ export * from "./auth-challenge-store.js";
 export * from "./auth-challenges.js";
 export * from "./command-executor.js";
 export * from "./fixtures.js";
+export * from "./guided-auth.js";
 export * from "./idempotency-store.js";
 export * from "./model-selection.js";
 export * from "./mutation-contract.js";

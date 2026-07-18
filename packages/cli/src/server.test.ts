@@ -30,6 +30,75 @@ async function bodyRequest(port: number, path: string, token: string): Promise<{
   });
 }
 
+async function createChallenge(port: number, token: string, body: unknown, origin = true): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/api/auth-challenges`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      ...(origin ? { origin: `http://127.0.0.1:${port}` } : {})
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+test("protected guided-auth creation persists distinct redacted add and reauth challenges idempotently", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-guided-auth-"));
+  const app = createAccountCenterServer({
+    token: "test-token",
+    challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json"))
+  });
+  const address = await app.listen();
+  const body = { provider: "openai", runtime: "openclaw", scope: "default", target: "new@example.com" };
+  try {
+    const add = await createChallenge(address.port, "test-token", { ...body, mode: "add" });
+    assert.equal(add.status, 201);
+    const addPayload = await add.json() as { challenge: { id: string; mode: string }; idempotent: boolean };
+    assert.equal(addPayload.challenge.mode, "add");
+    assert.equal(addPayload.idempotent, false);
+    assert.equal(JSON.stringify(addPayload).includes("new@example.com"), false);
+
+    const retry = await createChallenge(address.port, "test-token", { ...body, mode: "add", target: "NEW@example.com" });
+    assert.equal(retry.status, 200);
+    const retryPayload = await retry.json() as { challenge: { id: string; mode: string }; idempotent: boolean };
+    assert.equal(retryPayload.challenge.id, addPayload.challenge.id);
+    assert.equal(retryPayload.idempotent, true);
+
+    const reauth = await createChallenge(address.port, "test-token", { ...body, mode: "reauth" });
+    assert.equal(reauth.status, 201);
+    const reauthPayload = await reauth.json() as { challenge: { id: string; mode: string }; idempotent: boolean };
+    assert.equal(reauthPayload.challenge.mode, "reauth");
+    assert.notEqual(reauthPayload.challenge.id, addPayload.challenge.id);
+    assert.equal(JSON.stringify(reauthPayload).includes("new@example.com"), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test("guided-auth creation rejects unscoped, unsupported, malformed, and cross-origin requests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-guided-auth-"));
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json")) });
+  const address = await app.listen();
+  try {
+    for (const body of [
+      { mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com" },
+      { mode: "add", provider: "openai", runtime: "codex", scope: "default", target: "new@example.com" },
+      { mode: "add", provider: "openai", runtime: "openclaw", scope: "agent:main", target: "new@example.com" },
+      { mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: "not-an-email" },
+      { mode: "replace", provider: "openai", runtime: "openclaw", scope: "default", target: "new@example.com" }
+    ]) {
+      const response = await createChallenge(address.port, "test-token", body);
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "invalid_guided_auth_request" });
+    }
+    const crossOrigin = await createChallenge(address.port, "test-token", { mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: "new@example.com" }, false);
+    assert.equal(crossOrigin.status, 403);
+    assert.deepEqual(await crossOrigin.json(), { error: "origin_forbidden" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("local API requires bearer token and returns no-store status", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
@@ -443,6 +512,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.deepEqual(body.actions.find((action) => action.id === "runtime_scopes.list"), { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.start"), { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), {
       id: "auth_challenges.cancel",
       mode: "mutation",
@@ -464,9 +534,9 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.deepEqual(body.actions.find((action) => action.id === "guided_auth"), {
       id: "guided_auth",
       mode: "mutation",
-      state: "UNPROVEN",
-      reason: "protected_start_contract_missing_review_idempotency_runtime_proof",
-      requires: ["bearer_token", "explicit_runtime_scope", "explicit_confirmation", "idempotency_key"]
+      state: "blocked",
+      reason: "durable_challenge_store_unavailable",
+      requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "routes"), {
       id: "routes",
