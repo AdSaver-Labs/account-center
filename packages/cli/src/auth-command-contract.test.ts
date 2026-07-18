@@ -7,7 +7,8 @@ const contract = readFileSync(new URL("../../../docs/AUTH_COMMAND_CONTRACT.md", 
 
 test("auth command contract documents live manual defaults and safety distinctions", () => {
   assert.match(contract, /\/auth auto` \| route mutation \| live apply/);
-  assert.match(contract, /\/auth add <email>` \| guided auth \| start guided flow/);
+  assert.match(contract, /\/auth add <email>` \| guided auth \| create local guided challenge/);
+  assert.match(contract, /POST \/api\/auth-challenges/);
   assert.match(contract, /remove\*\* means remove from routing only/);
   assert.match(contract, /delete\*\* means credential deletion/);
   assert.match(contract, /Hermes \/ Jack/);

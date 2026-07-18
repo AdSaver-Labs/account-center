@@ -12,6 +12,7 @@ import {
   createRuntimeAdapter,
   executeAccountCenterCommand,
   guardStatus,
+  isValidGuidedAuthStart,
   MutationRepository,
   nextEligible,
   parseRuntimeSource,
@@ -35,6 +36,8 @@ interface CliOptions {
   json: boolean;
   provider: string;
   runtime: string;
+  scope: string;
+  authMode?: string;
   model?: string;
   limit: number;
   statusPath: string;
@@ -48,7 +51,7 @@ interface CliOptions {
 const DEFAULT_AUDIT_LIST_LIMIT = 20;
 const MAX_AUDIT_LIST_LIMIT = 100;
 
-export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner?: CommandRunner } = {}): Promise<CliResult> {
+export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner?: CommandRunner; challengeStore?: AuthChallengeStore } = {}): Promise<CliResult> {
   let options: CliOptions;
   try {
     options = parseOptions(argv, cwd);
@@ -129,7 +132,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const view = publicAuditView(status, options.limit);
     return ok(options.json ? json(view) : renderAudit(view));
   }
-  if (command === "reauth" && subcommand === "start") return startReauth(target, status, options);
+  if (command === "reauth" && subcommand === "start") return startReauth(target, status, options, deps.challengeStore);
   if (command === "routes" && ["auto", "use", "remove"].includes(subcommand ?? "")) {
     const action = routeAction(subcommand);
     const execution = await executeAccountCenterCommand({
@@ -175,6 +178,8 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     json: argv.includes("--json"),
     provider: valueAfter(argv, "--provider") ?? "openai",
     runtime: valueAfter(argv, "--runtime") ?? "openclaw",
+    scope: valueAfter(argv, "--scope") ?? "default",
+    authMode: valueAfter(argv, "--mode"),
     model: valueAfter(argv, "--model"),
     limit: parseAuditListLimit(valueAfter(argv, "--limit")),
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
@@ -461,8 +466,8 @@ function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): st
   lines.push("• /auth list or /auth status — compact route list with active marker");
   lines.push("• /auth <email> — switch active Codex route to that connected account");
   lines.push("• /auth auto — run safe auto-switch to best readable non-AdSaver account");
-  lines.push("• /auth add <email> — start OpenAI Codex device-code login from Telegram; background worker attempts to save/refresh the OAuth profile and activates it when usable, then reports success/failure");
-  lines.push("• /auth reauth <email> — same as /auth add <email>; use for expired/401 accounts");
+  lines.push("• /auth add <email> — record a local guided-auth initiation for a new account; it does not start device-code/OAuth login, store credentials, or activate routing");
+  lines.push("• /auth reauth <email> — record a local guided-auth initiation for an existing account; it does not reauthenticate or change credentials or routing");
   lines.push("• /auth remove <email> — remove from routing without deleting credentials");
   lines.push("• /auth delete <email> — permanently delete that account's Sentinel/OpenClaw credentials after backup");
   lines.push("• /auth delete <email> --dry-run — preview delete only; no deletion");
@@ -637,25 +642,31 @@ function renderAudit(view: ReturnType<typeof publicAuditView>): string {
   return view.events.map((event) => `Audit event dryRun=${event.dryRun} ${event.state}`).join("\n") + "\n";
 }
 
-function startReauth(target: string | undefined, status: AccountCenterStatus, options: CliOptions): CliResult {
+async function startReauth(target: string | undefined, status: AccountCenterStatus, options: CliOptions, store?: AuthChallengeStore): Promise<CliResult> {
   if (!target) return { code: 1, stdout: "", stderr: "Usage: /auth add <email> or /auth reauth <email>\n" };
+  const mode = options.authMode;
+  const input = { mode: mode === "add" ? "add" as const : mode === "reauth" || mode === undefined ? "reauth" as const : undefined, provider: options.provider, runtime: options.runtime, scope: options.scope, target };
+  if (!input.mode || !isValidGuidedAuthStart(status, input)) return { code: 1, stdout: "", stderr: "Invalid guided-auth runtime, scope, provider, mode, or target.\n" };
+  const durable = await (store ?? new AuthChallengeStore(join(resolve(process.env.ACCOUNT_CENTER_DATA_DIR ?? join(homedir(), ".account-center")), "auth-challenges.v1.json"))).createWithResult(input);
   const payload = {
-    schemaVersion: "account-center.public-reauth-start.v1",
+    schemaVersion: "account-center.public-auth-challenge-start.v1",
     verificationState: "UNPROVEN" as const,
-    started: false,
-    dryRun: !options.apply,
+    idempotent: !durable.created,
+    challenge: publicAuthChallenge(durable.challenge),
     noLlmTokens: true,
-    target: publicAccountRef(status, target),
-    note: options.apply
-      ? "Live device-code auth start is reserved for the native Telegram bridge in this build."
-      : "Dry-run only. Add --apply to request a live device-code auth start."
+    note: "Local guided-auth challenge recorded. This build does not mutate runtime auth, credentials, OAuth, or device-code state."
   };
   if (options.json) return ok(json(payload));
   return ok([
-    `OpenAI Codex device-code auth for ${payload.target}`,
+    `Local ${payload.challenge.mode} guided-auth challenge: ${payload.challenge.id}`,
     `No LLM/model tokens are used by this command.`,
     payload.note
   ].join("\n") + "\n");
+}
+
+function publicAuthChallenge(challenge: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  const { id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt } = challenge;
+  return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
 }
 
 function renderProviderProbes(view: ReturnType<typeof publicProviderProbesView>): string {

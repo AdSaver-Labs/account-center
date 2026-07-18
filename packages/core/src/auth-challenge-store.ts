@@ -9,11 +9,17 @@ export class AuthChallengeStore {
   constructor(private readonly path: string) { this.lockPath = `${path}.lock`; }
 
   async create(input: AuthChallengeInput): Promise<AuthChallenge> {
+    return (await this.createWithResult(input)).challenge;
+  }
+
+  /** Reports whether an active challenge was created or durably reused. */
+  async createWithResult(input: AuthChallengeInput): Promise<{ challenge: AuthChallenge; created: boolean }> {
     return this.withLock(async () => {
       const challenges = await this.listUnsafe();
       const challenge = createAuthChallenge(input, challenges);
-      if (!challenges.some((item) => item.id === challenge.id)) await this.write([...challenges, challenge]);
-      return challenge;
+      const created = !challenges.some((item) => item.id === challenge.id);
+      if (created) await this.write([...challenges, challenge]);
+      return { challenge, created };
     });
   }
 

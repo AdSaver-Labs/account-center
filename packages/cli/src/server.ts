@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, isValidGuidedAuthStart, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
@@ -20,6 +20,22 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
+    if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
+      if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
+      if (!options.challengeStore) return send(response, 503, { error: "challenge_store_unavailable" });
+      const body = await readJsonBody(request);
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
+      const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
+      if (!status || !isValidGuidedAuthStart(status, body)) return send(response, 400, { error: "invalid_guided_auth_request" });
+      const result = await options.challengeStore.createWithResult(body);
+      return send(response, result.created ? 201 : 200, {
+        schemaVersion: "account-center.auth-challenge-start.v1",
+        generatedAt: new Date().toISOString(),
+        idempotent: !result.created,
+        verificationState: "UNPROVEN",
+        challenge: authChallengeView(result.challenge)
+      });
+    }
     if (hasRequestBody(request)) {
       request.resume();
       return send(response, 413, { error: "request_body_not_allowed" });
@@ -55,9 +71,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       }
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
-    const allowedMethod = endpointMethod(request.url);
-    if (allowedMethod && request.method !== allowedMethod) {
-      response.setHeader("Allow", allowedMethod);
+    const allowedMethods = endpointMethods(request.url);
+    if (allowedMethods && !allowedMethods.includes(request.method ?? "")) {
+      response.setHeader("Allow", allowedMethods.join(", "));
       return send(response, 405, { error: "method_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
@@ -382,12 +398,13 @@ function authChallengeView({ id, mode, provider, runtime, scope, status, expires
   return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
 }
 
-function endpointMethod(path: string | undefined): "GET" | "POST" | undefined {
+function endpointMethods(path: string | undefined): string[] | undefined {
   const pathname = path ? new URL(path, "http://account-center.local").pathname : undefined;
-  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/scopes", "/api/auth-challenges", "/api/status"].includes(pathname ?? "")) return "GET";
-  if (mutationOperationId(pathname) || auditRecordId(pathname)) return "GET";
-  if (authChallengeCancelId(pathname)) return "POST";
-  if (authChallengeId(pathname)) return "GET";
+  if (pathname === "/api/auth-challenges") return ["GET", "POST"];
+  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/scopes", "/api/status"].includes(pathname ?? "")) return ["GET"];
+  if (mutationOperationId(pathname) || auditRecordId(pathname)) return ["GET"];
+  if (authChallengeCancelId(pathname)) return ["POST"];
+  if (authChallengeId(pathname)) return ["GET"];
   return undefined;
 }
 
@@ -418,6 +435,9 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
       { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] },
       { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] },
       { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] },
+      challengeStoreAvailable
+        ? { id: "auth_challenges.start", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges" }, requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] }
+        : { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] },
       challengeStoreAvailable && auditAvailable
         ? { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] }
         : { id: "auth_challenges.cancel", mode: "mutation", state: "blocked", reason: challengeStoreAvailable ? "durable_audit_store_unavailable" : "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] },
@@ -427,7 +447,7 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
       { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "no_stable_native_exact_profile_delete_api", requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"] },
       { id: "routes", mode: "mutation", state: "UNPROVEN", reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
-      { id: "guided_auth", mode: "mutation", state: "UNPROVEN", reason: "protected_start_contract_missing_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "explicit_confirmation", "idempotency_key"] },
+      { id: "guided_auth", mode: "mutation", state: challengeStoreAvailable ? "available" : "blocked", ...(challengeStoreAvailable ? { reason: "local_challenge_only_no_runtime_or_credential_mutation" } : { reason: "durable_challenge_store_unavailable" }), requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] },
       { id: "models", mode: "mutation", state: "UNPROVEN", reason: "protected_model_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
       { id: "updates", mode: "mutation", state: "blocked", reason: "macos_signed_artifact_package_supervisor_backup_restart_health_proof_missing", requires: ["bearer_token", "verified_release", "backup", "narrow_supervisor", "health_proof"] }
     ],
@@ -445,6 +465,17 @@ function authorized(request: IncomingMessage, token: string): boolean {
 }
 function hasRequestBody(request: IncomingMessage): boolean {
   return request.headers["transfer-encoding"] !== undefined || (request.headers["content-length"] !== undefined && request.headers["content-length"] !== "0");
+}
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += value.length;
+    if (size > 4_096) throw new Error("request_body_too_large");
+    chunks.push(value);
+  }
+  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return undefined; }
 }
 function sameOrigin(request: IncomingMessage): boolean {
   const origin = request.headers.origin;

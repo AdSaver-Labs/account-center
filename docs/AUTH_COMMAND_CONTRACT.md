@@ -27,8 +27,8 @@ The manual/chat compatibility command is:
 | `/auth use <target>` | route mutation | live apply | `--dry-run` | exact connected target, runtime lock, receipt, proof |
 | `/auth remove <target>` | route mutation | live apply | `--dry-run` | exact connected route target, routing-only, receipt, proof |
 | `/auth delete <target>` | credential mutation | live apply | `--dry-run` | exact connected credential target, backup, receipt, proof |
-| `/auth add <email>` | guided auth | start guided flow | `--dry-run` | valid email, unique challenge key, no raw tokens |
-| `/auth reauth <email>` | guided auth | start guided flow | `--dry-run` | valid email/profile, unique challenge key, no raw tokens |
+| `/auth add <email>` | guided auth | create local guided challenge | n/a | explicit observed runtime/default scope, valid email, mode-specific idempotency, no raw tokens |
+| `/auth reauth <email>` | guided auth | create local guided challenge | n/a | explicit observed runtime/default scope, valid email, mode-specific idempotency, no raw tokens |
 | `/auth reauth status [id]` | read | read-only | n/a | no secrets |
 | `/auth reauth cancel <id>` | guided auth mutation | cancel challenge | n/a | scoped challenge id, receipt |
 | `/auth probe` | read/probe | read-only probe | n/a | no model-token spend unless explicit |
@@ -45,8 +45,8 @@ The manual/chat compatibility command is:
 
 - **remove** means remove from routing only. It does not delete credentials.
 - **delete** means credential deletion. It requires exact connected-target match and backup first.
-- **add** means add a new account credential, then route it if usable.
-- **reauth** means refresh an existing/broken/expired account credential.
+- **add** creates a durable local guided-auth challenge for a new account. It does not add credentials or route an account in this build.
+- **reauth** creates a durable local guided-auth challenge for an existing/broken/expired account. It does not refresh credentials in this build.
 - **model use** means change a runtime/scope model selection, not account credentials.
 
 ## Runtime/scope semantics
@@ -68,6 +68,8 @@ provider + runtime + normalizedEmail + scopeKind + scopeId
 ```
 
 Account Center challenge state is authoritative for the app/API. Runtime worker/session/result files are adapter artifacts reconciled back into Account Center state.
+
+The supported local initiation endpoint is bearer-protected, same-origin `POST /api/auth-challenges`. Its JSON body is exactly `mode`, `provider`, `runtime`, `scope`, and `target`; only an observed runtime with the authoritative `default` scope is currently accepted. `target` is a valid email used only to derive the durable mode-specific uniqueness key and is never returned or stored. Replaying the same active mode/provider/runtime/email/scope returns the existing redacted challenge with `idempotent: true`; `add` and `reauth` never share that key.
 
 ## Post-operation proof
 
