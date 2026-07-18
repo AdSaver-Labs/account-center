@@ -1,9 +1,11 @@
 import type { AccountCenterStatus, HealthState, ProfileRole } from "./schemas.js";
 import type { RuntimeSource } from "./runtime-adapters.js";
+import { isPublicModelId } from "./model-catalog-policy.js";
 
 type PublicProvider = "anthropic" | "github-copilot" | "openai" | "openrouter" | "custom";
 type PublicRuntime = "codex" | "generic-command" | "hermes" | "openclaw" | "custom";
 export type PublicSource = "fixture" | "generic-command" | "openclaw" | "unknown";
+
 
 export interface PublicStatusView {
   schemaVersion: "account-center.public-status.v1";
@@ -100,6 +102,97 @@ export function publicDoctorView(source: RuntimeSource | string, report: unknown
   };
 }
 
+/**
+ * Protected inventory endpoints deliberately share this narrow projection
+ * rather than serializing runtime status fields directly. Generic-command
+ * status is schema-valid but still untrusted for public labels.
+ */
+export function publicModelCatalogView(status: AccountCenterStatus, runtime?: string): unknown {
+  const known = new Set([
+    ...status.profiles.flatMap((profile) => profile.models),
+    ...status.policy.disabledModels
+  ]);
+  const models = Array.from(known).filter(isPublicModelId).sort();
+  return {
+    schemaVersion: "account-center.models.v1",
+    ...publicGeneratedAt(status.generatedAt),
+    selection: {
+      requestedPolicy: { state: "not_reported" },
+      effectiveRuntimeModel: { state: "not_reported" },
+      fallbackChain: { state: "not_reported" },
+      verificationState: "UNPROVEN"
+    },
+    models: models.map((id) => {
+      const observedProfiles = status.profiles.filter((profile) => profile.models.includes(id) && (!runtime || profile.runtimeCompatibility.includes(runtime as typeof profile.runtimeCompatibility[number])));
+      const disabled = status.policy.disabledModels.includes(id);
+      return {
+        id,
+        selectable: !disabled,
+        ...(disabled ? { reason: "disabled_by_policy" } : {}),
+        observedProfileCount: observedProfiles.length,
+        readableProfileCount: observedProfiles.filter((profile) => profile.usage.readable === true).length,
+        runtimeCompatibility: Array.from(new Set(observedProfiles.flatMap((profile) => profile.runtimeCompatibility)
+          .filter((candidate) => !runtime || candidate === runtime)
+          .map(publicRuntime))).sort(),
+        verificationState: "UNPROVEN"
+      };
+    })
+  };
+}
+
+export function publicLimitsInventoryView(status: AccountCenterStatus, runtime?: string): unknown {
+  return {
+    schemaVersion: "account-center.limits.v1",
+    ...publicGeneratedAt(status.generatedAt),
+    accounts: status.profiles.map((profile, index) => ({ profile, index }))
+      .filter(({ profile }) => !runtime || profile.runtimeCompatibility.includes(runtime as typeof profile.runtimeCompatibility[number]))
+      .map(({ profile, index }) => ({
+        accountRef: `account-${index + 1}`,
+        provider: publicProvider(profile.provider),
+        health: publicHealth(profile.usage.health),
+        authState: publicAuthState(profile.usage.auth.state),
+        readable: profile.usage.readable === true,
+        windows: profile.usage.windows.map((window) => ({
+          name: publicWindowName(window.name),
+          remainingPct: publicPercentage(window.remainingPct),
+          ...publicResetAt(window.resetsAt)
+        }))
+      }))
+  };
+}
+
+export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unknown {
+  const scopes = new Map<Exclude<PublicRuntime, "custom">, { readStatus: boolean; mutateRoutes: boolean; startReauth: boolean; mutateModels: boolean }>();
+  // A generic command can report schema-valid status, but it is not a trusted
+  // runtime capability authority. Preserve its observable read-status signal
+  // while refusing to publish any mutation capability it claims, regardless
+  // of which recognized runtime label it supplies.
+  const trustsMutationCapabilities = status.source !== "generic-command";
+  for (const runtime of status.runtimes) {
+    // Runtime keys come from adapter status. Unknown keys must not be renamed
+    // to a shared synthetic entry: that would merge distinct evidence and turn
+    // unsupported capabilities into an apparently authoritative catalog.
+    const key = publicCatalogRuntime(runtime.key);
+    if (!key) continue;
+    const existing = scopes.get(key);
+    scopes.set(key, {
+      readStatus: existing?.readStatus === true || runtime.capabilities.readStatus === true,
+      mutateRoutes: existing?.mutateRoutes === true || (trustsMutationCapabilities && runtime.capabilities.mutateRoutes === true),
+      startReauth: existing?.startReauth === true || (trustsMutationCapabilities && runtime.capabilities.startReauth === true),
+      mutateModels: existing?.mutateModels === true || (trustsMutationCapabilities && runtime.capabilities.mutateModels === true)
+    });
+  }
+  return {
+    schemaVersion: "account-center.runtime-scopes.v1",
+    ...publicGeneratedAt(status.generatedAt),
+    scopes: Array.from(scopes.entries()).sort(([left], [right]) => left.localeCompare(right)).map(([runtime, capabilities]) => ({
+      runtime,
+      scope: { kind: "default", id: "default" },
+      capabilities
+    }))
+  };
+}
+
 function publicProvider(value: string): PublicProvider {
   return value === "openai" || value === "anthropic" || value === "openrouter" || value === "github-copilot" ? value : "custom";
 }
@@ -108,6 +201,9 @@ export function publicSourceCategory(value: unknown): PublicSource {
 }
 function publicRuntime(value: string): PublicRuntime {
   return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command" ? value : "custom";
+}
+function publicCatalogRuntime(value: string): Exclude<PublicRuntime, "custom"> | undefined {
+  return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command" ? value : undefined;
 }
 function publicRole(value: string): ProfileRole | "unknown" {
   return value === "primary" || value === "secondary" || value === "backup" || value === "monitor-only" || value === "disabled" ? value : "unknown";
@@ -129,6 +225,12 @@ function publicPercentage(value: number | null): number | null {
 }
 function isoTimestamp(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && !Number.isNaN(Date.parse(value));
+}
+function publicGeneratedAt(value: unknown): { generatedAt: string } {
+  return { generatedAt: isoTimestamp(value) ? value : "unknown" };
+}
+function publicResetAt(value: unknown): { resetsAt?: string } {
+  return isoTimestamp(value) ? { resetsAt: value } : {};
 }
 function isOkReport(value: unknown): boolean {
   return typeof value === "object" && value !== null && !Array.isArray(value) && (value as { ok?: unknown }).ok === true;

@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
+import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
@@ -329,6 +329,99 @@ test("read-only runtime scope catalog is bearer-protected, versioned, and expose
     assert.equal(JSON.stringify(body).match(/profileId|email|token|secret|password/i), null);
   } finally {
     await app.close();
+  }
+});
+
+test("generic-command status cannot establish public mutation scopes for recognized runtimes", async () => {
+  const hostileValues = [
+    "person@example.test",
+    "sk-hostile-token-value-123456789",
+    "/srv/private/account-center/config.json",
+    "/usr/local/bin/private-adapter --dump-config",
+    "provider=private-account; routing=production",
+    "window=private-weekly-limit",
+    "model=private-provider/internal-model"
+  ];
+  const status = {
+    schemaVersion: "account-center.status.v1",
+    generatedAt: "/srv/private/account-center/config.json",
+    noSecrets: true,
+    source: "generic-command",
+    providers: [{ key: "custom:person@example.test", displayName: "provider=private-account; routing=production" }],
+    runtimes: [
+      { key: "generic-command", displayName: "/usr/local/bin/private-adapter --dump-config", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "codex", displayName: "runtime=private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "hermes", displayName: "runtime=private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "openclaw", displayName: "runtime=private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "custom:/srv/private/account-center/config.json", displayName: "runtime=private", capabilities: { readStatus: false, mutateRoutes: false, startReauth: false, mutateModels: false } }
+    ],
+    profiles: [{
+      id: "private-profile-person@example.test",
+      provider: "custom:person@example.test",
+      label: "sk-hostile-token-value-123456789",
+      role: "primary",
+      runtimeCompatibility: ["generic-command", "custom:/srv/private/account-center/config.json"],
+      models: ["model=private-provider/internal-model"],
+      disabled: false,
+      metadata: { config: "provider=private-account; routing=production" },
+      usage: {
+        profileId: "private-profile-person@example.test",
+        provider: "custom:person@example.test",
+        generatedAt: "/srv/private/account-center/config.json",
+        readable: "yes",
+        health: "adapter stderr: private failure",
+        windows: [{ name: "window=private-weekly-limit", remainingPct: 101, resetsAt: "/srv/private/account-center/config.json", displayLabel: "/usr/local/bin/private-adapter --dump-config" }],
+        auth: { state: "token=private" },
+        warnings: ["sk-hostile-token-value-123456789"]
+      }
+    }],
+    routes: [],
+    policy: { minFiveHourRemainingPct: 0, minWeeklyRemainingPct: 0, allowBackupWhenNormalAvailable: false, disabledModels: ["model=private-provider/internal-model"], staleAfterSeconds: 60 },
+    leases: [],
+    reauth: [],
+    audit: [],
+    warnings: ["provider=private-account; routing=production"]
+  } as unknown as AccountCenterStatus;
+  const directory = await mkdtemp(join(tmpdir(), "account-center-hostile-status-"));
+  const command = join(directory, "status.js");
+  await writeFile(command, `process.stdout.write(${JSON.stringify(JSON.stringify(status))});\n`);
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = `${process.execPath} ${command}`;
+  process.env.ACCOUNT_CENTER_GENERIC_ARGS = "";
+  const app = createAccountCenterServer({ token: "test-token", source: "generic-command" });
+  const address = await app.listen();
+  try {
+    for (const path of ["/api/limits", "/api/models", "/api/scopes"]) {
+      assert.equal((await request(address.port, path)).status, 401, path);
+      const response = await request(address.port, path, "test-token");
+      assert.equal(response.status, 200, path);
+      assert.equal(response.headers.get("cache-control"), "no-store", path);
+      const serialized = await response.text();
+      for (const value of hostileValues) assert.equal(serialized.includes(value), false, `${path}: ${value}`);
+      if (path === "/api/limits") assert.deepEqual(JSON.parse(serialized), {
+        schemaVersion: "account-center.limits.v1",
+        generatedAt: "unknown",
+        accounts: [{ accountRef: "account-1", provider: "custom", health: "unknown", authState: "unknown", readable: false, windows: [{ name: "other", remainingPct: null }] }]
+      });
+      if (path === "/api/models") assert.deepEqual(JSON.parse(serialized).models, []);
+      if (path === "/api/scopes") assert.deepEqual(JSON.parse(serialized), {
+        schemaVersion: "account-center.runtime-scopes.v1",
+        generatedAt: "unknown",
+        scopes: [
+          { runtime: "codex", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+          { runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+          { runtime: "hermes", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+          { runtime: "openclaw", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }
+        ]
+      });
+    }
+  } finally {
+    await app.close();
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
   }
 });
 

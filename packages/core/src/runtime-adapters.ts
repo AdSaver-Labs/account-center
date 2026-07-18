@@ -7,6 +7,7 @@ import { AccountCenterStatus, AuditAction, Profile, assertAccountCenterStatus, i
 import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
+import { DEFAULT_OPENCLAW_OBSERVED_MODEL_IDS } from "./model-catalog-policy.js";
 
 export type RuntimeSource = "fixture" | "openclaw" | "generic-command";
 
@@ -357,7 +358,7 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
     label: account.label,
     role: roleFor(account.id, activeProfileId, index),
     runtimeCompatibility: ["openclaw"],
-    models: ["openai/gpt-5.5", "openai/gpt-5.3-codex"],
+    models: [...DEFAULT_OPENCLAW_OBSERVED_MODEL_IDS],
     disabled: !account.enabled,
     cooldownUntil: account.cooldownUntil,
     usage: {

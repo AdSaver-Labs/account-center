@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publicDoctorView, publicStatusView } from "./public-views.js";
+import { publicDoctorView, publicRuntimeScopeCatalogView, publicStatusView } from "./public-views.js";
 import type { AccountCenterStatus } from "./schemas.js";
 
 const hostileValues = [
@@ -73,4 +73,32 @@ test("public status and doctor DTOs never serialize adapter diagnostics or priva
     state: "UNPROVEN"
   });
   assert.equal(JSON.stringify({ hostileStatusView, hostileDoctorView }).includes(hostileSource), false);
+});
+
+test("public runtime scope catalog omits distinct unknown runtime keys without combining capabilities", () => {
+  const status = {
+    schemaVersion: "account-center.status.v1",
+    generatedAt: "2026-07-17T12:00:00.000Z",
+    noSecrets: true,
+    source: "generic-command",
+    providers: [],
+    runtimes: [
+      { key: "generic-command", displayName: "trusted generic adapter", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "custom:hostile-runtime-a", displayName: "private runtime A", capabilities: { readStatus: false, mutateRoutes: true, startReauth: false, mutateModels: false } },
+      { key: "custom:hostile-runtime-b", displayName: "private runtime B", capabilities: { readStatus: false, mutateRoutes: false, startReauth: true, mutateModels: true } }
+    ],
+    profiles: [], routes: [], policy: { minFiveHourRemainingPct: 0, minWeeklyRemainingPct: 0, allowBackupWhenNormalAvailable: false, disabledModels: [], staleAfterSeconds: 60 }, leases: [], reauth: [], audit: [], warnings: []
+  } as unknown as AccountCenterStatus;
+
+  assert.deepEqual(publicRuntimeScopeCatalogView(status), {
+    schemaVersion: "account-center.runtime-scopes.v1",
+    generatedAt: "2026-07-17T12:00:00.000Z",
+    scopes: [{ runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }]
+  });
+
+  assert.deepEqual(publicRuntimeScopeCatalogView({ ...status, source: "openclaw" }), {
+    schemaVersion: "account-center.runtime-scopes.v1",
+    generatedAt: "2026-07-17T12:00:00.000Z",
+    scopes: [{ runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }]
+  });
 });
