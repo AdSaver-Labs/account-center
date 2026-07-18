@@ -332,7 +332,7 @@ test("read-only runtime scope catalog is bearer-protected, versioned, and expose
   }
 });
 
-test("generic-command status cannot establish public mutation scopes for recognized runtimes", async () => {
+test("fixture-only hostile status cannot establish public mutation scopes or cross protected read boundaries", async () => {
   const hostileValues = [
     "person@example.test",
     "sk-hostile-token-value-123456789",
@@ -392,13 +392,14 @@ test("generic-command status cannot establish public mutation scopes for recogni
   const app = createAccountCenterServer({ token: "test-token", source: "generic-command" });
   const address = await app.listen();
   try {
-    for (const path of ["/api/limits", "/api/models", "/api/scopes"]) {
+    for (const path of ["/api/status", "/api/limits", "/api/models", "/api/scopes"]) {
       assert.equal((await request(address.port, path)).status, 401, path);
       const response = await request(address.port, path, "test-token");
       assert.equal(response.status, 200, path);
       assert.equal(response.headers.get("cache-control"), "no-store", path);
       const serialized = await response.text();
       for (const value of hostileValues) assert.equal(serialized.includes(value), false, `${path}: ${value}`);
+      if (path === "/api/status") assert.equal(JSON.parse(serialized).verificationState, "UNPROVEN");
       if (path === "/api/limits") assert.deepEqual(JSON.parse(serialized), {
         schemaVersion: "account-center.limits.v1",
         generatedAt: "unknown",

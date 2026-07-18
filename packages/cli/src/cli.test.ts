@@ -125,6 +125,79 @@ test("status --json emits fixture-backed no-secret export", async () => {
   assert.equal(JSON.stringify(parsed).includes("token"), false);
 });
 
+test("successful status text and JSON keep hostile fixture values out of the public CLI boundary", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const hostileValues = [
+    "fixture-person@example.test",
+    "sk-fixture-secret-value-123456789",
+    "Bearer fixture-bearer-token-value-123456789",
+    "/fixture/private/path",
+    "fixture adapter error",
+    "fixture-profile-identity",
+    "fixture-adapter-error"
+  ];
+  const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
+  const profile = hostileStatus.profiles[0];
+  profile.id = "fixture-profile-identity";
+  profile.provider = "custom:fixture-person@example.test";
+  profile.label = "/fixture/private/path";
+  profile.runtimeCompatibility = ["custom:fixture-adapter-error"];
+  profile.models = ["sk-fixture-secret-value-123456789"];
+  profile.metadata = { adapterError: "fixture adapter error", authorization: "Bearer fixture-bearer-token-value-123456789" };
+  profile.usage.profileId = profile.id;
+  profile.usage.provider = profile.provider;
+  profile.usage.warnings = ["fixture adapter error"];
+  hostileStatus.profiles = [profile];
+  hostileStatus.providers = [{ key: profile.provider, displayName: "/fixture/private/path" }];
+  hostileStatus.runtimes = [{ key: "custom:fixture-adapter-error", displayName: "fixture adapter error", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }];
+  hostileStatus.routes = [{ provider: profile.provider, runtime: "custom:fixture-adapter-error", activeProfileId: profile.id, order: [profile.id], updatedAt: hostileStatus.generatedAt }];
+
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "fixture-only-command";
+  try {
+    const runner = async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) });
+    const [text, jsonResult] = await Promise.all([
+      runCli(["status", "--source", "generic-command", "--no-write-export"], process.cwd(), { runner }),
+      runCli(["status", "--source", "generic-command", "--json", "--no-write-export"], process.cwd(), { runner })
+    ]);
+
+    for (const result of [text, jsonResult]) {
+      assert.equal(result.code, 0);
+      assert.equal(result.stderr, undefined);
+      for (const value of hostileValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
+    }
+    assert.equal(text.stdout, "Account Center: status observed\nSource: generic-command\nAccounts observed: 1\nRoutes observed: 1\nVerification: UNPROVEN\n");
+    assert.deepEqual(JSON.parse(jsonResult.stdout), {
+      schemaVersion: "account-center.public-status.v1",
+      source: "generic-command",
+      verificationState: "UNPROVEN",
+      generatedAt: hostileStatus.generatedAt,
+      runtimes: [{ key: "custom", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }],
+      profiles: [{
+        id: "account-1",
+        label: "account-1",
+        provider: "custom",
+        role: "primary",
+        runtimeCompatibility: ["custom"],
+        usage: {
+          profileId: "account-1",
+          provider: "custom",
+          generatedAt: profile.usage.generatedAt,
+          readable: profile.usage.readable,
+          health: profile.usage.health,
+          windows: profile.usage.windows,
+          auth: profile.usage.auth,
+          warnings: []
+        }
+      }],
+      routes: [{ provider: "custom", runtime: "custom", activeProfileId: "account-1", order: ["account-1"], updatedAt: hostileStatus.generatedAt }],
+      reauth: hostileStatus.reauth.map((challenge: { expiresAt?: string }, index: number) => ({ id: `reauth-${index + 1}`, provider: "openai", profileHint: "account-redacted", ...(challenge.expiresAt ? { expiresAt: challenge.expiresAt } : {}), status: "pending" }))
+    });
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("CLI rejects hostile adapter source labels without echoing them", async () => {
   const hostileSource = "/srv/private/account-center/adapter --source=production";
   for (const args of [["--source", hostileSource], ["--source=fixture", `--source=${hostileSource}`]]) {
