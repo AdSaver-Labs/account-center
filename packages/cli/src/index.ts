@@ -180,7 +180,7 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
     receiptPath: resolve(cwd, valueAfter(argv, "--receipt-path") ?? `.account-center/receipts/${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
     writeExport: !argv.includes("--no-write-export"),
-    source: parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE),
+    source: parseSourceOption(argv),
     apply: argv.includes("--apply"),
     ensureRoute: argv.includes("--ensure-route")
   };
@@ -201,6 +201,26 @@ function isOptionValue(argv: string[], arg: string): boolean {
 function valueAfter(argv: string[], key: string): string | undefined {
   const index = argv.indexOf(key);
   return index >= 0 ? argv[index + 1] : undefined;
+}
+
+function parseSourceOption(argv: string[]): CliOptions["source"] {
+  let source: CliOptions["source"] | undefined;
+  let hasExplicitSource = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const option = argv[index];
+    const value = option === "--source"
+      ? argv[index + 1]
+      : option?.startsWith("--source=")
+        ? option.slice("--source=".length)
+        : undefined;
+    if (value === undefined && option !== "--source") continue;
+    hasExplicitSource = true;
+    if (value === undefined || value === "" || value.startsWith("--")) throw new Error("Unsupported Account Center source.");
+    const parsedSource = parseRuntimeSource(value);
+    if (source !== undefined) throw new Error("Unsupported Account Center source.");
+    source = parsedSource;
+  }
+  return hasExplicitSource ? source! : parseRuntimeSource(process.env.ACCOUNT_CENTER_SOURCE);
 }
 
 async function maybeWriteStatus(status: unknown, options: CliOptions): Promise<void> {
@@ -706,13 +726,20 @@ export function createPersistentControlPanel(options: { token: string; source: C
 }
 
 async function serveControlPanel(argv: string[]): Promise<void> {
+  let source: CliOptions["source"];
+  try {
+    source = parseSourceOption(argv);
+  } catch {
+    process.stderr.write("Unsupported Account Center source.\n");
+    process.exitCode = 1;
+    return;
+  }
   const portValue = valueAfter(argv, "--port") ?? "4317";
   const port = Number(portValue);
   // Port zero asks the kernel for an ephemeral loopback port. This makes the
   // local, token-protected beta smoke safe to run without competing for 4317.
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
   const token = valueAfter(argv, "--token") ?? randomBytes(24).toString("base64url");
-  const source = parseRuntimeSource(valueAfter(argv, "--source") ?? process.env.ACCOUNT_CENTER_SOURCE);
   const app = createPersistentControlPanel({ token, source });
   const address = await app.listen(port);
   process.stdout.write(`Account Center local panel: http://127.0.0.1:${address.port}/\nLaunch token: ${token}\nPress Ctrl+C to stop.\n`);

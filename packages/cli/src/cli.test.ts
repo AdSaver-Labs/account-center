@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { runCli } from "./index.js";
 
-test("serve supports an ephemeral loopback port with a per-launch token", async () => {
-  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source", "fixture"], { stdio: ["ignore", "pipe", "pipe"] });
+test("serve accepts an equals-form fixture source on an ephemeral loopback port", async () => {
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture"], { stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   let errors = "";
   let exited = false;
@@ -49,6 +49,73 @@ test("serve supports an ephemeral loopback port with a per-launch token", async 
   }
 });
 
+test("serve rejects every explicit empty, missing, or option-like source value without launching", async () => {
+  const invalidArgs = [
+    ["--source"],
+    ["--source", ""],
+    ["--source", "--port", "0"],
+    ["--source="],
+    ["--source=--port", "0"],
+    ["--source", "fixture", "--source"],
+    ["--source", "fixture", "--source", "--port", "0"],
+    ["--source=fixture", "--source="],
+    ["--source", "fixture", "--source=--port", "0"],
+    ["--source=fixture", "--source=opaque"]
+  ];
+
+  for (const args of invalidArgs) {
+    const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    let errors = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { output += chunk; });
+    child.stderr.on("data", (chunk: string) => { errors += chunk; });
+    const code = await new Promise<number | null>((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        child.kill("SIGINT");
+        reject(new Error(`serve launched for invalid source arguments: ${args.join(" ")}`));
+      }, 2_000);
+      child.once("error", (error) => { clearTimeout(deadline); reject(error); });
+      child.once("exit", (exitCode) => { clearTimeout(deadline); resolve(exitCode); });
+    });
+    assert.equal(code, 1);
+    assert.equal(output, "");
+    assert.match(errors, /Unsupported Account Center source\./);
+    assert.doesNotMatch(errors, /fixture|127\.0\.0\.1|Launch token/);
+  }
+});
+
+test("serve rejects repeated valid source options without launching", async () => {
+  const invalidArgs = [
+    ["--source", "fixture", "--source=openclaw"],
+    ["--source=fixture", "--source", "openclaw"],
+    ["--source", "fixture", "--source=fixture"],
+    ["--source=fixture", "--source", "fixture"]
+  ];
+
+  for (const args of invalidArgs) {
+    const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    let errors = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { output += chunk; });
+    child.stderr.on("data", (chunk: string) => { errors += chunk; });
+    const code = await new Promise<number | null>((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        child.kill("SIGINT");
+        reject(new Error(`serve launched for repeated source arguments: ${args.join(" ")}`));
+      }, 2_000);
+      child.once("error", (error) => { clearTimeout(deadline); reject(error); });
+      child.once("exit", (exitCode) => { clearTimeout(deadline); resolve(exitCode); });
+    });
+    assert.equal(code, 1);
+    assert.equal(output, "");
+    assert.equal(errors, "Unsupported Account Center source.\n");
+  }
+});
+
 test("status --json emits fixture-backed no-secret export", async () => {
   const result = await runCli(["status", "--json", "--no-write-export"]);
   assert.equal(result.code, 0);
@@ -56,6 +123,58 @@ test("status --json emits fixture-backed no-secret export", async () => {
   assert.equal(parsed.schemaVersion, "account-center.public-status.v1");
   assert.equal(parsed.source, "fixture");
   assert.equal(JSON.stringify(parsed).includes("token"), false);
+});
+
+test("CLI rejects hostile adapter source labels without echoing them", async () => {
+  const hostileSource = "/srv/private/account-center/adapter --source=production";
+  for (const args of [["--source", hostileSource], ["--source=fixture", `--source=${hostileSource}`]]) {
+    const result = await runCli(["status", ...args, "--no-write-export"]);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Unsupported Account Center source.\n");
+    assert.equal(`${result.stdout}${result.stderr}`.includes(hostileSource), false);
+  }
+});
+
+test("CLI gives valid equals-form sources the same fixture behavior as split-form sources", async () => {
+  const [equalsForm, splitForm] = await Promise.all([
+    runCli(["status", "--source=fixture", "--json", "--no-write-export"]),
+    runCli(["status", "--source", "fixture", "--json", "--no-write-export"])
+  ]);
+  assert.equal(equalsForm.code, 0);
+  assert.deepEqual(JSON.parse(equalsForm.stdout), JSON.parse(splitForm.stdout));
+});
+
+test("status rejects repeated valid source options with opaque errors", async () => {
+  const argumentSets = [
+    ["--source", "fixture", "--source=openclaw"],
+    ["--source=openclaw", "--source", "fixture"],
+    ["--source", "fixture", "--source=fixture"],
+    ["--source=fixture", "--source", "fixture"]
+  ];
+
+  for (const sourceArgs of argumentSets) {
+    const result = await runCli(["status", ...sourceArgs, "--no-write-export"]);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Unsupported Account Center source.\n");
+  }
+});
+
+test("CLI rejects explicit empty or missing adapter sources without falling back to fixture", async () => {
+  const previousSource = process.env.ACCOUNT_CENTER_SOURCE;
+  process.env.ACCOUNT_CENTER_SOURCE = "";
+  try {
+    for (const args of [["status", "--source", "", "--no-write-export"], ["status", "--source", "--no-write-export"], ["status", "--no-write-export"]]) {
+      const result = await runCli(args);
+      assert.equal(result.code, 1);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "Unsupported Account Center source.\n");
+    }
+  } finally {
+    if (previousSource === undefined) delete process.env.ACCOUNT_CENTER_SOURCE;
+    else process.env.ACCOUNT_CENTER_SOURCE = previousSource;
+  }
 });
 
 test("provider probe keeps hostile generic-command provider identifiers out of public output", async () => {

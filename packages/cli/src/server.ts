@@ -1,17 +1,20 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, RuntimeSource, publicStatusView } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, publicStatusView, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
-  source?: RuntimeSource;
+  source?: unknown;
   auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
   mutationRepository?: MutationRepository;
 }
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
+  // Only an omitted source selects the fixture adapter. Any explicit value,
+  // including undefined or null, remains untrusted input for the adapter to reject.
+  const source = Object.prototype.hasOwnProperty.call(options, "source") ? options.source : "fixture";
   const server = createServer(async (request, response) => {
     try {
       setSafetyHeaders(response);
@@ -85,7 +88,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/models") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? modelCatalog(result.status, query.runtime) : { error: "status_unavailable" });
@@ -93,20 +96,20 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/limits") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? limitsInventory(result.status, query.runtime) : { error: "status_unavailable" });
     }
     if (request.url === "/api/scopes") {
-      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? runtimeScopeCatalog(result.status) : { error: "status_unavailable" });
     }
     if (pathname === "/api/auth-challenges") {
       const query = authChallengeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       // A runtime filter is an operator-selected context, not a free-form
       // history search. Do not turn a stale or mistyped runtime into a
@@ -129,7 +132,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
     if (request.url === "/api/status") {
-      const adapter = createRuntimeAdapter(options.source ?? "fixture");
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       return send(response, result.code === 0 ? 200 : 500, result.status ? publicStatusView(result.status) : { error: "status_unavailable" });
     }

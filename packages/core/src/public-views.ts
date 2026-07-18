@@ -3,7 +3,7 @@ import type { RuntimeSource } from "./runtime-adapters.js";
 
 type PublicProvider = "anthropic" | "github-copilot" | "openai" | "openrouter" | "custom";
 type PublicRuntime = "codex" | "generic-command" | "hermes" | "openclaw" | "custom";
-type PublicSource = "fixture" | "generic-command" | "openclaw" | "unknown";
+export type PublicSource = "fixture" | "generic-command" | "openclaw" | "unknown";
 
 export interface PublicStatusView {
   schemaVersion: "account-center.public-status.v1";
@@ -41,7 +41,7 @@ export function publicStatusView(status: AccountCenterStatus): PublicStatusView 
   };
   return {
     schemaVersion: "account-center.public-status.v1",
-    source: publicSource(status.source),
+    source: publicSourceCategory(status.source),
     verificationState: "UNPROVEN",
     ...(isoTimestamp(status.generatedAt) ? { generatedAt: status.generatedAt } : {}),
     runtimes: status.runtimes.map((runtime) => ({ key: publicRuntime(runtime.key), capabilities: {
@@ -91,14 +91,19 @@ export function publicStatusView(status: AccountCenterStatus): PublicStatusView 
   };
 }
 
-export function publicDoctorView(source: RuntimeSource, report: unknown): { schemaVersion: "account-center.public-doctor.v1"; source: RuntimeSource; state: "OK" | "UNPROVEN" } {
-  return { schemaVersion: "account-center.public-doctor.v1", source, state: isOkReport(report) ? "OK" : "UNPROVEN" };
+export function publicDoctorView(source: RuntimeSource | string, report: unknown): { schemaVersion: "account-center.public-doctor.v1"; source: PublicSource; state: "OK" | "UNPROVEN" } {
+  const publicSource = publicSourceCategory(source);
+  return {
+    schemaVersion: "account-center.public-doctor.v1",
+    source: publicSource,
+    state: publicSource === "unknown" || !isOkReport(report) ? "UNPROVEN" : "OK"
+  };
 }
 
 function publicProvider(value: string): PublicProvider {
   return value === "openai" || value === "anthropic" || value === "openrouter" || value === "github-copilot" ? value : "custom";
 }
-function publicSource(value: string): PublicSource {
+export function publicSourceCategory(value: unknown): PublicSource {
   return value === "fixture" || value === "openclaw" || value === "generic-command" ? value : "unknown";
 }
 function publicRuntime(value: string): PublicRuntime {

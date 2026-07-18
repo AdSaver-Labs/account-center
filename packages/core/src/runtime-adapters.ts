@@ -294,17 +294,18 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
   }
 }
 
-export function createRuntimeAdapter(source: RuntimeSource, options: { cwd?: string; runner?: CommandRunner } = {}): RuntimeAdapter {
+export function createRuntimeAdapter(source: unknown, options: { cwd?: string; runner?: CommandRunner } = {}): RuntimeAdapter {
   if (source === "openclaw") return new OpenClawRuntimeAdapter({ runner: options.runner });
   if (source === "generic-command") return new GenericCommandRuntimeAdapter({ runner: options.runner });
-  return new FixtureRuntimeAdapter(resolve(options.cwd ?? process.cwd(), "tests/fixtures/status.fixture.json"));
+  if (source === "fixture") return new FixtureRuntimeAdapter(resolve(options.cwd ?? process.cwd(), "tests/fixtures/status.fixture.json"));
+  throw new Error("Unsupported Account Center source.");
 }
 
 export function parseRuntimeSource(value: string | undefined): RuntimeSource {
-  if (!value || value === "fixture") return "fixture";
+  if (value === undefined || value === "fixture") return "fixture";
   if (value === "openclaw") return "openclaw";
   if (value === "generic-command") return "generic-command";
-  throw new Error(`Unsupported source: ${value}. Expected fixture, openclaw, or generic-command.`);
+  throw new Error("Unsupported Account Center source.");
 }
 
 export function normalizeGenericCommandStatus(raw: unknown): AccountCenterStatus {
