@@ -440,6 +440,7 @@ test("/auth delete --dry-run renders a clear redacted no-deletion message", asyn
   assert.equal(result.code, 0);
   assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
   assert.match(result.stdout, /Action: account\.delete/);
+  assert.match(result.stdout, /Verification: UNPROVEN/);
   assert.match(result.stdout, /Exact connected-target confirmation remains required/);
   assert.doesNotMatch(result.stdout, /helper-1/);
 
