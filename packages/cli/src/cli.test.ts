@@ -651,6 +651,34 @@ test("routes next reports no eligible account for an exact route with no eligibl
   });
 });
 
+test("routes next fails closed for an exact route with an empty order", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
+  status.routes = [{ ...status.routes[0], order: [] }];
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "fixture-only-command";
+  try {
+    const [text, jsonResult] = await Promise.all([
+      runCli(["routes", "next", "--source", "generic-command"], process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(status) }) }),
+      runCli(["routes", "next", "--source", "generic-command", "--json"], process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(status) }) })
+    ]);
+
+    assert.equal(text.code, 2);
+    assert.equal(text.stdout, "Next eligible: none\n");
+    assert.doesNotMatch(text.stdout, /openai:helper-|business-backup|reauth-needed/);
+    assert.equal(jsonResult.code, 2);
+    assert.deepEqual(JSON.parse(jsonResult.stdout), {
+      schemaVersion: "account-center.public-route-next.v1",
+      verificationState: "UNPROVEN",
+      routeSelection: "exact_route",
+      eligible: false,
+      next: "none"
+    });
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("hostile OpenClaw inventory fixtures cannot cross the public CLI boundary", async () => {
   const dir = await mkdtemp(join(tmpdir(), "account-center-hostile-cli-"));
   const cli = join(dir, "oauth_routing_cli.py");
