@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHmac, randomUUID } from "node:crypto";
+import { mintExecutorRouteCapability } from "./executor-route-capability.js";
 import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
 
 const routerStatus = {
@@ -27,10 +27,8 @@ const routerStatus = {
   effectiveAuthOrder: ["openai:helper-1", "openai:helper-2"]
 };
 
-const CAPABILITY_SECRET = "test-route-capability-secret-that-is-long-enough";
 function capability(action: string, target: string, agent: string) {
-  const body = JSON.stringify({ action, target, provider: "openai", runtime: "openclaw", scope: { kind: "agent", id: agent }, nonce: randomUUID() });
-  return `${Buffer.from(body).toString("base64url")}.${createHmac("sha256", CAPABILITY_SECRET).update(body).digest("base64url")}`;
+  return mintExecutorRouteCapability({ action: action as "route.auto" | "route.use" | "route.remove", target, provider: "openai", runtime: "openclaw", scope: { kind: "agent", id: agent } });
 }
 
 function routedStatus(activeProfileId: string, order: string[], agent = "main") {
@@ -133,11 +131,34 @@ test("OpenClaw route apply never invokes the native script before shared confirm
   assert.ok(receipt.receipt.warnings.includes("explicit_agent_scope_required"));
 });
 
+test("hostile direct adapter callers cannot supply a verifier secret or forge a route capability", async () => {
+  const workspace = await openClawWorkspace();
+  let nativeCalls = 0;
+  const hostileConfig: unknown = {
+    workspace: workspace.root,
+    cli: workspace.cli,
+    // Runtime config is deliberately ignored even if an untyped caller tries it.
+    routeCapabilitySecret: "attacker-controlled-secret",
+    runner: async (command: string) => {
+      if (command === process.execPath) nativeCalls += 1;
+      return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+    }
+  };
+  const adapter = new OpenClawRuntimeAdapter(hostileConfig as ConstructorParameters<typeof OpenClawRuntimeAdapter>[0]);
+  const result = await adapter.mutate({
+    action: "route.use", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw",
+    scope: { kind: "agent", id: "main" }, routeCapability: "attacker-forged-capability", receiptPath: join(workspace.root, "receipt.json")
+  });
+  assert.equal(result.code, 2);
+  assert.equal(nativeCalls, 0);
+  assert.equal((result.payload as { reason: string }).reason, "route_apply_requires_executor_capability");
+});
+
 test("OpenClaw confirmed manual route uses the exact scoped native command and verifies fresh status", async () => {
   const workspace = await openClawWorkspace();
   const calls: Array<{ command: string; args: string[] }> = [];
   const fresh = routedStatus("openai:helper-2", ["openai:helper-2", "openai:helper-1"], "jacques");
-  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, routeCapabilitySecret: CAPABILITY_SECRET, runner: async (command, args) => {
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command, args) => {
     calls.push({ command, args });
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.use", agent: "jacques", selected: { profileId: "openai:helper-2" } }), stderr: "" };
@@ -148,13 +169,18 @@ test("OpenClaw confirmed manual route uses the exact scoped native command and v
   assert.deepEqual(calls[1], { command: process.execPath, args: [workspace.sentinel, "--print"] });
   assert.equal((result.payload as { applied: boolean }).applied, true);
   assert.equal(JSON.stringify(result.payload).includes("helper-2"), true, "internal adapter receipt retains profile identity for the protected lifecycle");
+  const proof = (result.payload as { proof: { nativeEvent: { scopeId: string; targetId: string; status: string }; verification: { before: unknown; after: unknown } } }).proof;
+  assert.equal(proof.nativeEvent.status, "verified");
+  assert.match(proof.nativeEvent.scopeId, /^id_[a-f0-9]{24}$/);
+  assert.match(proof.nativeEvent.targetId, /^id_[a-f0-9]{24}$/);
+  assert.doesNotMatch(JSON.stringify(proof), /helper-2|jacques|stdout|stderr/);
 });
 
 test("OpenClaw confirmed automatic route invokes --auto for one exact agent and verifies the selected native result", async () => {
   const workspace = await openClawWorkspace();
   const fresh = routedStatus("openai:helper-2", ["openai:helper-2", "openai:helper-1"]);
   const calls: string[][] = [];
-  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, routeCapabilitySecret: CAPABILITY_SECRET, runner: async (_command, args) => {
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
     calls.push(args);
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.auto", agent: "main", selected: { profileId: "openai:helper-2" } }), stderr: "" };
@@ -167,7 +193,7 @@ test("OpenClaw confirmed automatic route invokes --auto for one exact agent and 
 test("OpenClaw route apply rejects implicit, all, and non-agent scopes without native invocation", async () => {
   const workspace = await openClawWorkspace();
   let calls = 0;
-  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, routeCapabilitySecret: CAPABILITY_SECRET, runner: async () => { calls += 1; return { code: 0, stdout: "{}", stderr: "" }; } });
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => { calls += 1; return { code: 0, stdout: "{}", stderr: "" }; } });
   for (const scope of [undefined, { kind: "all" as const, id: "all" }, { kind: "default" as const, id: "default" }]) {
     const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, routeCapability: capability("route.use", "openai:helper-2", "main"), scope, provider: "openai", runtime: "openclaw", receiptPath: join(workspace.root, `receipt-${calls}.json`) });
     assert.equal(result.code, 2);
@@ -178,7 +204,7 @@ test("OpenClaw route apply rejects implicit, all, and non-agent scopes without n
 test("OpenClaw native route failure returns a truthful non-applied receipt", async () => {
   const workspace = await openClawWorkspace();
   const receiptPath = join(workspace.root, "receipt.json");
-  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, routeCapabilitySecret: CAPABILITY_SECRET, runner: async () => ({ code: 9, stdout: "", stderr: "private@example.test sk-secret" }) });
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 9, stdout: "", stderr: "private@example.test sk-secret" }) });
   const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, routeCapability: capability("route.use", "openai:helper-2", "main"), scope: { kind: "agent", id: "main" }, provider: "openai", runtime: "openclaw", receiptPath });
   assert.equal(result.code, 2);
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
@@ -189,7 +215,7 @@ test("OpenClaw native route failure returns a truthful non-applied receipt", asy
 
 test("OpenClaw read-after-write mismatch never reports applied", async () => {
   const workspace = await openClawWorkspace();
-  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, routeCapabilitySecret: CAPABILITY_SECRET, runner: async (_command, args) => {
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.use", agent: "main", selected: { profileId: "openai:helper-2" } }), stderr: "" };
   } });

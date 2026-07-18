@@ -1,9 +1,10 @@
 import { AccountCenterStatus, AuditAction, AuditEvent, RuntimeKey } from "./schemas.js";
 import { createReceipt, guardStatus, nextEligible } from "./policy.js";
 import { RuntimeAdapter } from "./runtime-adapters.js";
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createMutationReview, MutationReview, MutationScope, verifyMutationApply } from "./mutation-contract.js";
-import { MutationRepository } from "./mutation-repository.js";
+import { MutationEvidence, MutationRepository, RouteScopeEvidence } from "./mutation-repository.js";
+import { mintExecutorRouteCapability } from "./executor-route-capability.js";
 
 export type AccountCenterCommand =
   | "status"
@@ -67,7 +68,7 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
     provider,
     runtime,
     receiptPath: request.receiptPath ?? ".account-center/receipts/executor.json",
-    ...(authorization.kind === "confirmed" ? { routeCapability: mintRouteCapability(action, target!, provider, runtime, request.scope!, deps.mutation!.secret), scope: request.scope } : {})
+    ...(authorization.kind === "confirmed" ? { routeCapability: mintExecutorRouteCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
   });
   const payload = asMutation(result.payload, action, target);
   if (authorization.kind === "confirmed") {
@@ -106,19 +107,37 @@ function resolveRouteTarget(status: AccountCenterStatus, action: AuditAction, re
 
 function isExactAgentScope(scope: MutationScope): boolean { return scope.kind === "agent" && /^[a-z][a-z0-9_-]{0,63}$/.test(scope.id) && scope.id !== "all"; }
 
-/** Internal signed, single-operation authorization. It is deliberately not an exported public API. */
-function mintRouteCapability(action: string, target: string, provider: string, runtime: string, scope: MutationScope, secret: string): string {
-  const body = JSON.stringify({ action, target, provider, runtime, scope, nonce: crypto.randomUUID() });
-  return `${Buffer.from(body).toString("base64url")}.${createHmac("sha256", secret).update(body).digest("base64url")}`;
-}
-
 function encodeReview(review: MutationReview): string { return `${Buffer.from(JSON.stringify(review)).toString("base64url")}.${review.token}`; }
 export function decodeConfirmationToken(token: string): MutationReview | undefined {
   const [body, signature, ...rest] = token.split("."); if (!body || !signature || rest.length) return undefined;
   try { const review = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as MutationReview; return review.token === signature ? review : undefined; } catch { return undefined; }
 }
-function redactedEvidence(payload: NonNullable<CommandExecution["mutation"]>): { receiptId: string; verification: "verified" | "unproven" } {
-  return { receiptId: payload.receipt.id, verification: payload.applied === true && payload.liveRuntimeMutation === true ? "verified" : "unproven" };
+function redactedEvidence(payload: NonNullable<CommandExecution["mutation"]>): MutationEvidence {
+  const verification = payload.applied === true && payload.liveRuntimeMutation === true ? "verified" as const : "unproven" as const;
+  const proof = persistedProof(payload.proof);
+  return {
+    receiptId: payload.receipt.id,
+    verification,
+    ...(verification === "verified" && proof ? { proof } : {})
+  };
+}
+
+function persistedProof(value: unknown): MutationEvidence["proof"] | undefined {
+  if (!isRecord(value) || !isRecord(value.nativeEvent) || !isRecord(value.verification) || !isRecord(value.verification.before) || !isRecord(value.verification.after)) return undefined;
+  const native = value.nativeEvent;
+  const verification = value.verification;
+  const beforeValue = verification.before;
+  const afterValue = verification.after;
+  if (!isRecord(beforeValue) || !isRecord(afterValue)) return undefined;
+  const before = boundedScopeEvidence(beforeValue);
+  const after = boundedScopeEvidence(afterValue);
+  if ((native.action !== "route.auto" && native.action !== "route.use" && native.action !== "route.remove") || typeof native.scopeId !== "string" || typeof native.targetId !== "string" || native.status !== "verified" || typeof verification.scopeId !== "string" || verification.scopeId !== native.scopeId || !before || !after) return undefined;
+  return { nativeEvent: { action: native.action, scopeId: native.scopeId, targetId: native.targetId, status: "verified" }, verification: { scopeId: verification.scopeId, before, after } };
+}
+function boundedScopeEvidence(value: Record<string, unknown>): RouteScopeEvidence | undefined {
+  const activeTargetId = typeof value.activeTargetId === "string" ? value.activeTargetId : undefined;
+  if ((value.status !== "observed" && value.status !== "absent") || !Array.isArray(value.orderTargetIds) || value.orderTargetIds.length > 10 || !value.orderTargetIds.every((item) => typeof item === "string")) return undefined;
+  return { status: value.status, ...(activeTargetId ? { activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] };
 }
 
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }

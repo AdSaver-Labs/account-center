@@ -47,3 +47,27 @@ test("core executor invokes route apply only after exact review confirmation and
   assert.equal(replay.mutation?.historicalOutcome, "applied");
   assert.equal(mutations, 1);
 });
+
+test("verified route apply persists bounded opaque native and scoped before/after proof on its immutable operation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-command-proof-"));
+  const repository = new MutationRepository(root, { operationId: () => "op_route_proof" });
+  const secret = "test-shared-mutation-secret";
+  const scope = { kind: "agent" as const, id: "main" };
+  const target = "openai:helper-2";
+  const review = createMutationReview({ action: "route.use", provider: "openai", runtime: "openclaw", scope, target }, { secret });
+  const adapter = {
+    source: "fixture" as const,
+    readStatus: () => new FixtureRuntimeAdapter().readStatus(), doctor: async () => ({}),
+    mutate: async () => ({ code: 0, payload: {
+      applied: true, dryRun: false, liveRuntimeMutation: true,
+      receipt: { id: "evt_route_proof", action: "route.use", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "verified", warnings: [] },
+      proof: { nativeEvent: { action: "route.use", scopeId: "id_aaaaaaaaaaaaaaaaaaaaaaaa", targetId: "id_bbbbbbbbbbbbbbbbbbbbbbbb", status: "verified" }, verification: { scopeId: "id_aaaaaaaaaaaaaaaaaaaaaaaa", before: { status: "observed", activeTargetId: "id_cccccccccccccccccccccccc", orderTargetIds: ["id_cccccccccccccccccccccccc"] }, after: { status: "observed", activeTargetId: "id_bbbbbbbbbbbbbbbbbbbbbbbb", orderTargetIds: ["id_bbbbbbbbbbbbbbbbbbbbbbbb"] } } }
+    } })
+  };
+  await executeAccountCenterCommand({ command: "route.use", target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, idempotencyKey: "route-proof-idempotency-key-0001" }, { adapter, mutation: { secret, repository } });
+  const raw = await (await import("node:fs/promises")).readFile(join(root, "mutation-repository.v1.json"), "utf8");
+  assert.match(raw, /op_route_proof/);
+  assert.match(raw, /nativeEvent/);
+  assert.match(raw, /id_aaaaaaaaaaaaaaaaaaaaaaaa/);
+  assert.doesNotMatch(raw, /helper-2|stdout|stderr|token|@|\//);
+});

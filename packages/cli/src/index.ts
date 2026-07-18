@@ -75,10 +75,9 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
     }
   }
-  const lifecycle = await mutationLifecycle();
   let adapter;
   try {
-    adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner, routeCapabilitySecret: lifecycle.secret });
+    adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
   } catch (error) {
     if (options.source === "generic-command") return genericCommandFailure(options, command, subcommand);
     throw error;
@@ -143,6 +142,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const scope = parseAgentScope(options.scope);
     if (!scope) return { code: 2, stdout: options.json ? json(blockedRouteView(action)) : renderMutation(blockedRouteView(action)) };
     const review = options.confirm ? decodeConfirmationToken(options.confirm) : undefined;
+    const lifecycle = await mutationLifecycle();
     const execution = await executeAccountCenterCommand({
       command: action,
       target: action === "route.auto" ? target ?? nextEligible(status, options.provider, options.runtime)?.profile.id : target,
@@ -751,7 +751,13 @@ function ok(stdout: string): CliResult {
 }
 
 function json(value: unknown): string {
-  return JSON.stringify(redactJson(value), null, 2);
+  // The confirmation token is intentionally public, one-time CLI output. Keep
+  // it byte-for-byte usable while applying normal recursive redaction to every
+  // other response field.
+  const confirmationToken = isReport(value) && value.schemaVersion === "account-center.public-mutation.v1" && typeof value.confirmationToken === "string" ? value.confirmationToken : undefined;
+  const redacted = redactJson(value);
+  if (confirmationToken && isReport(redacted)) redacted.confirmationToken = confirmationToken;
+  return JSON.stringify(redacted, null, 2);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
