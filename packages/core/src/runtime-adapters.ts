@@ -8,6 +8,7 @@ import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
 import { DEFAULT_OPENCLAW_OBSERVED_MODEL_IDS } from "./model-catalog-policy.js";
+import type { MutationScope } from "./mutation-contract.js";
 
 export type RuntimeSource = "fixture" | "openclaw" | "generic-command";
 
@@ -34,6 +35,10 @@ export interface RuntimeMutationInput {
   provider: string;
   runtime: string;
   receiptPath: string;
+  /** Set only by Account Center's protected mutation executor after review confirmation. */
+  authorized?: boolean;
+  /** OpenClaw route mutations are deliberately limited to one exact agent. */
+  scope?: MutationScope;
 }
 
 export interface RuntimeMutationResult {
@@ -160,17 +165,73 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       return { code: 2, payload: { applied: false, dryRun: true, liveRuntimeMutation: false, receipt } };
     }
 
-    const routeApplyReceipt = createReceipt({
+    return this.applyRoute(input, status);
+  }
+
+  private async applyRoute(input: RuntimeMutationInput, before: AccountCenterStatus): Promise<RuntimeMutationResult> {
+    const blocked = async (reason: string, warning: string): Promise<RuntimeMutationResult> => {
+      const receipt = createReceipt({ action: input.action, dryRun: true, target: input.target, summary: "OpenClaw route apply was not authorized or could not be proven; no applied receipt was issued.", before: routeBefore(before), warnings: [warning, "no_live_mutation"] });
+      const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason };
+      await writeReceipt(input.receiptPath, payload);
+      return { code: 2, payload };
+    };
+    if (input.authorized !== true) return blocked("route_apply_requires_confirmed_shared_mutation", "route_apply_requires_confirmed_shared_mutation");
+    if (input.scope?.kind !== "agent" || !isExactAgentScope(input.scope.id)) return blocked("explicit_agent_scope_required", "explicit_agent_scope_required");
+
+    const switchScript = join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
+    if (!(await exists(switchScript))) return blocked("missing_existing_routing_script", "missing_existing_routing_script");
+    const target = input.action === "route.auto" ? undefined : requiredTarget(input.target, input.action);
+    const args = input.action === "route.auto"
+      ? [switchScript, "--auto", "--apply", "--agent", input.scope.id]
+      : input.action === "route.remove"
+        ? [switchScript, "remove", target!, "--apply", "--agent", input.scope.id]
+        : [switchScript, target!, "--apply", "--agent", input.scope.id];
+    let native: CommandResult;
+    try {
+      native = await this.runner(process.execPath, args, { cwd: this.workspace, timeoutMs: 60_000, maxOutputBytes: 256 * 1024 });
+    } catch {
+      return this.routeFailure(input, before, "native_route_command_failed", "native_route_command_failed");
+    }
+    if (native.code !== 0 || native.timeoutExceeded || native.outputLimitExceeded) return this.routeFailure(input, before, "native_route_command_failed", "native_route_command_failed");
+    const nativeEvent = parseNativeEvent(native.stdout);
+    const nativeTarget = input.action === "route.auto" ? nativeSelectedProfile(nativeEvent) : target;
+    // The shared review binds the previewed automatic candidate. The native
+    // script remains the selector, but a changed selection is not silently
+    // accepted as confirmation for a different profile.
+    if (!nativeTarget || (input.action === "route.auto" && nativeTarget !== input.target)) return this.routeFailure(input, before, "native_route_result_unproven", "native_route_result_unproven");
+    const expectedTarget = nativeTarget;
+    let after: AccountCenterStatus;
+    try {
+      after = await this.readFreshStatus();
+    } catch {
+      return this.routeFailure(input, before, "route_read_after_write_unproven", "route_read_after_write_unproven");
+    }
+    if (!routeMutationVerified(after, input.action, expectedTarget)) return this.routeFailure(input, before, "route_read_after_write_mismatch", "route_read_after_write_mismatch");
+    const receipt = createReceipt({
       action: input.action,
-      dryRun: true,
-      target: input.target,
-      summary: "Live OpenClaw route apply is unavailable until Account Center has a scoped confirmation contract and authoritative read-after-write verification; no routing script was invoked.",
-      before: routeBefore(status),
-      warnings: ["route_apply_requires_verified_mutation_contract", "no_implicit_all_scope", "no_live_mutation"]
+      dryRun: false,
+      target: expectedTarget,
+      summary: `Applied and verified OpenClaw ${input.action} for the confirmed agent scope.`,
+      before: routeBefore(before),
+      after: routeBefore(after),
+      warnings: ["openclaw_account_routing_only", "native_backup_and_event_receipt", "fresh_read_after_write_verified", "sessions_prompts_memory_bootstrap_untouched"]
     });
-    const routeApplyPayload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt: routeApplyReceipt, reason: "route_apply_requires_verified_mutation_contract" };
-    await writeReceipt(input.receiptPath, routeApplyPayload);
-    return { code: 2, payload: routeApplyPayload };
+    const payload = { applied: true, dryRun: false, liveRuntimeMutation: true, receipt, verification: { kind: "verified", route: routeBefore(after) } };
+    await writeReceipt(input.receiptPath, payload);
+    return { code: 0, payload };
+  }
+
+  private async routeFailure(input: RuntimeMutationInput, before: AccountCenterStatus, reason: string, warning: string): Promise<RuntimeMutationResult> {
+    const receipt = createReceipt({ action: input.action, dryRun: false, target: input.target, summary: "OpenClaw route operation did not receive an applied receipt because its native result or fresh verification was not proven.", before: routeBefore(before), warnings: [warning, "recovery_required"] });
+    const payload = { applied: false, dryRun: false, liveRuntimeMutation: true, receipt, reason, verification: { kind: "unproven" } };
+    await writeReceipt(input.receiptPath, payload);
+    return { code: 2, payload };
+  }
+
+  private async readFreshStatus(): Promise<AccountCenterStatus> {
+    const fresh = await this.tryRefreshSentinelStatus();
+    if (!fresh) throw new Error("fresh_status_unavailable");
+    return normalizeOpenClawStatus(fresh, "fresh codex-account-sentinel --print");
   }
 
   private async deleteAccountCredentials(input: RuntimeMutationInput, status: AccountCenterStatus): Promise<RuntimeMutationResult> {
@@ -762,6 +823,26 @@ function resolveExactDeleteTarget(target: string, status: AccountCenterStatus): 
 
 function routeBefore(status: AccountCenterStatus): unknown {
   return status.routes.map((route) => ({ provider: route.provider, runtime: route.runtime, activeProfileId: route.activeProfileId, order: route.order }));
+}
+
+function isExactAgentScope(value: string): boolean {
+  return /^[a-z][a-z0-9_-]{0,63}$/.test(value) && value !== "all";
+}
+
+function parseNativeEvent(stdout: string): Record<string, unknown> | undefined {
+  try { const parsed: unknown = JSON.parse(stdout); return isRecord(parsed) ? parsed : undefined; } catch { return undefined; }
+}
+
+function nativeSelectedProfile(event: Record<string, unknown> | undefined): string | undefined {
+  const selected = event?.selected;
+  return isRecord(selected) && typeof selected.profileId === "string" && selected.profileId.trim() ? selected.profileId : undefined;
+}
+
+function routeMutationVerified(status: AccountCenterStatus, action: AuditAction, target: string): boolean {
+  const route = status.routes.find((item) => item.runtime === "openclaw");
+  if (!route) return false;
+  if (action === "route.remove") return !route.order.includes(target) && route.activeProfileId !== target;
+  return route.activeProfileId === target && route.order[0] === target;
 }
 
 function redactProfileArg(value: string): string {

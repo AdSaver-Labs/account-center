@@ -26,6 +26,24 @@ const routerStatus = {
   effectiveAuthOrder: ["openai:helper-1", "openai:helper-2"]
 };
 
+function routedStatus(activeProfileId: string, order: string[]) {
+  return { ...routerStatus, override: { enabled: true, profileId: activeProfileId }, effectiveAuthOrder: order };
+}
+
+async function openClawWorkspace() {
+  const root = await mkdtemp(join(tmpdir(), "account-center-openclaw-route-"));
+  const cli = join(root, "oauth_routing_cli.py");
+  const scripts = join(root, "3-Resources", "codex-account-ops", "scripts");
+  const switchScript = join(scripts, "codex-auth-switch.mjs");
+  const sentinel = join(scripts, "codex-account-sentinel.mjs");
+  await mkdir(scripts, { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(switchScript, "#!/usr/bin/env node\n", "utf8");
+  await writeFile(sentinel, "#!/usr/bin/env node\n", "utf8");
+  await writeFile(join(root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
+  return { root, cli, switchScript, sentinel };
+}
+
 test("normalizes OpenClaw router status into Account Center no-secret status", () => {
   const status = normalizeOpenClawStatus(routerStatus);
   assert.equal(status.schemaVersion, "account-center.status.v1");
@@ -76,7 +94,7 @@ test("OpenClaw dry-run mutations do not call runner", async () => {
   assert.equal((result.payload as { liveRuntimeMutation: boolean }).liveRuntimeMutation, false);
 });
 
-test("OpenClaw live route apply is blocked until scoped confirmation and authoritative verification exist", async () => {
+test("OpenClaw route apply never invokes the native script before shared confirmation", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-"));
   const cli = join(workspace, "oauth_routing_cli.py");
   const switchScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
@@ -105,8 +123,73 @@ test("OpenClaw live route apply is blocked until scoped confirmation and authori
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
   assert.equal(receipt.applied, false);
   assert.equal(receipt.liveRuntimeMutation, false);
-  assert.ok(receipt.receipt.warnings.includes("route_apply_requires_verified_mutation_contract"));
-  assert.ok(receipt.receipt.warnings.includes("no_implicit_all_scope"));
+  assert.ok(receipt.receipt.warnings.includes("route_apply_requires_confirmed_shared_mutation"));
+});
+
+test("OpenClaw confirmed manual route uses the exact scoped native command and verifies fresh status", async () => {
+  const workspace = await openClawWorkspace();
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const fresh = routedStatus("openai:helper-2", ["openai:helper-2", "openai:helper-1"]);
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command, args) => {
+    calls.push({ command, args });
+    if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ status: "APPLIED", selected: { profileId: "openai:helper-2" } }), stderr: "" };
+  } });
+  const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, authorized: true, scope: { kind: "agent", id: "jacques" }, provider: "openai", runtime: "openclaw", receiptPath: join(workspace.root, "receipt.json") });
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls[0], { command: process.execPath, args: [workspace.switchScript, "openai:helper-2", "--apply", "--agent", "jacques"] });
+  assert.deepEqual(calls[1], { command: process.execPath, args: [workspace.sentinel, "--print"] });
+  assert.equal((result.payload as { applied: boolean }).applied, true);
+  assert.equal(JSON.stringify(result.payload).includes("helper-2"), true, "internal adapter receipt retains profile identity for the protected lifecycle");
+});
+
+test("OpenClaw confirmed automatic route invokes --auto for one exact agent and verifies the selected native result", async () => {
+  const workspace = await openClawWorkspace();
+  const fresh = routedStatus("openai:helper-2", ["openai:helper-2", "openai:helper-1"]);
+  const calls: string[][] = [];
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
+    calls.push(args);
+    if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ status: "APPLIED", selected: { profileId: "openai:helper-2" } }), stderr: "" };
+  } });
+  const result = await adapter.mutate({ action: "route.auto", target: "openai:helper-2", apply: true, authorized: true, scope: { kind: "agent", id: "main" }, provider: "openai", runtime: "openclaw", receiptPath: join(workspace.root, "receipt.json") });
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls[0], [workspace.switchScript, "--auto", "--apply", "--agent", "main"]);
+});
+
+test("OpenClaw route apply rejects implicit, all, and non-agent scopes without native invocation", async () => {
+  const workspace = await openClawWorkspace();
+  let calls = 0;
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => { calls += 1; return { code: 0, stdout: "{}", stderr: "" }; } });
+  for (const scope of [undefined, { kind: "all" as const, id: "all" }, { kind: "default" as const, id: "default" }]) {
+    const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, authorized: true, scope, provider: "openai", runtime: "openclaw", receiptPath: join(workspace.root, `receipt-${calls}.json`) });
+    assert.equal(result.code, 2);
+  }
+  assert.equal(calls, 0);
+});
+
+test("OpenClaw native route failure returns a truthful non-applied receipt", async () => {
+  const workspace = await openClawWorkspace();
+  const receiptPath = join(workspace.root, "receipt.json");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 9, stdout: "", stderr: "private@example.test sk-secret" }) });
+  const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, authorized: true, scope: { kind: "agent", id: "main" }, provider: "openai", runtime: "openclaw", receiptPath });
+  assert.equal(result.code, 2);
+  const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+  assert.equal(receipt.applied, false);
+  assert.equal(JSON.stringify(receipt).includes("sk-secret"), false);
+  assert.equal(receipt.reason, "native_route_command_failed");
+});
+
+test("OpenClaw read-after-write mismatch never reports applied", async () => {
+  const workspace = await openClawWorkspace();
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
+    if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ status: "APPLIED", selected: { profileId: "openai:helper-2" } }), stderr: "" };
+  } });
+  const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, authorized: true, scope: { kind: "agent", id: "main" }, provider: "openai", runtime: "openclaw", receiptPath: join(workspace.root, "receipt.json") });
+  assert.equal(result.code, 2);
+  assert.equal((result.payload as { applied: boolean }).applied, false);
+  assert.equal((result.payload as { reason: string }).reason, "route_read_after_write_mismatch");
 });
 
 test("OpenClaw account delete remains blocked until atomic transaction support exists", async () => {
