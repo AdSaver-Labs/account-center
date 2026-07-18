@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -28,6 +30,28 @@ const MUTATION_BLOCKED_TEXT =
   "Blocked potentially mutating Account Center command in Codex MCP.\n\n" +
   "For safety, this MCP bridge allows status/help and dry-runs by default. " +
   "Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.";
+
+test("MCP initializes and lists tools before ignored CLI build artifacts exist", () => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-clean-"));
+  const fixtureScripts = resolve(fixtureRoot, "scripts");
+  mkdirSync(fixtureScripts);
+  copyFileSync(bridge, resolve(fixtureScripts, "account-center-mcp.mjs"));
+  writeFileSync(resolve(fixtureScripts, "chatops.mjs"), "// presence-only clean-checkout fixture\n");
+  try {
+    const request = { jsonrpc: "2.0", id: 1, method: "initialize", params: {} };
+    const result = spawnSync(process.execPath, [resolve(fixtureScripts, "account-center-mcp.mjs")], {
+      cwd: fixtureRoot,
+      input: `${JSON.stringify(request)}\n`,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const response = JSON.parse(result.stdout.trim());
+    assert.equal(response.result.serverInfo.name, "account-center");
+    assert.equal(result.stderr.includes("auth-bridge"), false);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
 
 for (const { name, command, privateValues } of [
   {

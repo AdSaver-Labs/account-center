@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inspectAuthCommand } from '../packages/cli/dist/auth-bridge.js';
+
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -96,10 +96,14 @@ function opaqueFailure() {
   };
 }
 
-function runAuth(command) {
+async function runAuth(command) {
   const normalized = normalizeCommand(command);
   let inspection;
   try {
+    // The MCP transport must be able to initialize from a clean checkout,
+    // before TypeScript output exists. The canonical parser is needed only
+    // for an auth invocation, so defer this ignored build-artifact import.
+    const { inspectAuthCommand } = await import('../packages/cli/dist/auth-bridge.js');
     inspection = inspectAuthCommand(normalized);
   } catch {
     return {
@@ -148,7 +152,7 @@ function respond(msg) {
   process.stdout.write(JSON.stringify(msg) + '\n');
 }
 
-function handle(req) {
+async function handle(req) {
   const { id, method, params } = req;
   if (method === 'initialize') {
     respond(result(id, {
@@ -166,29 +170,35 @@ function handle(req) {
   if (method === 'tools/call') {
     const name = params?.name;
     const args = params?.arguments || {};
-    if (name === 'account_center_status') respond(result(id, runAuth('/auth')));
-    else if (name === 'account_center_help') respond(result(id, runAuth('/auth help')));
-    else if (name === 'account_center_auth') respond(result(id, runAuth(args.command || '/auth')));
+    if (name === 'account_center_status') respond(result(id, await runAuth('/auth')));
+    else if (name === 'account_center_help') respond(result(id, await runAuth('/auth help')));
+    else if (name === 'account_center_auth') respond(result(id, await runAuth(args.command || '/auth')));
     else respond(error(id, -32602, INVALID_REQUEST_TEXT));
     return;
   }
   if (id !== undefined) respond(error(id, -32601, INVALID_REQUEST_TEXT));
 }
 
+let inputQueue = Promise.resolve();
+
 process.stdin.on('data', (chunk) => {
   buffer = Buffer.concat([buffer, chunk]);
-  while (true) {
-    const idx = buffer.indexOf(10);
-    if (idx < 0) break;
-    const line = buffer.slice(0, idx).toString('utf8').trim();
-    buffer = buffer.slice(idx + 1);
-    if (!line) continue;
-    try {
-      handle(JSON.parse(line));
-    } catch {
-      respond(error(null, -32700, INVALID_REQUEST_TEXT));
+  inputQueue = inputQueue.then(async () => {
+    while (true) {
+      const idx = buffer.indexOf(10);
+      if (idx < 0) break;
+      const line = buffer.slice(0, idx).toString('utf8').trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+      try {
+        await handle(JSON.parse(line));
+      } catch {
+        respond(error(null, -32700, INVALID_REQUEST_TEXT));
+      }
     }
-  }
+  });
 });
 
-process.stdin.on('end', () => process.exit(0));
+process.stdin.on('end', () => {
+  inputQueue.then(() => process.exit(0));
+});
