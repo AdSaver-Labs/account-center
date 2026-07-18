@@ -10,6 +10,7 @@ const CHATOPS = resolve(ROOT, 'scripts', 'chatops.mjs');
 const ALLOW_MUTATIONS = process.env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS === '1';
 const DEFAULT_SOURCE = process.env.ACCOUNT_CENTER_SOURCE || 'openclaw';
 const MAX_OUTPUT = 12000;
+const OPAQUE_FAILURE_TEXT = 'Account Center request UNPROVEN.\n';
 
 if (!existsSync(CHATOPS)) {
   console.error(`Account Center chatops wrapper not found: ${CHATOPS}`);
@@ -87,6 +88,13 @@ function isClearlyDryRun(command) {
   return /\s--dry-run\b/i.test(command);
 }
 
+function opaqueFailure() {
+  return {
+    isError: true,
+    content: [{ type: 'text', text: OPAQUE_FAILURE_TEXT }],
+  };
+}
+
 function runAuth(command) {
   const normalized = normalizeCommand(command);
   if (isMutation(normalized) && !isClearlyDryRun(normalized) && !ALLOW_MUTATIONS) {
@@ -103,20 +111,25 @@ function runAuth(command) {
       ],
     };
   }
-  const proc = spawnSync(process.execPath, [CHATOPS, normalized], {
-    cwd: ROOT,
-    env: {
-      ...process.env,
-      ACCOUNT_CENTER_SOURCE: DEFAULT_SOURCE,
-    },
-    encoding: 'utf8',
-    timeout: Number(process.env.ACCOUNT_CENTER_MCP_TIMEOUT || 45000),
-    maxBuffer: 1024 * 1024,
-  });
-  const combined = `${proc.stdout || ''}${proc.stderr ? `\nSTDERR:\n${proc.stderr}` : ''}`.trim();
-  const text = redact(combined || `Account Center returned no output. exit=${proc.status ?? 'unknown'}`).slice(0, MAX_OUTPUT);
+  let proc;
+  try {
+    proc = spawnSync(process.execPath, [CHATOPS, normalized], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        ACCOUNT_CENTER_SOURCE: DEFAULT_SOURCE,
+      },
+      encoding: 'utf8',
+      timeout: Number(process.env.ACCOUNT_CENTER_MCP_TIMEOUT || 45000),
+      maxBuffer: 1024 * 1024,
+    });
+  } catch {
+    return opaqueFailure();
+  }
+  if (proc.error || proc.signal || proc.status !== 0) return opaqueFailure();
+  const text = redact(proc.stdout || 'Account Center returned no output.').slice(0, MAX_OUTPUT);
   return {
-    isError: (proc.status || 0) !== 0,
+    isError: false,
     content: [{ type: 'text', text }],
   };
 }
