@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeAdapter, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
@@ -9,6 +9,8 @@ export interface AccountCenterServerOptions {
   auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
   mutationRepository?: MutationRepository;
+  /** Test-only seam for fixture-backed protected read projection coverage. */
+  adapter?: RuntimeAdapter;
 }
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
@@ -88,23 +90,23 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/models") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
+      const adapter = statusAdapter(options.adapter, source);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
-      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? modelCatalog(result.status, query.runtime) : { error: "status_unavailable" });
+      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicModelCatalogView(result.status, query.runtime) : { error: "status_unavailable" });
     }
     if (pathname === "/api/limits") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
+      const adapter = statusAdapter(options.adapter, source);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
-      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? limitsInventory(result.status, query.runtime) : { error: "status_unavailable" });
+      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicLimitsInventoryView(result.status, query.runtime) : { error: "status_unavailable" });
     }
     if (request.url === "/api/scopes") {
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
+      const adapter = statusAdapter(options.adapter, source);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? runtimeScopeCatalog(result.status) : { error: "status_unavailable" });
+      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicRuntimeScopeCatalogView(result.status) : { error: "status_unavailable" });
     }
     if (pathname === "/api/auth-challenges") {
       const query = authChallengeInventoryQuery(request.url ?? "/");
@@ -281,6 +283,10 @@ function isObservedRuntime(status: AccountCenterStatus, runtime: string | undefi
   return !runtime || status.runtimes.some((candidate) => candidate.key === runtime);
 }
 
+function statusAdapter(adapter: RuntimeAdapter | undefined, source: unknown): RuntimeAdapter {
+  return adapter ?? createRuntimeAdapter(source as RuntimeSource);
+}
+
 function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery | undefined {
   const parameters = new URL(path, "http://account-center.local").searchParams;
   if ([...parameters.keys()].some((key) => key !== "runtime" && key !== "scope" && key !== "limit" && key !== "cursor") || ["runtime", "scope", "limit", "cursor"].some((key) => parameters.getAll(key).length > 1)) return undefined;
@@ -364,66 +370,6 @@ async function mutationOperationDetail(repository: MutationRepository | undefine
     generatedAt: new Date().toISOString(),
     operation
   } : undefined;
-}
-
-function modelCatalog(status: AccountCenterStatus, runtime?: string): unknown {
-  const known = new Set([...status.profiles.flatMap((profile) => profile.models), ...status.policy.disabledModels]);
-  return {
-    schemaVersion: "account-center.models.v1",
-    generatedAt: status.generatedAt,
-    // Read-only profile inventory does not establish the requested policy,
-    // effective runtime model, or fallback order. Keep each absence explicit
-    // so a client cannot infer an applied selection from catalog eligibility.
-    selection: {
-      requestedPolicy: { state: "not_reported" },
-      effectiveRuntimeModel: { state: "not_reported" },
-      fallbackChain: { state: "not_reported" },
-      verificationState: "UNPROVEN"
-    },
-    models: Array.from(known).sort().map((id) => {
-      const observedProfiles = status.profiles.filter((profile) => profile.models.includes(id) && (!runtime || profile.runtimeCompatibility.includes(runtime as typeof profile.runtimeCompatibility[number])));
-      // Profile declarations are useful inventory evidence, but are not authoritative
-      // proof that a runtime has accepted or applied a model policy.
-      return {
-        id,
-        selectable: !status.policy.disabledModels.includes(id),
-        ...(status.policy.disabledModels.includes(id) ? { reason: "disabled_by_policy" } : {}),
-        observedProfileCount: observedProfiles.length,
-        readableProfileCount: observedProfiles.filter((profile) => profile.usage.readable).length,
-        runtimeCompatibility: Array.from(new Set(observedProfiles.flatMap((profile) => profile.runtimeCompatibility).filter((compatibleRuntime) => !runtime || compatibleRuntime === runtime as typeof compatibleRuntime))).sort(),
-        verificationState: "UNPROVEN"
-      };
-    })
-  };
-}
-
-function limitsInventory(status: AccountCenterStatus, runtime?: string): unknown {
-  return {
-    schemaVersion: "account-center.limits.v1",
-    generatedAt: status.generatedAt,
-    accounts: status.profiles.map((profile, index) => ({ profile, index })).filter(({ profile }) => !runtime || profile.runtimeCompatibility.includes(runtime as typeof profile.runtimeCompatibility[number])).map(({ profile, index }) => ({
-      accountRef: `account-${index + 1}`,
-      provider: profile.provider,
-      health: profile.usage.health,
-      authState: profile.usage.auth.state,
-      readable: profile.usage.readable,
-      windows: profile.usage.windows.map(({ name, remainingPct, resetsAt }) => ({ name, remainingPct, ...(resetsAt ? { resetsAt } : {}) }))
-    }))
-  };
-}
-
-function runtimeScopeCatalog(status: AccountCenterStatus): unknown {
-  return {
-    schemaVersion: "account-center.runtime-scopes.v1",
-    generatedAt: status.generatedAt,
-    scopes: [...status.runtimes]
-      .sort((left, right) => left.key.localeCompare(right.key))
-      .map((runtime) => ({
-        runtime: runtime.key,
-        scope: { kind: "default", id: "default" },
-        capabilities: runtime.capabilities
-      }))
-  };
 }
 
 function auditRecordView({ id, createdAt, action, outcome, proofState, summary, warnings, runtime, scopeKind }: AuditRecord) {
