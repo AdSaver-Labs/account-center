@@ -620,14 +620,16 @@ test("accounts list and routes next keep hostile generic-command fixture classes
     assert.deepEqual(JSON.parse(results[3]!.stdout), {
       schemaVersion: "account-center.public-route-next.v1",
       verificationState: "UNPROVEN",
+      routeSelection: "exact_route",
       eligible: true,
       next: "account-1"
     });
     assert.equal(results[4]!.code, 0);
-    assert.equal(results[4]!.stdout, "Next eligible: account-2\n");
+    assert.equal(results[4]!.stdout, "Next eligible (provider fallback): account-2\n");
     assert.deepEqual(JSON.parse(results[5]!.stdout), {
       schemaVersion: "account-center.public-route-next.v1",
       verificationState: "UNPROVEN",
+      routeSelection: "provider_fallback",
       eligible: true,
       next: "account-2"
     });
