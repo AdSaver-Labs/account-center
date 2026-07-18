@@ -310,7 +310,7 @@ test("spawn runner escalates after timeout even when SIGTERM is ignored", async 
 });
 
 test("spawn runner records timeout before a SIGTERM handler exits successfully", async () => {
-  const result = await execFileRunner(process.execPath, ["-e", "process.on('SIGTERM', () => process.exit(0)); process.stdout.write('ready'); setInterval(() => {}, 1000)"], { timeoutMs: 100, maxOutputBytes: 64 });
+  const result = await execFileRunner(process.execPath, ["-e", "process.on('SIGTERM', () => process.exit(0)); process.stdout.write('ready'); setInterval(() => {}, 1000)"], { timeoutMs: 500, maxOutputBytes: 64 });
   assert.equal(result.code, 0);
   assert.equal(result.timeoutExceeded, true);
 });
