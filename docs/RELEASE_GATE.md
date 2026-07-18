@@ -20,7 +20,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [ ] Reauth follows `stage → verify identity/health → optional route switch → receipt`; previous working auth remains usable until verified.
 - [ ] `/auth remove` changes routing only.
 - [ ] `/auth delete` requires an exact normalized connected identity, takes a runtime backup, returns a redacted receipt, and proves the outcome or labels it `UNPROVEN`.
-- [ ] Every mutation uses the shared command executor and produces audit/receipt output.
+- [x] Every mutation uses the shared command executor and produces audit/receipt output; scoped OpenClaw manual/automatic route actions require preview/review/idempotency, exact confirmation, redacted durable evidence, and fresh post-apply verification.
 
 ### 2. Scope and model policy
 
