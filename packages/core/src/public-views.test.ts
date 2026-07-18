@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publicDoctorView, publicRuntimeScopeCatalogView, publicStatusView } from "./public-views.js";
+import { publicDoctorView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView } from "./public-views.js";
 import type { AccountCenterStatus } from "./schemas.js";
 
 const hostileValues = [
@@ -101,4 +101,48 @@ test("public runtime scope catalog omits distinct unknown runtime keys without c
     generatedAt: "2026-07-17T12:00:00.000Z",
     scopes: [{ runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }]
   });
+});
+
+test("all status-derived protected read views reject fixture identity, secret, path, and adapter-error fields", () => {
+  const status = {
+    schemaVersion: "account-center.status.v1",
+    generatedAt: "2026-07-17T12:00:00.000Z",
+    noSecrets: true,
+    source: "generic-command",
+    providers: [{ key: "custom:fixture-person@example.test", displayName: "/fixture/private/path" }],
+    runtimes: [{ key: "custom:fixture-adapter-error", displayName: "fixture adapter error", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }],
+    profiles: [{
+      id: "custom:fixture-profile-identity",
+      provider: "custom:fixture-person@example.test",
+      label: "/fixture/private/path",
+      role: "primary",
+      runtimeCompatibility: ["custom:fixture-adapter-error"],
+      models: ["sk-fixture-secret-value-123456789"],
+      disabled: false,
+      metadata: { adapterError: "fixture adapter error" },
+      usage: {
+        profileId: "custom:fixture-profile-identity",
+        provider: "custom:fixture-person@example.test",
+        generatedAt: "2026-07-17T12:00:00.000Z",
+        readable: true,
+        health: "ok",
+        windows: [{ name: "/fixture/private/path", remainingPct: 50 }],
+        auth: { state: "ok" },
+        warnings: ["fixture adapter error"]
+      }
+    }],
+    routes: [{ provider: "custom:fixture-person@example.test", runtime: "custom:fixture-adapter-error", activeProfileId: "custom:fixture-profile-identity", order: ["custom:fixture-profile-identity"] }],
+    policy: { minFiveHourRemainingPct: 0, minWeeklyRemainingPct: 0, allowBackupWhenNormalAvailable: false, disabledModels: ["sk-fixture-secret-value-123456789"], staleAfterSeconds: 60 },
+    leases: [], reauth: [], audit: [], warnings: ["fixture adapter error"]
+  } as unknown as AccountCenterStatus;
+  const output = JSON.stringify({
+    status: publicStatusView(status),
+    limits: publicLimitsInventoryView(status),
+    models: publicModelCatalogView(status),
+    scopes: publicRuntimeScopeCatalogView(status)
+  });
+
+  for (const forbidden of ["fixture-person@example.test", "sk-fixture-secret-value-123456789", "/fixture/private/path", "fixture adapter error", "fixture-profile-identity", "fixture-adapter-error"]) {
+    assert.equal(output.includes(forbidden), false, `read view leaked ${forbidden}`);
+  }
 });
