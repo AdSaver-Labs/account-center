@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { runCli } from "./index.js";
 
-test("serve supports an ephemeral loopback port with a per-launch token", async () => {
-  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source", "fixture"], { stdio: ["ignore", "pipe", "pipe"] });
+test("serve accepts an equals-form fixture source on an ephemeral loopback port", async () => {
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture"], { stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   let errors = "";
   let exited = false;
@@ -54,8 +54,13 @@ test("serve rejects every explicit empty, missing, or option-like source value w
     ["--source"],
     ["--source", ""],
     ["--source", "--port", "0"],
+    ["--source="],
+    ["--source=--port", "0"],
     ["--source", "fixture", "--source"],
-    ["--source", "fixture", "--source", "--port", "0"]
+    ["--source", "fixture", "--source", "--port", "0"],
+    ["--source=fixture", "--source="],
+    ["--source", "fixture", "--source=--port", "0"],
+    ["--source=fixture", "--source=opaque"]
   ];
 
   for (const args of invalidArgs) {
@@ -92,11 +97,22 @@ test("status --json emits fixture-backed no-secret export", async () => {
 
 test("CLI rejects hostile adapter source labels without echoing them", async () => {
   const hostileSource = "/srv/private/account-center/adapter --source=production";
-  const result = await runCli(["status", "--source", hostileSource, "--no-write-export"]);
-  assert.equal(result.code, 1);
-  assert.equal(result.stdout, "");
-  assert.equal(result.stderr, "Unsupported Account Center source.\n");
-  assert.equal(`${result.stdout}${result.stderr}`.includes(hostileSource), false);
+  for (const args of [["--source", hostileSource], ["--source=fixture", `--source=${hostileSource}`]]) {
+    const result = await runCli(["status", ...args, "--no-write-export"]);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Unsupported Account Center source.\n");
+    assert.equal(`${result.stdout}${result.stderr}`.includes(hostileSource), false);
+  }
+});
+
+test("CLI gives valid equals-form sources the same fixture behavior as split-form sources", async () => {
+  const [equalsForm, splitForm] = await Promise.all([
+    runCli(["status", "--source=fixture", "--json", "--no-write-export"]),
+    runCli(["status", "--source", "fixture", "--json", "--no-write-export"])
+  ]);
+  assert.equal(equalsForm.code, 0);
+  assert.deepEqual(JSON.parse(equalsForm.stdout), JSON.parse(splitForm.stdout));
 });
 
 test("CLI rejects explicit empty or missing adapter sources without falling back to fixture", async () => {
