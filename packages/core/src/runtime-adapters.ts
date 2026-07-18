@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { verifiesExecutorRouteCapability } from "./executor-route-capability.js";
+import { verifiesExecutorRouteCapability } from "./command-executor.js";
 import { AccountCenterStatus, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
 import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
@@ -793,9 +793,54 @@ function safeStamp(): string {
 
 async function writeReceipt(path: string, payload: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify(redactJson(payload), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  // Receipts cross a persistence boundary.  Redacting arbitrary payloads is
+  // insufficient because route snapshots contain identity-bearing ids and
+  // route order.  Persist a small allow-list projection instead.
+  await writeFile(path, `${JSON.stringify(persistedReceipt(payload), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   await chmod(path, 0o600);
 }
+
+function persistedReceipt(payload: unknown): Record<string, unknown> {
+  const value = isRecord(payload) ? payload : {};
+  const receipt = isRecord(value.receipt) ? value.receipt : {};
+  const action = typeof receipt.action === "string" && /^(route\.(auto|use|remove)|account\.delete)$/.test(receipt.action) ? receipt.action : "unknown";
+  const warnings = Array.isArray(receipt.warnings)
+    ? receipt.warnings.filter((warning): warning is string => typeof warning === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(warning)).slice(0, 16)
+    : [];
+  const persisted: Record<string, unknown> = {
+    schemaVersion: "account-center.persisted-route-receipt.v1",
+    action,
+    outcome: value.applied === true ? "applied" : value.liveRuntimeMutation === true ? "unproven" : "not_applied",
+    applied: value.applied === true,
+    dryRun: value.dryRun === true,
+    liveRuntimeMutation: value.liveRuntimeMutation === true,
+    receiptId: typeof receipt.id === "string" && /^evt_[A-Za-z0-9_-]{1,100}$/.test(receipt.id) ? receipt.id : "receipt-redacted",
+    warningCodes: warnings
+  };
+  const proof = persistedRouteProof(value.proof);
+  if (proof) persisted.proof = proof;
+  return persisted;
+}
+
+function persistedRouteProof(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value) || !isRecord(value.nativeEvent) || !isRecord(value.verification)) return undefined;
+  const native = value.nativeEvent;
+  const verification = value.verification;
+  if ((native.action !== "route.auto" && native.action !== "route.use" && native.action !== "route.remove") || native.status !== "verified" || !opaqueProofId(native.scopeId) || !opaqueProofId(native.targetId) || !opaqueProofId(verification.scopeId) || native.scopeId !== verification.scopeId) return undefined;
+  const before = persistedScopeProof(verification.before);
+  const after = persistedScopeProof(verification.after);
+  if (!before || !after) return undefined;
+  return { nativeEvent: { action: native.action, scopeId: native.scopeId, targetId: native.targetId, status: "verified" }, verification: { scopeId: verification.scopeId, before, after } };
+}
+
+function persistedScopeProof(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value) || (value.status !== "observed" && value.status !== "absent") || !Array.isArray(value.orderTargetIds) || value.orderTargetIds.length > 10 || !value.orderTargetIds.every(opaqueProofId)) return undefined;
+  const activeTargetId = value.activeTargetId;
+  if (activeTargetId !== undefined && !opaqueProofId(activeTargetId)) return undefined;
+  return { status: value.status, ...(typeof activeTargetId === "string" ? { activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] };
+}
+
+function opaqueProofId(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
 
 function requiredTarget(target: string | undefined, action: AuditAction): string {
   if (!target) throw new Error(`${action} requires a target profile`);

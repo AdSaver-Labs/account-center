@@ -45,6 +45,8 @@ test("core executor invokes route apply only after exact review confirmation and
   assert.equal(replay.mutation?.liveRuntimeMutation, false);
   assert.equal(replay.mutation?.replayed, true);
   assert.equal(replay.mutation?.historicalOutcome, "applied");
+  assert.equal(replay.mutation?.dryRun, true, "replay is not a new live mutation");
+  assert.equal((replay.mutation as { operationId?: string }).operationId?.startsWith("op_"), true, "replay retains the immutable operation reference");
   assert.equal(mutations, 1);
 });
 

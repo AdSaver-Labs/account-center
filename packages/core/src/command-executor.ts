@@ -1,10 +1,23 @@
 import { AccountCenterStatus, AuditAction, AuditEvent, RuntimeKey } from "./schemas.js";
 import { createReceipt, guardStatus, nextEligible } from "./policy.js";
-import { RuntimeAdapter } from "./runtime-adapters.js";
-import { createHash } from "node:crypto";
+import type { RuntimeAdapter } from "./runtime-adapters.js";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createMutationReview, MutationReview, MutationScope, verifyMutationApply } from "./mutation-contract.js";
 import { MutationEvidence, MutationRepository, RouteScopeEvidence } from "./mutation-repository.js";
-import { mintExecutorRouteCapability } from "./executor-route-capability.js";
+const routeCapabilitySecret = randomBytes(32);
+const routeCapabilityBrand = Symbol("account-center.executor-route-capability");
+type RouteCapabilityBinding = { action: AuditAction; target: string; provider: string; runtime: string; scope: MutationScope };
+type ExecutorRouteCapability = { readonly [routeCapabilityBrand]: string };
+// This minting closure is intentionally not exported: only a confirmed
+// protected command lifecycle can issue a capability for an adapter apply.
+function mintRouteCapability(binding: RouteCapabilityBinding): ExecutorRouteCapability { return { [routeCapabilityBrand]: createHmac("sha256", routeCapabilitySecret).update(canonicalCapability(binding)).digest("base64url") }; }
+export function verifiesExecutorRouteCapability(value: unknown, binding: RouteCapabilityBinding): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const signature = (value as Partial<ExecutorRouteCapability>)[routeCapabilityBrand];
+  const expected = createHmac("sha256", routeCapabilitySecret).update(canonicalCapability(binding)).digest("base64url");
+  return typeof signature === "string" && Buffer.byteLength(signature) === Buffer.byteLength(expected) && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+function canonicalCapability(value: unknown): string { if (Array.isArray(value)) return `[${value.map(canonicalCapability).join(",")}]`; if (value && typeof value === "object") { const record = value as Record<string, unknown>; return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalCapability(record[key])}`).join(",")}}`; } return JSON.stringify(value); }
 
 export type AccountCenterCommand =
   | "status"
@@ -60,7 +73,7 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   }
   const authorization = await routeAuthorization(request, action, target, provider, runtime, deps.mutation);
   if (authorization.kind === "blocked") return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, authorization.reason) };
-  if (authorization.kind === "replay") return { code: authorization.receipt.outcome === "applied" ? 0 : 2, kind: "mutation", mutation: replayMutation(action, target, authorization.receipt.outcome) };
+  if (authorization.kind === "replay") return { code: authorization.receipt.outcome === "applied" ? 0 : 2, kind: "mutation", mutation: replayMutation(action, target, authorization.receipt.outcome, authorization.receipt.operationId) };
   const result = await deps.adapter.mutate({
     action,
     target,
@@ -68,7 +81,7 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
     provider,
     runtime,
     receiptPath: request.receiptPath ?? ".account-center/receipts/executor.json",
-    ...(authorization.kind === "confirmed" ? { routeCapability: mintExecutorRouteCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
+    ...(authorization.kind === "confirmed" ? { routeCapability: mintRouteCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
   });
   const payload = asMutation(result.payload, action, target);
   if (authorization.kind === "confirmed") {
@@ -78,7 +91,7 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   return { code: result.code, kind: "mutation", mutation: payload };
 }
 
-type RouteAuthorization = { kind: "none" } | { kind: "confirmed"; operationId: string } | { kind: "blocked"; reason: string } | { kind: "replay"; receipt: { outcome: "applied" | "not_applied" | "blocked" | "failed" } };
+type RouteAuthorization = { kind: "none" } | { kind: "confirmed"; operationId: string } | { kind: "blocked"; reason: string } | { kind: "replay"; receipt: { operationId: string; outcome: "applied" | "not_applied" | "blocked" | "failed" } };
 
 async function routeAuthorization(request: CommandRequest, action: AuditAction, target: string | undefined, provider: string, runtime: string, lifecycle: { secret: string; repository: MutationRepository } | undefined): Promise<RouteAuthorization> {
   if (request.apply !== true || !["route.auto", "route.use", "route.remove"].includes(action)) return { kind: "none" };
@@ -94,9 +107,9 @@ function blockedMutation(action: AuditAction, target: string | undefined, reason
   return { applied: false, dryRun: true, liveRuntimeMutation: false, receipt: createReceipt({ action, dryRun: true, target, summary: "Route apply was blocked before the runtime adapter because the protected mutation lifecycle was not confirmed.", warnings: [reason] }), reason };
 }
 
-function replayMutation(action: AuditAction, target: string | undefined, outcome: "applied" | "not_applied" | "blocked" | "failed"): NonNullable<CommandExecution["mutation"]> {
+function replayMutation(action: AuditAction, target: string | undefined, outcome: "applied" | "not_applied" | "blocked" | "failed", operationId: string): NonNullable<CommandExecution["mutation"]> {
   const applied = outcome === "applied";
-  return { applied, dryRun: !applied, liveRuntimeMutation: false, replayed: true, historicalOutcome: outcome, receipt: createReceipt({ action, dryRun: !applied, target, summary: "Replayed immutable protected mutation result; no current runtime mutation was attempted.", warnings: ["idempotency_replay", "historical_outcome"] }) };
+  return { applied, dryRun: true, liveRuntimeMutation: false, replayed: true, historicalOutcome: outcome, operationId, receipt: createReceipt({ action, dryRun: true, target, summary: "Replayed immutable protected mutation result; no current runtime mutation was attempted.", warnings: ["idempotency_replay", "historical_outcome"] }) };
 }
 
 function resolveRouteTarget(status: AccountCenterStatus, action: AuditAction, requested: string | undefined, provider: string, runtime: string): string | undefined {

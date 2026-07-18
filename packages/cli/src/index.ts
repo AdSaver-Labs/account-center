@@ -294,10 +294,11 @@ type PublicMutationView = {
   applied: boolean;
   dryRun: boolean;
   liveRuntimeMutation: boolean;
-  state: "APPLIED" | "DRY_RUN" | "BLOCKED";
+  state: "APPLIED" | "DRY_RUN" | "BLOCKED" | "REPLAYED";
   receipt: { id: string; action: string; dryRun: boolean; target: "redacted-target" };
   replayed?: true;
   historicalOutcome?: string;
+  operationId?: string;
   confirmationToken?: string;
 };
 
@@ -375,9 +376,9 @@ function publicMutationView(payload: unknown): PublicMutationView {
     applied,
     dryRun,
     liveRuntimeMutation,
-    state: applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
+    state: report.replayed === true ? "REPLAYED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
     receipt: publicReceipt(receipt),
-    ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown" } : {}),
+    ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown", ...(typeof report.operationId === "string" && /^op_[A-Za-z0-9_-]{1,100}$/.test(report.operationId) ? { operationId: report.operationId } : {}) } : {}),
     ...(typeof report.confirmationToken === "string" ? { confirmationToken: report.confirmationToken } : {})
   };
 }
