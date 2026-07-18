@@ -651,6 +651,29 @@ test("routes next reports no eligible account for an exact route with no eligibl
   });
 });
 
+test("routes next fails closed for wrong equals-form provider and runtime values", async () => {
+  const [defaultResult, textResult, jsonResult] = await Promise.all([
+    runCli(["routes", "next"]),
+    runCli(["routes", "next", "--provider=wrong-provider", "--runtime=wrong-runtime"]),
+    runCli(["routes", "next", "--provider=wrong-provider", "--runtime=wrong-runtime", "--json"])
+  ]);
+
+  assert.equal(defaultResult.code, 0);
+  assert.equal(defaultResult.stdout, "Next eligible: account-2\n");
+  assert.equal(textResult.code, 2);
+  assert.equal(textResult.stdout, "Route selection UNPROVEN\n");
+  assert.doesNotMatch(textResult.stdout, /wrong-provider|wrong-runtime/);
+  assert.equal(jsonResult.code, 2);
+  assert.deepEqual(JSON.parse(jsonResult.stdout), {
+    schemaVersion: "account-center.public-route-next.v1",
+    verificationState: "UNPROVEN",
+    routeSelection: "no_exact_route",
+    eligible: false,
+    next: "none"
+  });
+  assert.doesNotMatch(jsonResult.stdout, /wrong-provider|wrong-runtime/);
+});
+
 test("routes next fails closed for an exact route with an empty order", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));

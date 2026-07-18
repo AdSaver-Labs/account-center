@@ -206,6 +206,8 @@ function isOptionValue(argv: string[], arg: string): boolean {
 }
 
 function valueAfter(argv: string[], key: string): string | undefined {
+  const equalsForm = argv.find((arg) => arg.startsWith(`${key}=`));
+  if (equalsForm !== undefined) return equalsForm.slice(key.length + 1);
   const index = argv.indexOf(key);
   return index >= 0 ? argv[index + 1] : undefined;
 }
