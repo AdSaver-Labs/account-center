@@ -204,10 +204,16 @@ function valueAfter(argv: string[], key: string): string | undefined {
 }
 
 function sourceOption(argv: string[]): string | undefined {
-  if (!argv.includes("--source")) return process.env.ACCOUNT_CENTER_SOURCE;
-  const value = valueAfter(argv, "--source");
-  if (value === undefined || value === "" || value.startsWith("--")) throw new Error("Unsupported Account Center source.");
-  return value;
+  let source: string | undefined;
+  let hasExplicitSource = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== "--source") continue;
+    hasExplicitSource = true;
+    const value = argv[index + 1];
+    if (value === undefined || value === "" || value.startsWith("--")) throw new Error("Unsupported Account Center source.");
+    source ??= value;
+  }
+  return hasExplicitSource ? source : process.env.ACCOUNT_CENTER_SOURCE;
 }
 
 async function maybeWriteStatus(status: unknown, options: CliOptions): Promise<void> {

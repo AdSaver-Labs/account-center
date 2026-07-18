@@ -49,6 +49,38 @@ test("serve supports an ephemeral loopback port with a per-launch token", async 
   }
 });
 
+test("serve rejects every explicit empty, missing, or option-like source value without launching", async () => {
+  const invalidArgs = [
+    ["--source"],
+    ["--source", ""],
+    ["--source", "--port", "0"],
+    ["--source", "fixture", "--source"],
+    ["--source", "fixture", "--source", "--port", "0"]
+  ];
+
+  for (const args of invalidArgs) {
+    const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    let errors = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { output += chunk; });
+    child.stderr.on("data", (chunk: string) => { errors += chunk; });
+    const code = await new Promise<number | null>((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        child.kill("SIGINT");
+        reject(new Error(`serve launched for invalid source arguments: ${args.join(" ")}`));
+      }, 2_000);
+      child.once("error", (error) => { clearTimeout(deadline); reject(error); });
+      child.once("exit", (exitCode) => { clearTimeout(deadline); resolve(exitCode); });
+    });
+    assert.equal(code, 1);
+    assert.equal(output, "");
+    assert.match(errors, /Unsupported Account Center source\./);
+    assert.doesNotMatch(errors, /fixture|127\.0\.0\.1|Launch token/);
+  }
+});
+
 test("status --json emits fixture-backed no-secret export", async () => {
   const result = await runCli(["status", "--json", "--no-write-export"]);
   assert.equal(result.code, 0);
