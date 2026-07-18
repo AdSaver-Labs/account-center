@@ -473,6 +473,68 @@ test("CLI inventory, eligibility, guard, and route receipts never expose hostile
   assert.equal(JSON.parse(outputs[4]!.stdout).receipt.target, "redacted-target");
 });
 
+test("accounts list and routes next keep hostile generic-command fixture classes out of public CLI output", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const hostileValues = [
+    "fixture-person@example.test",
+    "sk-fixture-secret-value-123456789",
+    "Bearer fixture-bearer-token-value-123456789",
+    "/fixture/private/path",
+    "fixture adapter error",
+    "fixture-profile-identity",
+    "fixture-adapter-error"
+  ];
+  const redactedProvider = "custom:[REDACTED_EMAIL]";
+  const hostileStatus = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
+  const profile = hostileStatus.profiles[0];
+  profile.id = "custom:fixture-profile-identity";
+  profile.provider = "custom:fixture-person@example.test";
+  profile.label = "/fixture/private/path";
+  profile.runtimeCompatibility = ["custom:fixture-adapter-error"];
+  profile.models = ["sk-fixture-secret-value-123456789"];
+  profile.metadata = { adapterError: "fixture adapter error", authorization: "Bearer fixture-bearer-token-value-123456789" };
+  profile.usage.profileId = profile.id;
+  profile.usage.provider = profile.provider;
+  profile.usage.windows = [{ name: "five-hour", remainingPct: 99 }, { name: "weekly", remainingPct: 99 }];
+  profile.usage.warnings = ["fixture adapter error"];
+  hostileStatus.profiles = [profile];
+  hostileStatus.providers = [{ key: profile.provider, displayName: "/fixture/private/path" }];
+  hostileStatus.runtimes = [{ key: "custom:fixture-adapter-error", displayName: "fixture adapter error", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }];
+  hostileStatus.routes = [{ provider: profile.provider, runtime: "custom:fixture-adapter-error", activeProfileId: profile.id, order: [profile.id], updatedAt: hostileStatus.generatedAt }];
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "/usr/local/bin/private-adapter --dump-config";
+  try {
+    const commands = [
+      ["accounts", "list", "--source", "generic-command"],
+      ["accounts", "list", "--source", "generic-command", "--json"],
+      ["routes", "next", "--source", "generic-command", "--provider", redactedProvider, "--runtime", "custom:fixture-adapter-error"],
+      ["routes", "next", "--source", "generic-command", "--provider", redactedProvider, "--runtime", "custom:fixture-adapter-error", "--json"]
+    ];
+    const results = await Promise.all(commands.map((command) => runCli(command, process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(hostileStatus) }) })));
+
+    for (const result of results) {
+      assert.equal(result.code, 0);
+      assert.equal(result.stderr, undefined);
+      for (const value of hostileValues) assert.equal(result.stdout.includes(value), false, `${value} leaked from ${result.stdout}`);
+    }
+    assert.equal(results[0]!.stdout, "account-1 role=primary health=warn auth=ok 5h=99% weekly=99%\n");
+    assert.deepEqual(JSON.parse(results[1]!.stdout), {
+      schemaVersion: "account-center.public-accounts.v1",
+      verificationState: "UNPROVEN",
+      accounts: [{ id: "account-1", provider: "custom", role: "primary", health: "warn", auth: "ok", limits: [{ name: "five-hour", remainingPct: 99 }, { name: "weekly", remainingPct: 99 }] }]
+    });
+    assert.equal(results[2]!.stdout, "Next eligible: account-1\n");
+    assert.deepEqual(JSON.parse(results[3]!.stdout), {
+      schemaVersion: "account-center.public-route-next.v1",
+      verificationState: "UNPROVEN",
+      eligible: true,
+      next: "account-1"
+    });
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("hostile OpenClaw inventory fixtures cannot cross the public CLI boundary", async () => {
   const dir = await mkdtemp(join(tmpdir(), "account-center-hostile-cli-"));
   const cli = join(dir, "oauth_routing_cli.py");
