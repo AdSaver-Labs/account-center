@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cancelAuthChallenge, createAuthChallenge, expireAuthChallenge, getAuthChallenge } from "./auth-challenges.js";
+import { cancelAuthChallenge, completeAuthChallenge, createAuthChallenge, expireAuthChallenge, failAuthChallenge, getAuthChallenge } from "./auth-challenges.js";
 
 test("guided auth challenge preserves add mode and de-duplicates active target", () => {
   const first = createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "agent:main" });
@@ -23,6 +23,30 @@ test("guided auth challenge can be cancelled without exposing credentials", () =
   const cancelled = cancelAuthChallenge(challenge);
   assert.equal(cancelled.status, "cancelled");
   assert.equal(JSON.stringify(getAuthChallenge([cancelled], cancelled.id)).includes("token"), false);
+});
+
+test("guided auth completion and verified failure are distinct idempotent terminal transitions", () => {
+  const challenge = createAuthChallenge({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "old@example.com", scope: "agent:main" }, [], new Date("2026-07-18T10:00:00.000Z"));
+  const completed = completeAuthChallenge(challenge, new Date("2026-07-18T10:01:00.000Z"));
+  const duplicateComplete = completeAuthChallenge(completed, new Date("2026-07-18T10:02:00.000Z"));
+  assert.equal(completed.status, "completed");
+  assert.equal(duplicateComplete, completed);
+
+  const failed = failAuthChallenge(challenge, new Date("2026-07-18T10:01:00.000Z"));
+  const duplicateFailure = failAuthChallenge(failed, new Date("2026-07-18T10:02:00.000Z"));
+  assert.equal(failed.status, "failed");
+  assert.equal(duplicateFailure, failed);
+  assert.equal(JSON.stringify([completed, failed]).includes("old@example.com"), false);
+});
+
+test("guided auth terminal transitions do not overwrite cancelled or expired lifecycle evidence", () => {
+  const cancelled = cancelAuthChallenge(createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "default" }));
+  assert.equal(completeAuthChallenge(cancelled), cancelled);
+  assert.equal(failAuthChallenge(cancelled), cancelled);
+
+  const expired = expireAuthChallenge(createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.com", scope: "default", expiresAt: "2026-07-18T10:00:00.000Z" }, [], new Date("2026-07-18T09:00:00.000Z")), new Date("2026-07-18T10:00:00.000Z"));
+  assert.equal(completeAuthChallenge(expired), expired);
+  assert.equal(failAuthChallenge(expired), expired);
 });
 
 test("guided auth expires deterministically and an expired challenge no longer blocks replacement", () => {

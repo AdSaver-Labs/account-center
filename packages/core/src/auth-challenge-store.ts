@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
-import { AuthChallenge, AuthChallengeInput, cancelAuthChallenge, createAuthChallenge, expireAuthChallenge, getAuthChallenge, isSafePublicChallengeMetadata } from "./auth-challenges.js";
+import { AuthChallenge, AuthChallengeInput, cancelAuthChallenge, completeAuthChallenge, createAuthChallenge, expireAuthChallenge, failAuthChallenge, getAuthChallenge, isSafePublicChallengeMetadata } from "./auth-challenges.js";
 
 export class AuthChallengeStore {
   private readonly lockPath: string;
@@ -55,16 +55,30 @@ export class AuthChallengeStore {
    * evidence for an already-terminal lifecycle record.
    */
   async cancelWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
+    return this.transitionWithResult(id, cancelAuthChallenge);
+  }
+
+  /** Atomically persists a verifier-confirmed terminal completion. */
+  async completeWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
+    return this.transitionWithResult(id, completeAuthChallenge);
+  }
+
+  /** Atomically persists a verifier-confirmed terminal failure. */
+  async failWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
+    return this.transitionWithResult(id, failAuthChallenge);
+  }
+
+  private async transitionWithResult(id: string, transition: (challenge: AuthChallenge) => AuthChallenge): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
     return this.withLock(async () => {
       const challenges = await this.listUnsafe();
       const index = challenges.findIndex((item) => item.id === id);
       if (index < 0) return undefined;
       const before = challenges[index];
-      const cancelled = cancelAuthChallenge(challenges[index]);
-      challenges[index] = cancelled;
-      const changed = before.status !== cancelled.status;
+      const changedChallenge = transition(challenges[index]);
+      challenges[index] = changedChallenge;
+      const changed = before.status !== changedChallenge.status;
       if (changed) await this.write(challenges);
-      return { challenge: cancelled, changed };
+      return { challenge: changedChallenge, changed };
     });
   }
 

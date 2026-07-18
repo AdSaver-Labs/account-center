@@ -1271,6 +1271,74 @@ test("repeating a guided-auth cancellation is idempotent and does not duplicate 
   }
 });
 
+test("guided-auth completion and verified failure require the verifier seam, persist distinct terminal states, and reject replay or invalid terminals", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  const complete = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "complete@example.test", scope: "default" });
+  const failed = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "failed@example.test", scope: "default" });
+  const cancelled = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "cancelled@example.test", scope: "default" });
+  await challenges.cancel(cancelled.id);
+  const app = createAccountCenterServer({
+    token: "test-token",
+    challengeStore: challenges,
+    auditStore,
+    guidedAuthVerifier: { verifyTerminal: async (challenge) => challenge.id === failed.id ? "failed" : "completed" }
+  });
+  const address = await app.listen();
+  const headers = { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` };
+  try {
+    const completePath = `/api/auth-challenges/${complete.id}/complete`;
+    assert.equal((await request(address.port, completePath)).status, 401);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}${completePath}`, { method: "POST", headers: { ...headers, origin: "http://attacker.invalid" } })).status, 403);
+    const completed = await fetch(`http://127.0.0.1:${address.port}${completePath}`, { method: "POST", headers });
+    assert.equal(completed.status, 200);
+    const completedBody = await completed.json() as { schemaVersion: string; idempotent: boolean; result: Record<string, unknown>; challenge: Record<string, unknown> };
+    assert.equal(completedBody.schemaVersion, "account-center.auth-challenge-complete.v1");
+    assert.equal(completedBody.idempotent, false);
+    assert.deepEqual(completedBody.result, { outcome: "completed", verificationState: "verified" });
+    assert.equal(completedBody.challenge.status, "completed");
+    assert.equal(JSON.stringify(completedBody).match(/@example\.test|token|code|identity/i), null);
+
+    const replay = await fetch(`http://127.0.0.1:${address.port}${completePath}`, { method: "POST", headers });
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json() as { idempotent: boolean }).idempotent, true);
+
+    const failure = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/${failed.id}/fail`, { method: "POST", headers });
+    assert.equal(failure.status, 200);
+    const failureBody = await failure.json() as { schemaVersion: string; result: Record<string, unknown>; challenge: { status: string } };
+    assert.equal(failureBody.schemaVersion, "account-center.auth-challenge-fail.v1");
+    assert.deepEqual(failureBody.result, { outcome: "failed", verificationState: "verified" });
+    assert.equal(failureBody.challenge.status, "failed");
+
+    const invalid = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/${cancelled.id}/complete`, { method: "POST", headers });
+    assert.equal(invalid.status, 409);
+    assert.deepEqual(await invalid.json(), { error: "invalid_lifecycle_transition" });
+    assert.deepEqual((await auditStore.list()).map((record) => record.action), ["guided_auth.fail", "guided_auth.complete"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("guided-auth terminal lifecycle routes are blocked without a verifier and reject request bodies", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const challenge = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore: new AuditStore(join(root, "audit.json")) });
+  const address = await app.listen();
+  const path = `/api/auth-challenges/${challenge.id}/complete`;
+  try {
+    const unavailable = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` } });
+    assert.equal(unavailable.status, 503);
+    assert.deepEqual(await unavailable.json(), { error: "guided_auth_verifier_unavailable" });
+    const withBody = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}`, "content-type": "application/json" }, body: "{}" });
+    assert.equal(withBody.status, 413);
+    assert.equal((await challenges.get(challenge.id))?.status, "pending");
+  } finally {
+    await app.close();
+  }
+});
+
 test("cancelling an elapsed guided-auth challenge reports expiry without recording a false cancellation", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
