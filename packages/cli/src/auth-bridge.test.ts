@@ -64,12 +64,15 @@ test("CLI auth bridge executes /auth guard against fixture status", async () => 
   assert.equal(parsed.next, "account-2");
 });
 
-test("CLI auth bridge executes /auth probe against fixture status", async () => {
+test("CLI auth bridge executes /auth probe against fixture status with an opaque public view", async () => {
   const result = await runCli(["auth", "/auth", "probe", "--json"]);
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed[0].provider, "openai");
-  assert.equal(parsed[0].usableProfiles, 2);
+  assert.equal(parsed.schemaVersion, "account-center.public-provider-probes.v1");
+  assert.equal(parsed.verificationState, "UNPROVEN");
+  assert.equal(parsed.probes[0].state, "OK");
+  assert.equal(parsed.probes[0].usableProfiles, 2);
+  assert.equal("provider" in parsed.probes[0], false);
 });
 
 test("CLI auth bridge rejects oauth manual command", async () => {
