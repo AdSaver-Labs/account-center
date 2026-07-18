@@ -163,6 +163,11 @@ export function publicLimitsInventoryView(status: AccountCenterStatus, runtime?:
 
 export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unknown {
   const scopes = new Map<Exclude<PublicRuntime, "custom">, { readStatus: boolean; mutateRoutes: boolean; startReauth: boolean; mutateModels: boolean }>();
+  // A generic command can report schema-valid status, but it is not a trusted
+  // runtime capability authority. Preserve its observable read-status signal
+  // while refusing to publish any mutation capability it claims, regardless
+  // of which recognized runtime label it supplies.
+  const trustsMutationCapabilities = status.source !== "generic-command";
   for (const runtime of status.runtimes) {
     // Runtime keys come from adapter status. Unknown keys must not be renamed
     // to a shared synthetic entry: that would merge distinct evidence and turn
@@ -172,9 +177,9 @@ export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unkn
     const existing = scopes.get(key);
     scopes.set(key, {
       readStatus: existing?.readStatus === true || runtime.capabilities.readStatus === true,
-      mutateRoutes: existing?.mutateRoutes === true || runtime.capabilities.mutateRoutes === true,
-      startReauth: existing?.startReauth === true || runtime.capabilities.startReauth === true,
-      mutateModels: existing?.mutateModels === true || runtime.capabilities.mutateModels === true
+      mutateRoutes: existing?.mutateRoutes === true || (trustsMutationCapabilities && runtime.capabilities.mutateRoutes === true),
+      startReauth: existing?.startReauth === true || (trustsMutationCapabilities && runtime.capabilities.startReauth === true),
+      mutateModels: existing?.mutateModels === true || (trustsMutationCapabilities && runtime.capabilities.mutateModels === true)
     });
   }
   return {

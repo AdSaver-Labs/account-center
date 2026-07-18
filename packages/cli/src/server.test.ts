@@ -332,7 +332,7 @@ test("read-only runtime scope catalog is bearer-protected, versioned, and expose
   }
 });
 
-test("protected inventory projections allowlist schema-valid hostile generic-command status", async () => {
+test("generic-command status cannot establish public mutation scopes for recognized runtimes", async () => {
   const hostileValues = [
     "person@example.test",
     "sk-hostile-token-value-123456789",
@@ -349,7 +349,10 @@ test("protected inventory projections allowlist schema-valid hostile generic-com
     source: "generic-command",
     providers: [{ key: "custom:person@example.test", displayName: "provider=private-account; routing=production" }],
     runtimes: [
-      { key: "generic-command", displayName: "/usr/local/bin/private-adapter --dump-config", capabilities: { readStatus: true, mutateRoutes: "yes", startReauth: true, mutateModels: 1 } },
+      { key: "generic-command", displayName: "/usr/local/bin/private-adapter --dump-config", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "codex", displayName: "runtime=private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "hermes", displayName: "runtime=private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
+      { key: "openclaw", displayName: "runtime=private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
       { key: "custom:/srv/private/account-center/config.json", displayName: "runtime=private", capabilities: { readStatus: false, mutateRoutes: false, startReauth: false, mutateModels: false } }
     ],
     profiles: [{
@@ -406,7 +409,10 @@ test("protected inventory projections allowlist schema-valid hostile generic-com
         schemaVersion: "account-center.runtime-scopes.v1",
         generatedAt: "unknown",
         scopes: [
-          { runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: true, mutateModels: false } }
+          { runtime: "codex", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+          { runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+          { runtime: "hermes", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+          { runtime: "openclaw", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }
         ]
       });
     }

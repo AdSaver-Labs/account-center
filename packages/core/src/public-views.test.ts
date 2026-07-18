@@ -83,7 +83,7 @@ test("public runtime scope catalog omits distinct unknown runtime keys without c
     source: "generic-command",
     providers: [],
     runtimes: [
-      { key: "generic-command", displayName: "trusted generic adapter", capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+      { key: "generic-command", displayName: "trusted generic adapter", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } },
       { key: "custom:hostile-runtime-a", displayName: "private runtime A", capabilities: { readStatus: false, mutateRoutes: true, startReauth: false, mutateModels: false } },
       { key: "custom:hostile-runtime-b", displayName: "private runtime B", capabilities: { readStatus: false, mutateRoutes: false, startReauth: true, mutateModels: true } }
     ],
@@ -94,5 +94,11 @@ test("public runtime scope catalog omits distinct unknown runtime keys without c
     schemaVersion: "account-center.runtime-scopes.v1",
     generatedAt: "2026-07-17T12:00:00.000Z",
     scopes: [{ runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }]
+  });
+
+  assert.deepEqual(publicRuntimeScopeCatalogView({ ...status, source: "openclaw" }), {
+    schemaVersion: "account-center.runtime-scopes.v1",
+    generatedAt: "2026-07-17T12:00:00.000Z",
+    scopes: [{ runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }]
   });
 });
