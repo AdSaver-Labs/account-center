@@ -674,6 +674,61 @@ test("routes next fails closed for wrong equals-form provider and runtime values
   assert.doesNotMatch(jsonResult.stdout, /wrong-provider|wrong-runtime/);
 });
 
+test("routes next rejects malformed or repeated route selectors without selecting defaults", async () => {
+  const malformedSelectors = [
+    ["--provider"],
+    ["--runtime"],
+    ["--provider="],
+    ["--runtime="],
+    ["--provider", "--runtime", "openclaw"],
+    ["--runtime", "--provider", "openai"],
+    ["--provider=--runtime", "openclaw"],
+    ["--runtime=--provider", "openai"],
+    ["--provider", "openai", "--provider=openai"],
+    ["--runtime=openclaw", "--runtime", "openclaw"],
+    ["--provider=openai", "--runtime=openclaw", "--provider", "openai"],
+    ["--provider=openai", "--runtime=openclaw", "--runtime", "openclaw"]
+  ];
+
+  for (const selectors of malformedSelectors) {
+    const [textResult, jsonResult] = await Promise.all([
+      runCli(["routes", "next", ...selectors]),
+      runCli(["routes", "next", ...selectors, "--json"])
+    ]);
+
+    assert.equal(textResult.code, 2, selectors.join(" "));
+    assert.equal(textResult.stdout, "Route selection UNPROVEN\n");
+    assert.equal(textResult.stderr, undefined);
+    assert.equal(jsonResult.code, 2, selectors.join(" "));
+    assert.deepEqual(JSON.parse(jsonResult.stdout), {
+      schemaVersion: "account-center.public-route-next.v1",
+      verificationState: "UNPROVEN",
+      routeSelection: "no_exact_route",
+      eligible: false,
+      next: "none"
+    });
+    assert.equal(jsonResult.stderr, undefined);
+    for (const selector of selectors) {
+      if (selector !== "--provider" && selector !== "--runtime") {
+        assert.equal(textResult.stdout.includes(selector), false, `${selector} leaked from text output`);
+        assert.equal(jsonResult.stdout.includes(selector), false, `${selector} leaked from JSON output`);
+      }
+    }
+  }
+});
+
+test("routes next preserves exact split-form and equals-form route selection", async () => {
+  const [splitResult, equalsResult] = await Promise.all([
+    runCli(["routes", "next", "--provider", "openai", "--runtime", "openclaw"]),
+    runCli(["routes", "next", "--provider=openai", "--runtime=openclaw"])
+  ]);
+
+  for (const result of [splitResult, equalsResult]) {
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "Next eligible: account-2\n");
+  }
+});
+
 test("routes next fails closed for an exact route with an empty order", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));

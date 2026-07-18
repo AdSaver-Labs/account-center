@@ -35,6 +35,7 @@ interface CliOptions {
   json: boolean;
   provider: string;
   runtime: string;
+  routeSelectors: RouteSelectors;
   model?: string;
   limit: number;
   statusPath: string;
@@ -43,6 +44,17 @@ interface CliOptions {
   source: "fixture" | "openclaw" | "generic-command";
   apply: boolean;
   ensureRoute: boolean;
+}
+
+type RouteSelectorOption =
+  | { state: "absent" }
+  | { state: "valid"; value: string }
+  | { state: "malformed" }
+  | { state: "repeated" };
+
+interface RouteSelectors {
+  provider: RouteSelectorOption;
+  runtime: RouteSelectorOption;
 }
 
 const DEFAULT_AUDIT_LIST_LIMIT = 20;
@@ -55,6 +67,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   } catch (error) {
     return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
   }
+  if (!routeSelectorsAreValid(options.routeSelectors)) return routeSelectorFailure(options);
   const positional = argv.filter((arg) => !arg.startsWith("--") && !isOptionValue(argv, arg));
   const [command, subcommand, target] = positional;
 
@@ -178,10 +191,12 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
 }
 
 function parseOptions(argv: string[], cwd: string): CliOptions {
+  const routeSelectors = parseRouteSelectors(argv);
   return {
     json: argv.includes("--json"),
-    provider: valueAfter(argv, "--provider") ?? "openai",
-    runtime: valueAfter(argv, "--runtime") ?? "openclaw",
+    provider: routeSelectorValue(routeSelectors.provider, "openai"),
+    runtime: routeSelectorValue(routeSelectors.runtime, "openclaw"),
+    routeSelectors,
     model: valueAfter(argv, "--model"),
     limit: parseAuditListLimit(valueAfter(argv, "--limit")),
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
@@ -191,6 +206,49 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     apply: argv.includes("--apply"),
     ensureRoute: argv.includes("--ensure-route")
   };
+}
+
+function parseRouteSelectors(argv: string[]): RouteSelectors {
+  return {
+    provider: parseRouteSelectorOption(argv, "--provider"),
+    runtime: parseRouteSelectorOption(argv, "--runtime")
+  };
+}
+
+function parseRouteSelectorOption(argv: string[], key: "--provider" | "--runtime"): RouteSelectorOption {
+  let occurrences = 0;
+  let value: string | undefined;
+  let malformed = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const option = argv[index];
+    if (option === key) {
+      occurrences += 1;
+      const splitValue = argv[index + 1];
+      if (splitValue === undefined || splitValue === "" || splitValue.startsWith("--")) malformed = true;
+      else value = splitValue;
+    } else if (option?.startsWith(`${key}=`)) {
+      occurrences += 1;
+      const equalsValue = option.slice(key.length + 1);
+      if (equalsValue === "" || equalsValue.startsWith("--")) malformed = true;
+      else value = equalsValue;
+    }
+  }
+
+  if (occurrences === 0) return { state: "absent" };
+  if (occurrences > 1) return { state: "repeated" };
+  return malformed || value === undefined ? { state: "malformed" } : { state: "valid", value };
+}
+
+function routeSelectorValue(selector: RouteSelectorOption, fallback: string): string {
+  return selector.state === "valid" ? selector.value : fallback;
+}
+
+function routeSelectorsAreValid(selectors: RouteSelectors): boolean {
+  return selectors.provider.state !== "malformed"
+    && selectors.provider.state !== "repeated"
+    && selectors.runtime.state !== "malformed"
+    && selectors.runtime.state !== "repeated";
 }
 
 function parseAuditListLimit(value: string | undefined): number {
@@ -338,6 +396,17 @@ function publicRouteNextView(status: AccountCenterStatus, target: string | undef
     eligible: target !== undefined,
     next: publicAccountRef(status, target)
   };
+}
+
+function routeSelectorFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-route-next.v1" as const,
+    verificationState: "UNPROVEN" as const,
+    routeSelection: "no_exact_route" as const,
+    eligible: false,
+    next: "none"
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Route selection UNPROVEN\n" };
 }
 
 function publicGuardView(status: AccountCenterStatus, guarded: { ok: boolean; next?: string }, receipt: unknown, ensured?: unknown): PublicGuardView {
