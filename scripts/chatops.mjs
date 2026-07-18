@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runCli } from "../packages/cli/dist/index.js";
+import { tokenizeAuthCommand } from "../packages/cli/dist/auth-bridge.js";
 
 const message = process.argv.slice(2).join(" ").trim();
 if (!message) {
@@ -12,7 +13,15 @@ if (!message.startsWith("/auth")) {
   process.exit(1);
 }
 
-const result = await runCli(["auth", ...message.split(/\s+/)]);
+let tokens;
+try {
+  tokens = tokenizeAuthCommand(message);
+} catch {
+  console.error("Invalid Account Center command.");
+  process.exit(1);
+}
+
+const result = await runCli(["auth", ...tokens]);
 if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : `${result.stdout}\n`);
 if (result.stderr) process.stderr.write(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
 process.exitCode = result.code;

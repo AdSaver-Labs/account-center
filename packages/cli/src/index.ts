@@ -567,6 +567,7 @@ function renderMutation(payload: PublicMutationView): string {
     lines.push(`Action: ${action}`);
     lines.push(`Target: ${target}`);
     lines.push(`Result: ${payload.state}`);
+    lines.push(`Verification: ${payload.verificationState}`);
     if (action === "account.delete") {
       lines.push("");
       lines.push("Exact connected-target confirmation remains required before credential deletion.");

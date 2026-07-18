@@ -1,7 +1,19 @@
 const MANUAL_COMMAND = "/auth";
 
+interface AuthToken {
+  value: string;
+  quoted: boolean;
+  escaped: boolean;
+}
+
+export interface AuthCommandInspection {
+  invocation: string[];
+  mutationCapable: boolean;
+  explicitlyDryRun: boolean;
+}
+
 export function parseAuthCommand(input: string | string[]): string[] {
-  const tokens = Array.isArray(input) ? input : tokenize(input);
+  const tokens = Array.isArray(input) ? input : tokenizeAuthCommand(input);
   const [prefix, verb, ...rest] = tokens;
   if (!prefix || prefix === "help") return ["help"];
   if (prefix === "/oauth") throw new Error("Manual command is /auth, not /oauth.");
@@ -54,6 +66,30 @@ export function parseAuthCommand(input: string | string[]): string[] {
   }
 }
 
+/**
+ * Tokenize manual chat input exactly once before it is passed into the CLI.
+ * Quoting is supported for operands; callers that grant elevated capability
+ * must use inspectAuthCommand so quotes/escapes cannot authorize a flag.
+ */
+export function tokenizeAuthCommand(input: string): string[] {
+  return tokenizeWithMetadata(input).map((token) => token.value);
+}
+
+/**
+ * Resolve the manual command to the same argv the CLI will invoke, then
+ * classify every mapped mutation path. This is the capability boundary used
+ * by the MCP bridge before it forwards anything to ChatOps.
+ */
+export function inspectAuthCommand(input: string): AuthCommandInspection {
+  const tokens = tokenizeWithMetadata(input);
+  const invocation = parseAuthCommand(tokens.map((token) => token.value));
+  const mutationCapable = isMutationInvocation(invocation);
+  const explicitlyDryRun = tokens.some((token) =>
+    token.value === "--dry-run" && !token.quoted && !token.escaped
+  ) && invocation.includes("--dry-run") && !invocation.includes("--apply");
+  return { invocation, mutationCapable, explicitlyDryRun };
+}
+
 export function renderAuthHelp(): string {
   return `/auth commands
   /auth status [--source fixture|openclaw|generic-command] [--json]
@@ -96,15 +132,36 @@ function mapModelCommand(rest: string[]): string[] {
   throw new Error(`Unknown /auth model command: ${subcommand}. Run /auth help.`);
 }
 
-function tokenize(input: string): string[] {
-  const tokens: string[] = [];
+function isMutationInvocation(invocation: string[]): boolean {
+  const [command, subcommand] = invocation;
+  return (command === "guard" && invocation.includes("--ensure-route")) ||
+    (command === "routes" && ["auto", "use", "remove"].includes(subcommand ?? "")) ||
+    (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) ||
+    (command === "models" && ["disable", "enable"].includes(subcommand ?? "")) ||
+    (command === "reauth" && subcommand === "start");
+}
+
+function tokenizeWithMetadata(input: string): AuthToken[] {
+  const tokens: AuthToken[] = [];
   let current = "";
   let quote: '"' | "'" | undefined;
   let escaping = false;
+  let quoted = false;
+  let escaped = false;
+
+  const push = () => {
+    if (!current) return;
+    tokens.push({ value: current, quoted, escaped });
+    current = "";
+    quoted = false;
+    escaped = false;
+  };
+
   for (const char of input.trim()) {
     if (escaping) {
       current += char;
       escaping = false;
+      escaped = true;
       continue;
     }
     if (char === "\\") {
@@ -113,24 +170,28 @@ function tokenize(input: string): string[] {
     }
     if (quote) {
       if (char === quote) quote = undefined;
-      else current += char;
+      else {
+        current += char;
+        quoted = true;
+      }
       continue;
     }
     if (char === '"' || char === "'") {
       quote = char;
+      quoted = true;
       continue;
     }
     if (/\s/.test(char)) {
-      if (current) {
-        tokens.push(current);
-        current = "";
-      }
+      push();
       continue;
     }
     current += char;
   }
   if (quote) throw new Error("Unterminated quote in /auth command.");
-  if (escaping) current += "\\";
-  if (current) tokens.push(current);
+  if (escaping) {
+    current += "\\";
+    escaped = true;
+  }
+  push();
   return tokens;
 }

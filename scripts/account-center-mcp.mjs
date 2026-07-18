@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const CHATOPS = resolve(ROOT, 'scripts', 'chatops.mjs');
@@ -11,6 +12,11 @@ const ALLOW_MUTATIONS = process.env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS === '1';
 const DEFAULT_SOURCE = process.env.ACCOUNT_CENTER_SOURCE || 'openclaw';
 const MAX_OUTPUT = 12000;
 const OPAQUE_FAILURE_TEXT = 'Account Center request UNPROVEN.\n';
+const INVALID_REQUEST_TEXT = 'Invalid Account Center MCP request.';
+const MUTATION_BLOCKED_TEXT =
+  'Blocked potentially mutating Account Center command in Codex MCP.\n\n' +
+  'For safety, this MCP bridge allows status/help and dry-runs by default. ' +
+  'Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.';
 
 if (!existsSync(CHATOPS)) {
   console.error(`Account Center chatops wrapper not found: ${CHATOPS}`);
@@ -36,7 +42,7 @@ const tools = [
       properties: {
         command: {
           type: 'string',
-          description: 'The /auth command to run, for example: /auth, /auth list, /auth auto, /auth delete nobody@example.invalid --dry-run.',
+          description: 'The /auth command to run, for example: /auth, /auth list, or /auth auto --dry-run.',
         },
       },
       required: ['command'],
@@ -69,7 +75,10 @@ function redact(text) {
     .replace(/rt\.1\.[A-Za-z0-9._~+/=-]{12,}/g, '[REDACTED]')
     .replace(/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{12,}/g, '[REDACTED]')
     .replace(/sk-[A-Za-z0-9_-]{20,}/g, '[REDACTED]')
-    .replace(/(access_token|refresh_token|id_token|api_key|agent_key)(["'\s:=]+)([^\s"']{4,})/gi, '$1$2[REDACTED]');
+    .replace(/(?:gh[pousr]_|xox[baprs]-)[A-Za-z0-9_-]{16,}/gi, '[REDACTED]')
+    .replace(/\/(?:[A-Za-z0-9._-]+\/){1,}[A-Za-z0-9._-]+/g, '[REDACTED_PATH]')
+    .replace(/(access_token|refresh_token|id_token|api_key|agent_key|authorization|oauth[_-]?code)(["'\s:=]+)([^\s"']{4,})/gi, '$1$2[REDACTED]')
+    .replace(/\b(target|receipt[_-]?target|account|profile|identity|runtime[_-]?command|command|path)(["'\s:=]+)([^\s"',;]{3,})/gi, '$1$2[REDACTED]');
 }
 
 function normalizeCommand(raw) {
@@ -80,14 +89,6 @@ function normalizeCommand(raw) {
   return `/auth ${text}`;
 }
 
-function isMutation(command) {
-  return /^\/auth\s+(add|reauth|remove|delete|use|auto|ensure|disable|enable|model\s+(enable|disable)|models\s+(enable|disable))\b/i.test(command);
-}
-
-function isClearlyDryRun(command) {
-  return /\s--dry-run\b/i.test(command);
-}
-
 function opaqueFailure() {
   return {
     isError: true,
@@ -95,20 +96,25 @@ function opaqueFailure() {
   };
 }
 
-function runAuth(command) {
+async function runAuth(command) {
   const normalized = normalizeCommand(command);
-  if (isMutation(normalized) && !isClearlyDryRun(normalized) && !ALLOW_MUTATIONS) {
+  let inspection;
+  try {
+    // The MCP transport must be able to initialize from a clean checkout,
+    // before TypeScript output exists. The canonical parser is needed only
+    // for an auth invocation, so defer this ignored build-artifact import.
+    const { inspectAuthCommand } = await import('../packages/cli/dist/auth-bridge.js');
+    inspection = inspectAuthCommand(normalized);
+  } catch {
     return {
       isError: true,
-      content: [
-        {
-          type: 'text',
-          text:
-            `Blocked potentially mutating Account Center command in Codex MCP: ${redact(normalized)}\n\n` +
-            'For safety, this MCP bridge allows status/help and dry-runs by default. ' +
-            'Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.',
-        },
-      ],
+      content: [{ type: 'text', text: MUTATION_BLOCKED_TEXT }],
+    };
+  }
+  if (inspection.mutationCapable && !inspection.explicitlyDryRun && !ALLOW_MUTATIONS) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: MUTATION_BLOCKED_TEXT }],
     };
   }
   let proc;
@@ -146,7 +152,7 @@ function respond(msg) {
   process.stdout.write(JSON.stringify(msg) + '\n');
 }
 
-function handle(req) {
+async function handle(req) {
   const { id, method, params } = req;
   if (method === 'initialize') {
     respond(result(id, {
@@ -164,29 +170,35 @@ function handle(req) {
   if (method === 'tools/call') {
     const name = params?.name;
     const args = params?.arguments || {};
-    if (name === 'account_center_status') respond(result(id, runAuth('/auth')));
-    else if (name === 'account_center_help') respond(result(id, runAuth('/auth help')));
-    else if (name === 'account_center_auth') respond(result(id, runAuth(args.command || '/auth')));
-    else respond(error(id, -32602, `Unknown tool: ${name}`));
+    if (name === 'account_center_status') respond(result(id, await runAuth('/auth')));
+    else if (name === 'account_center_help') respond(result(id, await runAuth('/auth help')));
+    else if (name === 'account_center_auth') respond(result(id, await runAuth(args.command || '/auth')));
+    else respond(error(id, -32602, INVALID_REQUEST_TEXT));
     return;
   }
-  if (id !== undefined) respond(error(id, -32601, `Unknown method: ${method}`));
+  if (id !== undefined) respond(error(id, -32601, INVALID_REQUEST_TEXT));
 }
+
+let inputQueue = Promise.resolve();
 
 process.stdin.on('data', (chunk) => {
   buffer = Buffer.concat([buffer, chunk]);
-  while (true) {
-    const idx = buffer.indexOf(10);
-    if (idx < 0) break;
-    const line = buffer.slice(0, idx).toString('utf8').trim();
-    buffer = buffer.slice(idx + 1);
-    if (!line) continue;
-    try {
-      handle(JSON.parse(line));
-    } catch (e) {
-      respond(error(null, -32700, e instanceof Error ? e.message : String(e)));
+  inputQueue = inputQueue.then(async () => {
+    while (true) {
+      const idx = buffer.indexOf(10);
+      if (idx < 0) break;
+      const line = buffer.slice(0, idx).toString('utf8').trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+      try {
+        await handle(JSON.parse(line));
+      } catch {
+        respond(error(null, -32700, INVALID_REQUEST_TEXT));
+      }
     }
-  }
+  });
 });
 
-process.stdin.on('end', () => process.exit(0));
+process.stdin.on('end', () => {
+  inputQueue.then(() => process.exit(0));
+});
