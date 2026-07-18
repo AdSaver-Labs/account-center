@@ -71,9 +71,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       }
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
-    const allowedMethod = endpointMethod(request.url);
-    if (allowedMethod && request.method !== allowedMethod) {
-      response.setHeader("Allow", allowedMethod);
+    const allowedMethods = endpointMethods(request.url);
+    if (allowedMethods && !allowedMethods.includes(request.method ?? "")) {
+      response.setHeader("Allow", allowedMethods.join(", "));
       return send(response, 405, { error: "method_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
@@ -398,13 +398,13 @@ function authChallengeView({ id, mode, provider, runtime, scope, status, expires
   return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
 }
 
-function endpointMethod(path: string | undefined): "GET" | "POST" | undefined {
+function endpointMethods(path: string | undefined): string[] | undefined {
   const pathname = path ? new URL(path, "http://account-center.local").pathname : undefined;
-  if (pathname === "/api/auth-challenges") return "GET";
-  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/scopes", "/api/auth-challenges", "/api/status"].includes(pathname ?? "")) return "GET";
-  if (mutationOperationId(pathname) || auditRecordId(pathname)) return "GET";
-  if (authChallengeCancelId(pathname)) return "POST";
-  if (authChallengeId(pathname)) return "GET";
+  if (pathname === "/api/auth-challenges") return ["GET", "POST"];
+  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/scopes", "/api/status"].includes(pathname ?? "")) return ["GET"];
+  if (mutationOperationId(pathname) || auditRecordId(pathname)) return ["GET"];
+  if (authChallengeCancelId(pathname)) return ["POST"];
+  if (authChallengeId(pathname)) return ["GET"];
   return undefined;
 }
 

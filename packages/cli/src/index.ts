@@ -466,8 +466,8 @@ function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): st
   lines.push("• /auth list or /auth status — compact route list with active marker");
   lines.push("• /auth <email> — switch active Codex route to that connected account");
   lines.push("• /auth auto — run safe auto-switch to best readable non-AdSaver account");
-  lines.push("• /auth add <email> — start OpenAI Codex device-code login from Telegram; background worker attempts to save/refresh the OAuth profile and activates it when usable, then reports success/failure");
-  lines.push("• /auth reauth <email> — same as /auth add <email>; use for expired/401 accounts");
+  lines.push("• /auth add <email> — record a local guided-auth initiation for a new account; it does not start device-code/OAuth login, store credentials, or activate routing");
+  lines.push("• /auth reauth <email> — record a local guided-auth initiation for an existing account; it does not reauthenticate or change credentials or routing");
   lines.push("• /auth remove <email> — remove from routing without deleting credentials");
   lines.push("• /auth delete <email> — permanently delete that account's Sentinel/OpenClaw credentials after backup");
   lines.push("• /auth delete <email> --dry-run — preview delete only; no deletion");

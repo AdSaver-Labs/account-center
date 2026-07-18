@@ -50,6 +50,19 @@ test("/auth add and reauth preserve guided-auth mode", () => {
   assert.equal(reauthDryRun.includes("--dry-run"), true);
 });
 
+test("/auth add and reauth reject malformed, conflicting, or repeated guided-auth modes", () => {
+  for (const input of [
+    "/auth add new@example.com --mode",
+    "/auth add new@example.com --mode --dry-run",
+    "/auth add new@example.com --mode=add",
+    "/auth add new@example.com --mode reauth",
+    "/auth reauth old@example.com --mode add",
+    "/auth add new@example.com --mode add --mode add"
+  ]) {
+    assert.throws(() => parseAuthCommand(input), /Guided-auth mode/);
+  }
+});
+
 test("/auth help promotes auth and never promotes oauth", () => {
   const help = renderAuthHelp();
   assert.match(help, /^\/auth commands/m);

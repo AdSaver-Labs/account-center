@@ -230,6 +230,13 @@ test("protected endpoint method rejection advertises the fixed allowed method", 
     assert.equal(filteredAudit.status, 405);
     assert.equal(filteredAudit.headers.get("allow"), "GET");
 
+    const authChallenges = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges`, {
+      method: "PUT",
+      headers: { authorization: "Bearer test-token" }
+    });
+    assert.equal(authChallenges.status, 405);
+    assert.equal(authChallenges.headers.get("allow"), "GET, POST");
+
     const cancel = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel`, {
       headers: { authorization: "Bearer test-token" }
     });
