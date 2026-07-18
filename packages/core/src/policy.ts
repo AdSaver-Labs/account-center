@@ -52,8 +52,8 @@ function evaluateProfileInternal(status: AccountCenterStatus, profile: Profile, 
 
 export function nextEligible(status: AccountCenterStatus, provider = "openai", runtime = "openclaw", model?: string): EligibilityResult | undefined {
   const route = status.routes.find((item) => item.provider === provider && item.runtime === runtime);
-  if (!route) return undefined;
-  return route.order
+  const orderedIds = route?.order ?? status.profiles.filter((profile) => profile.provider === provider).map((profile) => profile.id);
+  return orderedIds
     .map((id) => status.profiles.find((profile) => profile.id === id))
     .filter((profile): profile is Profile => Boolean(profile))
     .map((profile) => evaluateProfile(status, profile, route, model))

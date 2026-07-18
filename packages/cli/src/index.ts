@@ -65,8 +65,8 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   // Route selector syntax is meaningful only to `routes next`. Check it before
   // parsing unrelated options so a malformed source cannot replace this
   // fail-closed, redacted response.
-  if (command === "routes" && subcommand === "next") {
-    const routeSelectors = parseRouteSelectors(argv);
+  const routeSelectors = command === "routes" && subcommand === "next" ? parseRouteSelectors(argv) : undefined;
+  if (routeSelectors) {
     if (!routeSelectorsAreValid(routeSelectors)) return routeSelectorFailure(argv.includes("--json"));
   }
   let options: CliOptions;
@@ -74,6 +74,13 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     options = parseOptions(argv, cwd);
   } catch (error) {
     return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
+  }
+  if (routeSelectors) {
+    options = {
+      ...options,
+      provider: routeSelectors.provider.state === "valid" ? routeSelectors.provider.value : options.provider,
+      runtime: routeSelectors.runtime.state === "valid" ? routeSelectors.runtime.value : options.runtime
+    };
   }
 
   if (!command || command === "help" || command === "--help") return ok(helpText());
@@ -139,10 +146,12 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return ok(options.json ? json(view) : renderModels(view));
   }
   if (command === "routes" && subcommand === "next") {
-    const next = nextEligible(status, options.provider, options.runtime, options.model);
     const routeSelection = status.routes.some((route) => route.provider === options.provider && route.runtime === options.runtime)
       ? "exact_route" as const
       : "no_exact_route" as const;
+    const next = routeSelection === "exact_route"
+      ? nextEligible(status, options.provider, options.runtime, options.model)
+      : undefined;
     const view = publicRouteNextView(status, next?.profile.id, routeSelection);
     if (view.routeSelection === "no_exact_route") {
       return { code: 2, stdout: options.json ? json(view) : "Route selection UNPROVEN\n" };
@@ -267,8 +276,6 @@ function isOptionValue(argv: string[], arg: string): boolean {
 }
 
 function valueAfter(argv: string[], key: string): string | undefined {
-  const equalsForm = argv.find((arg) => arg.startsWith(`${key}=`));
-  if (equalsForm !== undefined) return equalsForm.slice(key.length + 1);
   const index = argv.indexOf(key);
   return index >= 0 ? argv[index + 1] : undefined;
 }

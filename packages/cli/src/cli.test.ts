@@ -783,6 +783,38 @@ test("route-selector parsing is isolated from provider probe, guard, and dry-run
   }
 });
 
+test("provider probe retains main-equivalent behavior for equals-form provider options", async () => {
+  const [defaultProbe, equalsProbe] = await Promise.all([
+    runCli(["providers", "probe", "--json"]),
+    runCli(["providers", "probe", "--provider=not-a-provider", "--json"])
+  ]);
+
+  assert.equal(defaultProbe.code, 0);
+  assert.equal(equalsProbe.code, 0);
+  assert.deepEqual(JSON.parse(equalsProbe.stdout), JSON.parse(defaultProbe.stdout));
+});
+
+test("guard retains provider fallback when no exact runtime route exists", async () => {
+  const guard = await runCli(["guard", "--runtime", "hermes", "--json"]);
+
+  assert.equal(guard.code, 0);
+  const guarded = JSON.parse(guard.stdout);
+  assert.equal(guarded.ok, true);
+  assert.equal(guarded.next, "account-2");
+});
+
+test("dry-run mutation option paths retain main-equivalent equals-form handling", async () => {
+  const ensured = await runCli(["guard", "--ensure-route", "--provider=not-a-provider", "--runtime=not-a-runtime", "--dry-run", "--json"]);
+
+  assert.equal(ensured.code, 0);
+  const mutationPath = JSON.parse(ensured.stdout);
+  assert.equal(mutationPath.ok, true);
+  assert.equal(mutationPath.next, "account-2");
+  assert.equal(mutationPath.ensured.state, "DRY_RUN");
+  assert.equal(mutationPath.ensured.receipt.action, "route.auto");
+  assert.equal(mutationPath.ensured.receipt.target, "redacted-target");
+});
+
 test("routes next preserves exact split-form and equals-form route selection", async () => {
   const [splitResult, equalsResult] = await Promise.all([
     runCli(["routes", "next", "--provider", "openai", "--runtime", "openclaw"]),

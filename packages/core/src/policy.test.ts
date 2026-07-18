@@ -9,10 +9,10 @@ test("nextEligible skips exhausted primary and protected backup", async () => {
   assert.equal(next?.profile.id, "openai:helper-2");
 });
 
-test("nextEligible fails closed without an exact provider runtime route", async () => {
+test("nextEligible retains provider fallback without an exact provider runtime route", async () => {
   const status = await loadFixtureStatus();
-  assert.equal(nextEligible(status, "openai", "hermes"), undefined);
-  assert.equal(nextEligible({ ...status, routes: [] }, "openai", "openclaw"), undefined);
+  assert.equal(nextEligible(status, "openai", "hermes")?.profile.id, "openai:helper-2");
+  assert.equal(nextEligible({ ...status, routes: [] }, "openai", "openclaw")?.profile.id, "openai:helper-2");
 });
 
 test("guardStatus returns usable account details", async () => {
