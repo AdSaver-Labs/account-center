@@ -228,27 +228,6 @@ test("mutation repository normalizes malformed persisted JSON to repository_corr
 });
 
 test("mutation repository rejects unknown durable envelope keys before history, replay, or dependencies", async () => {
-  const completed = {
-    receipt: {
-      schemaVersion: "account-center.mutation-receipt.v1",
-      operationId: "op_completed",
-      idempotencyKeyDigest: "e".repeat(64),
-      requestDigest: input.requestDigest,
-      state: "completed",
-      outcome: "not_applied",
-      createdAt: "2026-07-15T00:00:00.000Z",
-      completedAt: "2026-07-15T00:01:00.000Z",
-      audit: { ...input.audit, warningCodes: [] }
-    }
-  };
-  const pending = {
-    operationId: "op_pending",
-    idempotencyKeyDigest: "f".repeat(64),
-    requestDigest: "d".repeat(64),
-    state: "pending",
-    createdAt: "2026-07-15T00:00:00.000Z",
-    audit: input.audit
-  };
   const corruptions: Array<[string, (state: { schemaVersion: string; operations: Array<Record<string, unknown>> }) => void]> = [
     ["top-level state", (state) => { (state as Record<string, unknown>).unexpected = true; }],
     ["pending operation", (state) => { state.operations[1].unexpected = true; }],
@@ -259,13 +238,21 @@ test("mutation repository rejects unknown durable envelope keys before history, 
 
   for (const [name, corrupt] of corruptions) {
     const root = await mkdtemp(join(tmpdir(), "account-center-mutations-envelope-corrupt-"));
-    const state = {
-      schemaVersion: "account-center.mutation-repository.v1",
-      operations: [structuredClone(completed), structuredClone(pending)]
-    };
+    const operationIds = ["op_completed", "op_pending"];
+    const seed = new MutationRepository(root, {
+      now: () => new Date("2026-07-15T00:00:00.000Z"),
+      operationId: () => operationIds.shift() ?? "op_unexpected"
+    });
+    const completedClaim = await seed.claim(input);
+    if (completedClaim.kind !== "execute") throw new Error("expected completed operation to execute");
+    const receipt = await seed.complete({ operationId: completedClaim.operationId, outcome: "not_applied" });
+    const pendingClaim = await seed.claim({ ...input, idempotencyKey: `${key.slice(0, -1)}p`, requestDigest: "d".repeat(64) });
+    if (pendingClaim.kind !== "execute") throw new Error("expected pending operation to execute");
+    assert.deepEqual(await new MutationRepository(root).claim(input), { kind: "replay", operationId: "op_completed", outcome: "not_applied", receipt });
+
+    const state = JSON.parse(await readFile(join(root, "mutation-repository.v1.json"), "utf8"));
     corrupt(state);
     await writeFile(join(root, "mutation-repository.v1.json"), JSON.stringify(state), { mode: 0o600 });
-    await chmod(root, 0o700);
 
     let dependencyCalls = 0;
     const repository = new MutationRepository(root, {
