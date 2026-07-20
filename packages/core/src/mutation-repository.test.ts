@@ -320,6 +320,29 @@ test("mutation repository rejects prototype-inherited durable envelopes and fiel
   }
 });
 
+test("mutation repository rejects an unknown field inherited through a polluted Object.prototype before any operation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-mutations-prototype-unknown-"));
+  const seed = new MutationRepository(root, { now: () => new Date("2026-07-15T00:00:00.000Z"), operationId: () => "op_prototype_unknown" });
+  const claim = await seed.claim(input);
+  if (claim.kind !== "execute") throw new Error("expected executable operation");
+  await seed.complete({ operationId: claim.operationId, outcome: "not_applied" });
+
+  Object.defineProperty(Object.prototype, "unexpectedEnvelopePollution", { configurable: true, enumerable: false, writable: true, value: true });
+  try {
+    let dependencyCalls = 0;
+    const repository = new MutationRepository(root, {
+      now: () => { dependencyCalls += 1; return new Date("2026-07-15T00:02:00.000Z"); },
+      operationId: () => { dependencyCalls += 1; return "op_should_not_be_created"; }
+    });
+    await assert.rejects(() => repository.list(), /repository_corrupt/);
+    await assert.rejects(() => repository.claim(input), /repository_corrupt/);
+    await assert.rejects(() => repository.complete({ operationId: "op_prototype_unknown", outcome: "not_applied" }), /repository_corrupt/);
+    assert.equal(dependencyCalls, 0, "unknown inherited pollution must fail before dependencies are used");
+  } finally {
+    delete (Object.prototype as Record<string, unknown>).unexpectedEnvelopePollution;
+  }
+});
+
 test("mutation repository rejects null and prototype-inherited envelopes before history, replay, completion, or dependencies", async () => {
   for (const malformedEnvelope of ["null", "prototype-inherited"] as const) {
     const root = await mkdtemp(join(tmpdir(), `account-center-mutations-${malformedEnvelope}-envelope-`));

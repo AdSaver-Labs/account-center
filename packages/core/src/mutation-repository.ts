@@ -66,6 +66,7 @@ interface PendingOperation { operationId: string; idempotencyKeyDigest: string; 
 interface CompletedOperation { receipt: MutationReceipt; }
 type Operation = PendingOperation | CompletedOperation;
 interface State { schemaVersion: "account-center.mutation-repository.v1"; operations: Operation[]; }
+const standardObjectPrototypeKeys = new Set(Object.getOwnPropertyNames(Object.prototype));
 
 export class MutationRepository {
   private readonly statePath: string;
@@ -81,9 +82,10 @@ export class MutationRepository {
 
   async claim(input: { idempotencyKey: string; requestDigest: string; audit: MutationAudit }): Promise<MutationClaim> {
     assertKey(input.idempotencyKey);
-    assertDigest(input.requestDigest); assertAudit(input.audit);
+    assertDigest(input.requestDigest);
     return this.withLock(async () => {
       const state = await this.read();
+      assertAudit(input.audit);
       const keyDigest = digest(input.idempotencyKey);
       const existing = state.operations.find((operation) => operationKeyDigest(operation) === keyDigest);
       if (existing) {
@@ -225,7 +227,13 @@ function isClosedObject(value: unknown, allowedKeys: readonly string[], required
     && requiredKeys.every((key) => Object.hasOwn(value, key))
     && allowedKeys.every((key) => !hasInheritedProperty(value, key));
 }
-function isPlainObject(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype
+    && Object.getOwnPropertyNames(Object.prototype).every((key) => standardObjectPrototypeKeys.has(key));
+}
 function hasInheritedProperty(value: object, key: string): boolean {
   for (let prototype = Object.getPrototypeOf(value); prototype !== null; prototype = Object.getPrototypeOf(prototype)) if (Object.hasOwn(prototype, key)) return true;
   return false;
