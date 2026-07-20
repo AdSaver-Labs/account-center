@@ -53,7 +53,9 @@ export async function executeReauthTransaction(request: ReauthTransactionRequest
   });
   if (claim.kind === "replay") {
     const evidence = reauthEvidence(claim.receipt.evidence?.reauth);
-    return replayResult(claim.operationId, claim.outcome, evidence?.verification ?? "unproven", evidence?.route ?? "not_requested", claim.receipt.audit.warningCodes);
+    return evidence
+      ? replayResult(claim.operationId, claim.outcome, evidence.verification, evidence.route, claim.receipt.audit.warningCodes)
+      : replayResult(claim.operationId, "not_applied", "unproven", "not_requested", claim.receipt.audit.warningCodes);
   }
   if (claim.kind === "blocked") throw new Error(claim.reason);
 
@@ -97,6 +99,7 @@ function reauthEvidence(value: unknown): ReauthReceiptEvidence | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const evidence = value as Partial<ReauthReceiptEvidence>;
   if ((evidence.verification !== "verified" && evidence.verification !== "failed" && evidence.verification !== "unproven") || (evidence.route !== "not_requested" && evidence.route !== "applied" && evidence.route !== "not_applied" && evidence.route !== "unproven")) return undefined;
+  if (evidence.verification !== "verified" && evidence.route !== "not_requested") return undefined;
   return { verification: evidence.verification, route: evidence.route };
 }
 

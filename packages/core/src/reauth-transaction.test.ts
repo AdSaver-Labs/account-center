@@ -119,7 +119,36 @@ test("reauth replay fails closed when durable reauth evidence is missing or malf
       decideRoute: async () => { calls += 1; throw new Error("must not route on replay"); }
     });
     assert.equal(calls, 0);
-    assert.deepEqual({ verification: result.verification, route: result.route, replayed: result.replayed }, { verification: "unproven", route: "not_requested", replayed: true });
+    assert.deepEqual({ outcome: result.outcome, verification: result.verification, route: result.route, replayed: result.replayed }, { outcome: "not_applied", verification: "unproven", route: "not_requested", replayed: true });
+  }
+});
+
+test("reauth replay fails closed for route evidence paired with failed or UNPROVEN verification", async () => {
+  for (const reauth of [
+    { verification: "failed", route: "applied" },
+    { verification: "failed", route: "not_applied" },
+    { verification: "failed", route: "unproven" },
+    { verification: "unproven", route: "applied" },
+    { verification: "unproven", route: "not_applied" },
+    { verification: "unproven", route: "unproven" }
+  ] as const) {
+    let calls = 0;
+    const repository = {
+      claim: async () => ({
+        kind: "replay" as const,
+        operationId: "op_reauth_invalid_replay",
+        outcome: "applied" as const,
+        receipt: { audit: { warningCodes: [] }, evidence: { reauth } }
+      })
+    } as unknown as MutationRepository;
+    const result = await executeReauthTransaction(request(`${reauth.verification}${reauth.route}`.padEnd(22, "x")), {
+      repository,
+      stage: async () => { calls += 1; throw new Error("must not stage on replay"); },
+      verifyIdentityAndHealth: async () => { calls += 1; throw new Error("must not verify on replay"); },
+      decideRoute: async () => { calls += 1; throw new Error("must not route on replay"); }
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual({ outcome: result.outcome, verification: result.verification, route: result.route, replayed: result.replayed }, { outcome: "not_applied", verification: "unproven", route: "not_requested", replayed: true });
   }
 });
 
