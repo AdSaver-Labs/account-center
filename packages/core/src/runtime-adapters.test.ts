@@ -339,6 +339,35 @@ test("OpenClaw account delete remains blocked until atomic transaction support e
   assert.ok(receipt.warningCodes.includes("atomic_delete_transaction_not_implemented"));
 });
 
+test("OpenClaw account delete does not dereference a redacted email through an undocumented runtime helper", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-email-"));
+  const cli = join(workspace, "oauth_routing_cli.py");
+  const email = "Connected.Member@Example.Test";
+  const emailStatus = {
+    ...routerStatus,
+    accounts: {
+      ...routerStatus.accounts,
+      "openai:helper-2": { ...routerStatus.accounts["openai:helper-2"], email }
+    }
+  };
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops"), { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(emailStatus), "utf8");
+  let runnerCalls = 0;
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner: async () => {
+    runnerCalls += 1;
+    throw new Error("credential delete must not invoke an undocumented runtime helper");
+  } });
+  const receiptPath = join(workspace, "receipt.json");
+  const result = await adapter.mutate({ action: "account.delete", target: email.toLowerCase(), apply: true, provider: "openai", runtime: "openclaw", receiptPath });
+  assert.equal(result.code, 2);
+  assert.equal(runnerCalls, 0);
+  assert.equal((result.payload as { reason: string }).reason, "target_not_found");
+  const receipt = await readFile(receiptPath, "utf8");
+  assert.doesNotMatch(receipt, /connected\.member@example\.test/i);
+  assert.match(receipt, /exact_match_required/);
+});
+
 test("OpenClaw account delete blocks profile labels rather than treating them as canonical identities", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-label-"));
   const cli = join(workspace, "oauth_routing_cli.py");
