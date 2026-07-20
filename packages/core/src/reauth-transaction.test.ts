@@ -65,6 +65,64 @@ test("reauth transaction replays a terminal receipt without repeating stage, ver
   });
 });
 
+test("reauth replay retains failed and UNPROVEN verification categories without repeating dependencies", async () => {
+  for (const verification of ["failed", "unproven"] as const) {
+    await withRepository(async (repository) => {
+      let calls = 0;
+      const dependencies = {
+        repository,
+        stage: async () => { calls += 1; return { state: "staged" as const }; },
+        verifyIdentityAndHealth: async () => { calls += 1; return { state: verification }; },
+        decideRoute: async () => { calls += 1; return { state: "applied" as const }; }
+      };
+      await executeReauthTransaction(request(verification === "failed" ? "e".repeat(22) : "f".repeat(22)), dependencies);
+      const replay = await executeReauthTransaction(request(verification === "failed" ? "e".repeat(22) : "f".repeat(22)), dependencies);
+      assert.equal(calls, 2);
+      assert.deepEqual({ verification: replay.verification, route: replay.route, replayed: replay.replayed }, { verification, route: "not_requested", replayed: true });
+    });
+  }
+});
+
+test("reauth replay retains the verified route decision outcome without repeating dependencies", async () => {
+  for (const route of ["applied", "not_applied", "unproven"] as const) {
+    await withRepository(async (repository) => {
+      let calls = 0;
+      const dependencies = {
+        repository,
+        stage: async () => { calls += 1; return { state: "staged" as const }; },
+        verifyIdentityAndHealth: async () => { calls += 1; return { state: "verified" as const }; },
+        decideRoute: async () => { calls += 1; return { state: route }; }
+      };
+      await executeReauthTransaction(request(`route${route}`.padEnd(22, "x")), dependencies);
+      const replay = await executeReauthTransaction(request(`route${route}`.padEnd(22, "x")), dependencies);
+      assert.equal(calls, 3);
+      assert.deepEqual({ verification: replay.verification, route: replay.route, replayed: replay.replayed }, { verification: "verified", route, replayed: true });
+    });
+  }
+});
+
+test("reauth replay fails closed when durable reauth evidence is missing or malformed", async () => {
+  for (const evidence of [undefined, { reauth: { verification: "verified" } }]) {
+    let calls = 0;
+    const repository = {
+      claim: async () => ({
+        kind: "replay" as const,
+        operationId: "op_reauth_replay",
+        outcome: "applied" as const,
+        receipt: { audit: { warningCodes: [] }, evidence }
+      })
+    } as unknown as MutationRepository;
+    const result = await executeReauthTransaction(request("g".repeat(22)), {
+      repository,
+      stage: async () => { calls += 1; throw new Error("must not stage on replay"); },
+      verifyIdentityAndHealth: async () => { calls += 1; throw new Error("must not verify on replay"); },
+      decideRoute: async () => { calls += 1; throw new Error("must not route on replay"); }
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual({ verification: result.verification, route: result.route, replayed: result.replayed }, { verification: "unproven", route: "not_requested", replayed: true });
+  }
+});
+
 test("reauth transaction rejects raw target-like inputs by accepting only fixed-length digests", async () => {
   await withRepository(async (repository) => {
     await assert.rejects(() => executeReauthTransaction({ ...request(), targetDigest: "someone@example.test" }, { repository, stage: async () => ({ state: "staged" }), verifyIdentityAndHealth: async () => ({ state: "verified" }) }), /invalid_reauth_digest/);

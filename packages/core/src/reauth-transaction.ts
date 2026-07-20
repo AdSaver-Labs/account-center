@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { MutationRepository } from "./mutation-repository.js";
+import { MutationRepository, type ReauthReceiptEvidence } from "./mutation-repository.js";
 import type { MutationScopeKind } from "./mutation-contract.js";
 
 /**
@@ -51,7 +51,10 @@ export async function executeReauthTransaction(request: ReauthTransactionRequest
       targetDigest: request.targetDigest
     }
   });
-  if (claim.kind === "replay") return replayResult(claim.operationId, claim.outcome, claim.receipt.evidence?.verification ?? "unproven", claim.receipt.audit.warningCodes);
+  if (claim.kind === "replay") {
+    const evidence = reauthEvidence(claim.receipt.evidence?.reauth);
+    return replayResult(claim.operationId, claim.outcome, evidence?.verification ?? "unproven", evidence?.route ?? "not_requested", claim.receipt.audit.warningCodes);
+  }
   if (claim.kind === "blocked") throw new Error(claim.reason);
 
   const staged = await deps.stage(request.challengeId);
@@ -72,12 +75,29 @@ export async function executeReauthTransaction(request: ReauthTransactionRequest
 }
 
 async function complete(repository: MutationRepository, operationId: string, outcome: "applied" | "not_applied" | "failed", verification: ReauthVerification, route: ReauthTransactionResult["route"], warnings: string[]): Promise<ReauthTransactionResult> {
-  await repository.complete({ operationId, outcome, warningCodes: warnings, evidence: { receiptId: `evt_${opaqueId(operationId)}`, verification: verification === "verified" ? "verified" : "unproven", liveRuntimeMutation: false } });
+  await repository.complete({
+    operationId,
+    outcome,
+    warningCodes: warnings,
+    evidence: {
+      receiptId: `evt_${opaqueId(operationId)}`,
+      verification: verification === "verified" ? "verified" : "unproven",
+      liveRuntimeMutation: false,
+      reauth: { verification, route }
+    }
+  });
   return { operationId, outcome, verification, route, replayed: false, warnings: [...warnings] };
 }
 
-function replayResult(operationId: string, outcome: "applied" | "not_applied" | "blocked" | "failed", verification: "verified" | "unproven", warnings: string[]): ReauthTransactionResult {
-  return { operationId, outcome: outcome === "blocked" ? "not_applied" : outcome, verification: verification === "verified" ? "verified" : "unproven", route: "not_requested", replayed: true, warnings: ["idempotency_replay", ...warnings] };
+function replayResult(operationId: string, outcome: "applied" | "not_applied" | "blocked" | "failed", verification: ReauthVerification, route: ReauthTransactionResult["route"], warnings: string[]): ReauthTransactionResult {
+  return { operationId, outcome: outcome === "blocked" ? "not_applied" : outcome, verification, route, replayed: true, warnings: ["idempotency_replay", ...warnings] };
+}
+
+function reauthEvidence(value: unknown): ReauthReceiptEvidence | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const evidence = value as Partial<ReauthReceiptEvidence>;
+  if ((evidence.verification !== "verified" && evidence.verification !== "failed" && evidence.verification !== "unproven") || (evidence.route !== "not_requested" && evidence.route !== "applied" && evidence.route !== "not_applied" && evidence.route !== "unproven")) return undefined;
+  return { verification: evidence.verification, route: evidence.route };
 }
 
 function assertRequest(value: ReauthTransactionRequest): void {

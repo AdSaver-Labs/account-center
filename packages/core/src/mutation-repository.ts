@@ -29,6 +29,8 @@ export interface MutationEvidence {
   verification: "verified" | "unproven";
   /** Whether the historical operation reached a native runtime invocation. */
   liveRuntimeMutation?: boolean;
+  /** Credential-blind terminal categories for a reauthentication transaction. */
+  reauth?: ReauthReceiptEvidence;
   proof?: {
     nativeEvent: { action: string; scopeId: string; targetId: string; status: "verified" };
     verification: {
@@ -37,6 +39,10 @@ export interface MutationEvidence {
       after: RouteScopeEvidence;
     };
   };
+}
+export interface ReauthReceiptEvidence {
+  verification: "verified" | "failed" | "unproven";
+  route: "not_requested" | "applied" | "not_applied" | "unproven";
 }
 export interface RouteScopeEvidence {
   status: "observed" | "absent";
@@ -173,20 +179,22 @@ function validateEvidence(value: MutationReceipt["evidence"]): MutationReceipt["
     receiptId: value.receiptId,
     verification: value.verification,
     liveRuntimeMutation: value.liveRuntimeMutation,
+    ...(value.reauth ? { reauth: { verification: value.reauth.verification, route: value.reauth.route } } : {}),
     proof: {
       nativeEvent: { ...value.proof.nativeEvent },
       verification: { scopeId: value.proof.verification.scopeId, before: cloneScopeEvidence(value.proof.verification.before), after: cloneScopeEvidence(value.proof.verification.after) }
     }
-  } : { receiptId: value.receiptId, verification: value.verification, ...(value.liveRuntimeMutation === true ? { liveRuntimeMutation: true } : {}) };
+  } : { receiptId: value.receiptId, verification: value.verification, ...(value.liveRuntimeMutation === true ? { liveRuntimeMutation: true } : {}), ...(value.reauth ? { reauth: { verification: value.reauth.verification, route: value.reauth.route } } : {}) };
 }
 function isEvidence(value: unknown): value is MutationEvidence {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Partial<MutationEvidence>;
-  if (!/^evt_[A-Za-z0-9_-]{1,100}$/.test(item.receiptId ?? "") || (item.verification !== "verified" && item.verification !== "unproven") || (item.liveRuntimeMutation !== undefined && typeof item.liveRuntimeMutation !== "boolean")) return false;
+  if (!/^evt_[A-Za-z0-9_-]{1,100}$/.test(item.receiptId ?? "") || (item.verification !== "verified" && item.verification !== "unproven") || (item.liveRuntimeMutation !== undefined && typeof item.liveRuntimeMutation !== "boolean") || (item.reauth !== undefined && !isReauthEvidence(item.reauth))) return false;
   if (item.proof === undefined) return true;
   const proof = item.proof;
   return isProofAction(proof.nativeEvent?.action) && isProofIdentifier(proof.nativeEvent?.scopeId) && isProofIdentifier(proof.nativeEvent?.targetId) && proof.nativeEvent?.status === "verified" && proof.verification?.scopeId === proof.nativeEvent.scopeId && isRouteScopeEvidence(proof.verification.before) && isRouteScopeEvidence(proof.verification.after);
 }
+function isReauthEvidence(value: unknown): value is ReauthReceiptEvidence { return !!value && typeof value === "object" && !Array.isArray(value) && (value as ReauthReceiptEvidence).verification !== undefined && (value as ReauthReceiptEvidence).route !== undefined && ["verified", "failed", "unproven"].includes((value as ReauthReceiptEvidence).verification) && ["not_requested", "applied", "not_applied", "unproven"].includes((value as ReauthReceiptEvidence).route) && Object.keys(value).every((key) => key === "verification" || key === "route"); }
 function cloneScopeEvidence(value: RouteScopeEvidence): RouteScopeEvidence { return { status: value.status, ...(value.activeTargetId ? { activeTargetId: value.activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] }; }
 function isRouteScopeEvidence(value: unknown): value is RouteScopeEvidence { return !!value && typeof value === "object" && !Array.isArray(value) && ((value as RouteScopeEvidence).status === "observed" || (value as RouteScopeEvidence).status === "absent") && (typeof (value as RouteScopeEvidence).activeTargetId === "undefined" || isProofIdentifier((value as RouteScopeEvidence).activeTargetId)) && Array.isArray((value as RouteScopeEvidence).orderTargetIds) && (value as RouteScopeEvidence).orderTargetIds.length <= 10 && (value as RouteScopeEvidence).orderTargetIds.every(isProofIdentifier); }
 function isProofIdentifier(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
