@@ -128,7 +128,9 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return ok(options.json ? json(view) : renderModels(view));
   }
   if (command === "routes" && subcommand === "next") {
-    const next = nextEligible(status, options.provider, options.runtime, options.model);
+    const selector = selectRouteNextSelector(argv, status);
+    if (!selector) return routeSelectionFailure(options);
+    const next = nextEligible(status, selector.provider, selector.runtime, options.model);
     const view = publicRouteNextView(status, next?.profile.id);
     return next ? ok(options.json ? json(view) : `Next eligible: ${view.next}\n`) : { code: 2, stdout: options.json ? json(view) : "Next eligible: none\n" };
   }
@@ -239,6 +241,33 @@ function parseSourceOption(argv: string[]): CliOptions["source"] {
     source = parsedSource;
   }
   return hasExplicitSource ? source! : parseRuntimeSource(process.env.ACCOUNT_CENTER_SOURCE);
+}
+
+function selectRouteNextSelector(argv: string[], status: AccountCenterStatus): { provider: string; runtime: string } | undefined {
+  const provider = singleOptionValue(argv, "--provider", "openai");
+  const runtime = singleOptionValue(argv, "--runtime", "openclaw");
+  if (!provider || !runtime) return undefined;
+  return status.routes.filter((route) => route.provider === provider && route.runtime === runtime).length === 1
+    ? { provider, runtime }
+    : undefined;
+}
+
+function singleOptionValue(argv: string[], option: "--provider" | "--runtime", fallback: string): string | undefined {
+  let value: string | undefined;
+  let count = 0;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === option) {
+      count += 1;
+      value = argv[index + 1];
+    } else if (argument?.startsWith(`${option}=`)) {
+      count += 1;
+      value = argument.slice(option.length + 1);
+    }
+  }
+  if (count === 0) return fallback;
+  if (count !== 1 || !value || value.startsWith("--")) return undefined;
+  return value;
 }
 
 async function maybeWriteStatus(status: unknown, options: CliOptions): Promise<void> {
@@ -352,6 +381,14 @@ function publicRouteNextView(status: AccountCenterStatus, target?: string) {
     eligible: target !== undefined,
     next: publicAccountRef(status, target)
   };
+}
+
+function routeSelectionFailure(options: CliOptions): CliResult {
+  const view = {
+    schemaVersion: "account-center.public-route-next-error.v1",
+    state: "UNPROVEN" as const
+  };
+  return { code: 2, stdout: options.json ? json(view) : "Route selection UNPROVEN.\n" };
 }
 
 function publicGuardView(status: AccountCenterStatus, guarded: { ok: boolean; next?: string }, receipt: unknown, ensured?: unknown): PublicGuardView {

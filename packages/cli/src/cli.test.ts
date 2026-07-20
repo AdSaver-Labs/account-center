@@ -457,6 +457,97 @@ test("guard returns next usable account", async () => {
   assert.equal(parsed.next, "account-2");
 });
 
+test("routes next accepts one exact provider/runtime selector in split and equals forms", async () => {
+  const status = JSON.parse(await readFile("tests/fixtures/status.fixture.json", "utf8"));
+  status.providers = [{ key: "anthropic", displayName: "Anthropic" }];
+  status.runtimes = [{ key: "hermes", displayName: "Hermes", capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }];
+  status.profiles = status.profiles.map((profile: Record<string, unknown>) => ({ ...profile, provider: "anthropic", runtimeCompatibility: ["hermes"], usage: { ...(profile.usage as Record<string, unknown>), provider: "anthropic" } }));
+  status.routes = status.routes.map((route: Record<string, unknown>) => ({ ...route, provider: "anthropic", runtime: "hermes" }));
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "account-center-test-status";
+  try {
+    for (const args of [
+      ["--provider", "anthropic", "--runtime", "hermes"],
+      ["--provider=anthropic", "--runtime=hermes"]
+    ]) {
+      const result = await runCli(["routes", "next", "--source", "generic-command", "--json", ...args], process.cwd(), {
+        runner: async () => ({ code: 0, stdout: JSON.stringify(status), stderr: "" })
+      });
+      assert.equal(result.code, 0, args.join(" "));
+      assert.deepEqual(JSON.parse(result.stdout), {
+        schemaVersion: "account-center.public-route-next.v1",
+        verificationState: "UNPROVEN",
+        eligible: true,
+        next: "account-2"
+      });
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("routes next selector validation does not change unrelated provider option parsing", async () => {
+  const status = JSON.parse(await readFile("tests/fixtures/status.fixture.json", "utf8"));
+  status.providers = [{ key: "anthropic", displayName: "Anthropic" }];
+  status.profiles = status.profiles.map((profile: Record<string, unknown>) => ({ ...profile, provider: "anthropic", usage: { ...(profile.usage as Record<string, unknown>), provider: "anthropic" } }));
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "account-center-test-status";
+  try {
+    const result = await runCli(["providers", "probe", "--source", "generic-command", "--provider=all", "--json"], process.cwd(), {
+      runner: async () => ({ code: 0, stdout: JSON.stringify(status), stderr: "" })
+    });
+    assert.equal(result.code, 0);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      schemaVersion: "account-center.public-provider-probes.v1",
+      verificationState: "UNPROVEN",
+      probes: [{ state: "BLOCKED", profiles: 0, usableProfiles: 0, limitsObserved: false }]
+    });
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("routes next rejects invalid route selectors with fixed opaque UNPROVEN output", async () => {
+  const status = JSON.parse(await readFile("tests/fixtures/status.fixture.json", "utf8"));
+  const duplicateRoute = { ...status.routes[0], activeProfileId: "route-selector-private-account", order: ["route-selector-private-account"] };
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "account-center-test-status";
+  const failure = {
+    schemaVersion: "account-center.public-route-next-error.v1",
+    state: "UNPROVEN"
+  };
+  const cases: Array<{ args: string[]; payload: unknown }> = [
+    { args: ["--provider"], payload: status },
+    { args: ["--provider="], payload: status },
+    { args: ["--runtime", "--json"], payload: status },
+    { args: ["--provider", "openai", "--provider", "openai"], payload: status },
+    { args: ["--runtime=openclaw", "--runtime=openclaw"], payload: status },
+    { args: ["--provider=private-provider", "--runtime=private-runtime"], payload: status },
+    { args: ["--provider=openai", "--runtime=openclaw"], payload: { ...status, routes: [...status.routes, duplicateRoute] } }
+  ];
+  try {
+    for (const { args, payload } of cases) {
+      for (const format of ["text", "json"] as const) {
+        const result = await runCli(["routes", "next", "--source", "generic-command", ...(format === "json" ? ["--json"] : []), ...args], process.cwd(), {
+          runner: async () => ({ code: 0, stdout: JSON.stringify(payload), stderr: "" })
+        });
+        assert.equal(result.code, 2, `${format}: ${args.join(" ")}`);
+        assert.equal(result.stderr, undefined, `${format}: ${args.join(" ")}`);
+        if (format === "json" || args.includes("--json")) assert.deepEqual(JSON.parse(result.stdout), failure);
+        else assert.equal(result.stdout, "Route selection UNPROVEN.\n");
+        for (const privateValue of ["private-provider", "private-runtime", "route-selector-private-account"]) {
+          assert.equal(result.stdout.includes(privateValue), false, `${format}: ${privateValue}`);
+        }
+      }
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("CLI inventory, eligibility, guard, and route receipts never expose hostile account or runtime values", async () => {
   const privateValues = [
     "openai:helper-1",
