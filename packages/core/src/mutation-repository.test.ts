@@ -99,6 +99,60 @@ test("mutation repository permits reauth_stage_failed only for failed receipts",
   }
 });
 
+test("mutation repository requires a failed outcome for reauth_stage_failed even without evidence", async () => {
+  for (const outcome of ["applied", "not_applied", "blocked"] as const) {
+    const root = await mkdtemp(join(tmpdir(), "account-center-mutations-reauth-stage-warning-only-"));
+    const repository = new MutationRepository(root);
+    const claim = await repository.claim({ ...input, idempotencyKey: `${key.slice(0, -1)}${outcome[0]}` });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await assert.rejects(() => repository.complete({ operationId: claim.operationId, outcome, warningCodes: ["reauth_stage_failed"] }), /invalid_receipt_evidence/);
+  }
+});
+
+test("mutation repository rejects unknown and null nested receipt evidence structures on persistence and read", async () => {
+  const proof = {
+    nativeEvent: { action: "route.use", scopeId: "id_a1b2c3d4e5f60718293a4b5c", targetId: "id_b1b2c3d4e5f60718293a4b5c", status: "verified" as const },
+    verification: {
+      scopeId: "id_a1b2c3d4e5f60718293a4b5c",
+      before: { status: "observed" as const, orderTargetIds: ["id_b1b2c3d4e5f60718293a4b5c"] },
+      after: { status: "absent" as const, orderTargetIds: [] }
+    }
+  };
+  const malformed = [
+    { reauth: { verification: "verified", route: "not_requested", unexpected: true } },
+    { proof: { ...proof, unexpected: true } },
+    { proof: { ...proof, nativeEvent: { ...proof.nativeEvent, unexpected: true } } },
+    { proof: { ...proof, verification: { ...proof.verification, unexpected: true } } },
+    { proof: { ...proof, verification: { ...proof.verification, before: { ...proof.verification.before, unexpected: true } } } },
+    { proof: { ...proof, verification: { ...proof.verification, after: { ...proof.verification.after, unexpected: true } } } },
+    { proof: null },
+    { proof: "not_an_object" },
+    { proof: { ...proof, nativeEvent: null } },
+    { proof: { ...proof, nativeEvent: [] } },
+    { proof: { ...proof, verification: null } },
+    { proof: { ...proof, verification: "not_an_object" } },
+    { proof: { ...proof, verification: { ...proof.verification, before: null } } },
+    { proof: { ...proof, verification: { ...proof.verification, before: [] } } },
+    { proof: { ...proof, verification: { ...proof.verification, after: null } } },
+    { proof: { ...proof, verification: { ...proof.verification, after: "not_an_object" } } }
+  ];
+  for (const [index, corruptEvidence] of malformed.entries()) {
+    const root = await mkdtemp(join(tmpdir(), "account-center-mutations-nested-evidence-"));
+    const repository = new MutationRepository(root, { operationId: () => `op_nested_${index}` });
+    const claim = await repository.claim({ ...input, idempotencyKey: `${key.slice(0, -2)}n${index}` });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    const evidence = { receiptId: `evt_nested_${index}`, verification: "verified" as const, ...corruptEvidence };
+    await assert.rejects(() => repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: evidence as never }), /invalid_receipt_evidence/);
+
+    await repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: `evt_nested_${index}`, verification: "verified", proof } });
+    const statePath = join(root, "mutation-repository.v1.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    state.operations[0].receipt.evidence = evidence;
+    await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
+    await assert.rejects(() => new MutationRepository(root).claim({ ...input, idempotencyKey: `${key.slice(0, -2)}n${index}` }), /repository_corrupt/);
+  }
+});
+
 test("mutation repository rejects persisted reauth route evidence without verified authentication", async () => {
   const invalid = [
     { verification: "failed", route: "applied" },

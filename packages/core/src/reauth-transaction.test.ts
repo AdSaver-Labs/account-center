@@ -143,6 +143,31 @@ test("reauth direct replay fails closed for evidence with an unknown top-level k
   assert.deepEqual({ outcome: result.outcome, verification: result.verification, route: result.route, replayed: result.replayed }, { outcome: "not_applied", verification: "unproven", route: "not_requested", replayed: true });
 });
 
+test("reauth direct replay returns the fixed safe result for malformed nested durable evidence without invoking dependencies", async () => {
+  for (const evidence of [
+    { receiptId: "evt_reauth_nested", verification: "verified", reauth: { verification: "verified", route: "not_requested", unexpected: true } },
+    { receiptId: "evt_reauth_nested", verification: "verified", proof: null }
+  ]) {
+    let calls = 0;
+    const repository = {
+      claim: async () => ({
+        kind: "replay" as const,
+        operationId: "op_reauth_nested_replay",
+        outcome: "applied" as const,
+        receipt: { audit: { warningCodes: [] }, evidence }
+      })
+    } as unknown as MutationRepository;
+    const result = await executeReauthTransaction(request("nested-malformed-replay".slice(0, 22)), {
+      repository,
+      stage: async () => { calls += 1; throw new Error("must not stage on replay"); },
+      verifyIdentityAndHealth: async () => { calls += 1; throw new Error("must not verify on replay"); },
+      decideRoute: async () => { calls += 1; throw new Error("must not route on replay"); }
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual({ outcome: result.outcome, verification: result.verification, route: result.route, replayed: result.replayed }, { outcome: "not_applied", verification: "unproven", route: "not_requested", replayed: true });
+  }
+});
+
 test("reauth replay fails closed for route evidence paired with failed or UNPROVEN verification", async () => {
   for (const reauth of [
     { verification: "failed", route: "applied" },

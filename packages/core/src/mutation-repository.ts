@@ -170,9 +170,10 @@ function isOperation(value: unknown): value is Operation {
 function isReceipt(value: unknown): value is MutationReceipt {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const receipt = value as Partial<MutationReceipt>;
-  return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit) && (receipt.evidence === undefined || isMutationEvidence(receipt.evidence)) && (receipt.evidence?.reauth === undefined || isReauthOutcomeConsistent(receipt.outcome, receipt.evidence.reauth, receipt.audit.warningCodes));
+  return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit) && isStageFailureOutcomeConsistent(receipt.outcome, receipt.audit.warningCodes) && (receipt.evidence === undefined || isMutationEvidence(receipt.evidence)) && (receipt.evidence?.reauth === undefined || isReauthOutcomeConsistent(receipt.outcome, receipt.evidence.reauth, receipt.audit.warningCodes));
 }
 function validateEvidence(value: MutationReceipt["evidence"], outcome: MutationOutcome, warningCodes: string[]): MutationReceipt["evidence"] {
+  if (!isStageFailureOutcomeConsistent(outcome, warningCodes)) throw new Error("invalid_receipt_evidence");
   if (value === undefined) return undefined;
   if (!isMutationEvidence(value) || (value.reauth !== undefined && !isReauthOutcomeConsistent(outcome, value.reauth, warningCodes))) throw new Error("invalid_receipt_evidence");
   return value.proof ? {
@@ -187,29 +188,37 @@ function validateEvidence(value: MutationReceipt["evidence"], outcome: MutationO
   } : { receiptId: value.receiptId, verification: value.verification, ...(value.liveRuntimeMutation === true ? { liveRuntimeMutation: true } : {}), ...(value.reauth ? { reauth: { verification: value.reauth.verification, route: value.reauth.route } } : {}) };
 }
 export function isMutationEvidence(value: unknown): value is MutationEvidence {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!isClosedObject(value, ["receiptId", "verification", "liveRuntimeMutation", "reauth", "proof"])) return false;
   const item = value as Partial<MutationEvidence>;
   if (!/^evt_[A-Za-z0-9_-]{1,100}$/.test(item.receiptId ?? "") || (item.verification !== "verified" && item.verification !== "unproven") || (item.liveRuntimeMutation !== undefined && typeof item.liveRuntimeMutation !== "boolean") || (item.reauth !== undefined && !isReauthEvidence(item.reauth))) return false;
-  if (!Object.keys(value).every((key) => key === "receiptId" || key === "verification" || key === "liveRuntimeMutation" || key === "reauth" || key === "proof")) return false;
   if (item.proof === undefined) return true;
   const proof = item.proof;
-  return isProofAction(proof.nativeEvent?.action) && isProofIdentifier(proof.nativeEvent?.scopeId) && isProofIdentifier(proof.nativeEvent?.targetId) && proof.nativeEvent?.status === "verified" && proof.verification?.scopeId === proof.nativeEvent.scopeId && isRouteScopeEvidence(proof.verification.before) && isRouteScopeEvidence(proof.verification.after);
+  if (!isClosedObject(proof, ["nativeEvent", "verification"])) return false;
+  const nativeEvent = proof.nativeEvent;
+  const verification = proof.verification;
+  return isClosedObject(nativeEvent, ["action", "scopeId", "targetId", "status"]) && isClosedObject(verification, ["scopeId", "before", "after"]) && isProofAction(nativeEvent.action) && isProofIdentifier(nativeEvent.scopeId) && isProofIdentifier(nativeEvent.targetId) && nativeEvent.status === "verified" && verification.scopeId === nativeEvent.scopeId && isRouteScopeEvidence(verification.before) && isRouteScopeEvidence(verification.after);
 }
 function isReauthEvidence(value: unknown): value is ReauthReceiptEvidence {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!isClosedObject(value, ["verification", "route"])) return false;
   const evidence = value as Partial<ReauthReceiptEvidence>;
   if ((evidence.verification !== "verified" && evidence.verification !== "failed" && evidence.verification !== "unproven") || (evidence.route !== "not_requested" && evidence.route !== "applied" && evidence.route !== "not_applied" && evidence.route !== "unproven")) return false;
-  return (evidence.verification === "verified" || evidence.route === "not_requested") && Object.keys(value).every((key) => key === "verification" || key === "route");
+  return evidence.verification === "verified" || evidence.route === "not_requested";
 }
 export function isReauthOutcomeConsistent(outcome: MutationOutcome, evidence: ReauthReceiptEvidence, warningCodes: string[]): boolean {
-  if (warningCodes.includes("reauth_stage_failed") && outcome !== "failed") return false;
+  if (!isStageFailureOutcomeConsistent(outcome, warningCodes)) return false;
   if (evidence.route === "applied") return outcome === "applied";
   if (evidence.verification === "verified" && evidence.route === "not_requested") return outcome === "applied";
   if (outcome === "failed") return evidence.verification === "unproven" && evidence.route === "not_requested" && warningCodes.includes("reauth_stage_failed");
   return outcome === "not_applied";
 }
 function cloneScopeEvidence(value: RouteScopeEvidence): RouteScopeEvidence { return { status: value.status, ...(value.activeTargetId ? { activeTargetId: value.activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] }; }
-function isRouteScopeEvidence(value: unknown): value is RouteScopeEvidence { return !!value && typeof value === "object" && !Array.isArray(value) && ((value as RouteScopeEvidence).status === "observed" || (value as RouteScopeEvidence).status === "absent") && (typeof (value as RouteScopeEvidence).activeTargetId === "undefined" || isProofIdentifier((value as RouteScopeEvidence).activeTargetId)) && Array.isArray((value as RouteScopeEvidence).orderTargetIds) && (value as RouteScopeEvidence).orderTargetIds.length <= 10 && (value as RouteScopeEvidence).orderTargetIds.every(isProofIdentifier); }
+function isRouteScopeEvidence(value: unknown): value is RouteScopeEvidence {
+  if (!isClosedObject(value, ["status", "activeTargetId", "orderTargetIds"])) return false;
+  const item = value as Partial<RouteScopeEvidence>;
+  return (item.status === "observed" || item.status === "absent") && (typeof item.activeTargetId === "undefined" || isProofIdentifier(item.activeTargetId)) && Array.isArray(item.orderTargetIds) && item.orderTargetIds.length <= 10 && item.orderTargetIds.every(isProofIdentifier);
+}
+function isClosedObject(value: unknown, allowedKeys: readonly string[]): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every((key) => allowedKeys.includes(key)); }
+function isStageFailureOutcomeConsistent(outcome: MutationOutcome, warningCodes: string[]): boolean { return !warningCodes.includes("reauth_stage_failed") || outcome === "failed"; }
 function isProofIdentifier(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
 function isProofAction(value: unknown): value is string { return value === "route.auto" || value === "route.use" || value === "route.remove"; }
 function isAudit(value: unknown): value is MutationAudit {
