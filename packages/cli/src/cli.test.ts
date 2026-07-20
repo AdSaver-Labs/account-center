@@ -827,6 +827,54 @@ test("routes next preserves exact split-form and equals-form route selection", a
   }
 });
 
+test("routes next fails closed for duplicate exact routes without exposing hostile identities", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const hostileProvider = "duplicate-route@example.test";
+  const redactedProvider = "[REDACTED_EMAIL]";
+  const hostileRuntime = "custom:duplicate-route-private-runtime";
+  const hostileProfile = "custom:duplicate-route-private-profile";
+  const hostileValues = [hostileProvider, hostileRuntime, hostileProfile, "sk-duplicate-route-secret-value-123456789"];
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));
+  status.profiles[0].id = hostileProfile;
+  status.profiles[0].provider = hostileProvider;
+  status.profiles[0].usage.profileId = hostileProfile;
+  status.profiles[0].usage.provider = hostileProvider;
+  status.profiles[0].metadata = { token: "sk-duplicate-route-secret-value-123456789" };
+  const duplicateRoute = {
+    ...status.routes[0],
+    provider: hostileProvider,
+    runtime: hostileRuntime,
+    activeProfileId: hostileProfile,
+    order: [hostileProfile]
+  };
+  status.routes = [duplicateRoute, structuredClone(duplicateRoute)];
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = "fixture-only-command";
+  try {
+    const [text, jsonResult] = await Promise.all([
+      runCli(["routes", "next", "--source", "generic-command", "--provider", redactedProvider, "--runtime", hostileRuntime], process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(status) }) }),
+      runCli(["routes", "next", "--source", "generic-command", `--provider=${redactedProvider}`, `--runtime=${hostileRuntime}`, "--json"], process.cwd(), { runner: async () => ({ code: 0, stderr: "", stdout: JSON.stringify(status) }) })
+    ]);
+
+    assert.equal(text.code, 2);
+    assert.equal(text.stdout, "Route selection UNPROVEN\n");
+    assert.equal(jsonResult.code, 2);
+    assert.deepEqual(JSON.parse(jsonResult.stdout), {
+      schemaVersion: "account-center.public-route-next.v1",
+      verificationState: "UNPROVEN",
+      routeSelection: "no_exact_route",
+      eligible: false,
+      next: "none"
+    });
+    for (const value of hostileValues) {
+      assert.equal(text.stdout.includes(value), false, `${value} leaked from text output`);
+      assert.equal(jsonResult.stdout.includes(value), false, `${value} leaked from JSON output`);
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
 test("routes next fails closed for an exact route with an empty order", async () => {
   const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
   const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8"));

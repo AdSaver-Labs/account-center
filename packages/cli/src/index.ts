@@ -146,7 +146,8 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return ok(options.json ? json(view) : renderModels(view));
   }
   if (command === "routes" && subcommand === "next") {
-    const routeSelection = status.routes.some((route) => route.provider === options.provider && route.runtime === options.runtime)
+    const exactRouteCount = status.routes.filter((route) => route.provider === options.provider && route.runtime === options.runtime).length;
+    const routeSelection = exactRouteCount === 1
       ? "exact_route" as const
       : "no_exact_route" as const;
     const next = routeSelection === "exact_route"
