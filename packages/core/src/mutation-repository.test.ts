@@ -48,6 +48,75 @@ test("completed operation links only a redacted adapter receipt reference and ve
   assert.doesNotMatch(raw, /helper-2|private@example/);
 });
 
+test("mutation repository accepts only reauth evidence with a semantically consistent outcome", async () => {
+  const valid = [
+    { outcome: "applied", warnings: [], reauth: { verification: "verified", route: "not_requested" } },
+    { outcome: "applied", warnings: [], reauth: { verification: "verified", route: "applied" } },
+    { outcome: "not_applied", warnings: [], reauth: { verification: "verified", route: "not_applied" } },
+    { outcome: "not_applied", warnings: [], reauth: { verification: "verified", route: "unproven" } },
+    { outcome: "not_applied", warnings: [], reauth: { verification: "failed", route: "not_requested" } },
+    { outcome: "not_applied", warnings: [], reauth: { verification: "unproven", route: "not_requested" } },
+    { outcome: "failed", warnings: ["reauth_stage_failed"], reauth: { verification: "unproven", route: "not_requested" } }
+  ] as const;
+  for (const [index, { outcome, reauth, warnings }] of valid.entries()) {
+    const root = await mkdtemp(join(tmpdir(), "account-center-mutations-reauth-valid-"));
+    const repository = new MutationRepository(root);
+    const claim = await repository.claim({ ...input, idempotencyKey: `${key.slice(0, -1)}${index}` });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await repository.complete({ operationId: claim.operationId, outcome, warningCodes: [...warnings], evidence: { receiptId: `evt_reauth_valid_${index}`, verification: "unproven", reauth } });
+  }
+});
+
+test("mutation repository rejects reauth evidence paired with a contradictory outcome", async () => {
+  const invalid = [
+    { outcome: "not_applied", reauth: { verification: "verified", route: "not_requested" } },
+    { outcome: "not_applied", reauth: { verification: "verified", route: "applied" } },
+    { outcome: "applied", reauth: { verification: "verified", route: "not_applied" } },
+    { outcome: "applied", reauth: { verification: "verified", route: "unproven" } },
+    { outcome: "applied", reauth: { verification: "unproven", route: "not_requested" } },
+    { outcome: "failed", reauth: { verification: "unproven", route: "not_requested" } }
+  ] as const;
+  for (const [index, { outcome, reauth }] of invalid.entries()) {
+    const root = await mkdtemp(join(tmpdir(), "account-center-mutations-reauth-outcome-invalid-"));
+    const repository = new MutationRepository(root);
+    const claim = await repository.claim({ ...input, idempotencyKey: `${key.slice(0, -1)}${index}` });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await assert.rejects(() => repository.complete({ operationId: claim.operationId, outcome, evidence: { receiptId: `evt_reauth_outcome_invalid_${index}`, verification: "unproven", reauth } }), /invalid_receipt_evidence/);
+  }
+});
+
+test("mutation repository rejects persisted reauth route evidence without verified authentication", async () => {
+  const invalid = [
+    { verification: "failed", route: "applied" },
+    { verification: "failed", route: "not_applied" },
+    { verification: "failed", route: "unproven" },
+    { verification: "unproven", route: "applied" },
+    { verification: "unproven", route: "not_applied" },
+    { verification: "unproven", route: "unproven" }
+  ] as const;
+  for (const [index, reauth] of invalid.entries()) {
+    const root = await mkdtemp(join(tmpdir(), "account-center-mutations-reauth-invalid-"));
+    const repository = new MutationRepository(root);
+    const claim = await repository.claim({ ...input, idempotencyKey: `${key.slice(0, -1)}${index}` });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await assert.rejects(() => repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: `evt_reauth_invalid_${index}`, verification: "unproven", reauth } }), /invalid_receipt_evidence/);
+  }
+});
+
+test("mutation repository fails closed when stored reauth evidence pairs an unproven verification with a route result", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-mutations-reauth-corrupt-"));
+  const repository = new MutationRepository(root, { operationId: () => "op_reauth_corrupt" });
+  const claim = await repository.claim(input);
+  if (claim.kind !== "execute") throw new Error("expected executable operation");
+  await repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: "evt_reauth_corrupt", verification: "verified", reauth: { verification: "verified", route: "applied" } } });
+  const statePath = join(root, "mutation-repository.v1.json");
+  const state = JSON.parse(await readFile(statePath, "utf8"));
+  state.operations[0].receipt.evidence.reauth = { verification: "unproven", route: "applied" };
+  await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
+
+  await assert.rejects(() => new MutationRepository(root).claim(input), /repository_corrupt/);
+});
+
 test("mutation repository rejects malformed persisted operations before a redacted history view can expose them", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-mutations-corrupt-"));
   const statePath = join(root, "mutation-repository.v1.json");
