@@ -23,13 +23,29 @@ test("core executor plans routing by default and returns a receipt", async () =>
   assert.equal(result.mutation?.receipt.action, "route.auto");
 });
 
+test("route preview rejects a syntactically valid but unobserved agent scope before review minting or adapter invocation", async () => {
+  let mutations = 0;
+  const adapter = {
+    source: "fixture" as const,
+    readStatus: () => new FixtureRuntimeAdapter().readStatus(),
+    doctor: async () => ({}),
+    mutate: async () => { mutations += 1; throw new Error("adapter must not run"); }
+  };
+  const root = await mkdtemp(join(tmpdir(), "account-center-unobserved-scope-"));
+  const result = await executeAccountCenterCommand({ command: "route.remove", target: "openai:helper-2", provider: "openai", runtime: "openclaw", scope: { kind: "agent", id: "not_observed" } }, { adapter, mutation: { secret: "test-shared-mutation-secret", repository: new MutationRepository(root) } });
+  assert.equal(result.code, 2);
+  assert.equal(mutations, 0);
+  assert.equal((result.mutation as { confirmationToken?: string } | undefined)?.confirmationToken, undefined);
+  assert.equal((result.mutation as { reason?: string } | undefined)?.reason, "observed_agent_scope_required");
+});
+
 test("core executor invokes route apply only after exact review confirmation and durable idempotency claim", async () => {
   let mutations = 0;
   const adapter = {
     source: "fixture" as const,
     readStatus: () => new FixtureRuntimeAdapter().readStatus(),
     doctor: async () => ({}),
-    mutate: async () => { mutations += 1; return { code: 0, payload: { applied: true, dryRun: false, liveRuntimeMutation: true, receipt: { id: "evt_test", action: "route.use", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "verified", warnings: [] } } }; }
+    mutate: async () => { mutations += 1; return { code: 0, payload: { applied: true, dryRun: false, liveRuntimeMutation: true, verification: { kind: "verified" }, receipt: { id: "evt_test", action: "route.use", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "verified", warnings: [] } } }; }
   };
   const request = { command: "route.use" as const, target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw", scope: { kind: "agent" as const, id: "main" } };
   const blocked = await executeAccountCenterCommand(request, { adapter });
@@ -50,6 +66,35 @@ test("core executor invokes route apply only after exact review confirmation and
   assert.equal(mutations, 1);
 });
 
+test("idempotency replay preserves an attempted-but-unproven historical outcome without claiming a fresh action", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-unproven-replay-"));
+  const repository = new MutationRepository(root);
+  const secret = "test-shared-mutation-secret";
+  const scope = { kind: "agent" as const, id: "main" };
+  const target = "openai:helper-2";
+  const review = createMutationReview({ action: "route.remove", provider: "openai", runtime: "openclaw", scope, target }, { secret });
+  let mutations = 0;
+  const adapter = {
+    source: "fixture" as const,
+    readStatus: () => new FixtureRuntimeAdapter().readStatus(),
+    doctor: async () => ({}),
+    mutate: async () => {
+      mutations += 1;
+      return { code: 2, payload: { applied: false, dryRun: false, liveRuntimeMutation: true, verification: { kind: "unproven" }, receipt: { id: "evt_attempt_unproven", action: "route.remove", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "private native details", warnings: [] } } };
+    }
+  };
+  const request = { command: "route.remove" as const, target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, idempotencyKey: "route-unproven-replay-key-0001" };
+  const first = await executeAccountCenterCommand(request, { adapter, mutation: { secret, repository } });
+  assert.equal(first.mutation?.liveRuntimeMutation, true);
+  const replay = await executeAccountCenterCommand(request, { adapter, mutation: { secret, repository } });
+  assert.equal(mutations, 1);
+  assert.equal(replay.mutation?.replayed, true);
+  assert.equal(replay.mutation?.liveRuntimeMutation, false);
+  assert.equal((replay.mutation as { historicalLiveRuntimeMutation?: boolean }).historicalLiveRuntimeMutation, true);
+  assert.equal((replay.mutation as { historicalVerification?: string }).historicalVerification, "unproven");
+  assert.equal(replay.mutation?.historicalOutcome, "failed");
+});
+
 test("verified route apply persists bounded opaque native and scoped before/after proof on its immutable operation", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-command-proof-"));
   const repository = new MutationRepository(root, { operationId: () => "op_route_proof" });
@@ -61,7 +106,7 @@ test("verified route apply persists bounded opaque native and scoped before/afte
     source: "fixture" as const,
     readStatus: () => new FixtureRuntimeAdapter().readStatus(), doctor: async () => ({}),
     mutate: async () => ({ code: 0, payload: {
-      applied: true, dryRun: false, liveRuntimeMutation: true,
+      applied: true, dryRun: false, liveRuntimeMutation: true, verification: { kind: "verified" },
       receipt: { id: "evt_route_proof", action: "route.use", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "verified", warnings: [] },
       proof: { nativeEvent: { action: "route.use", scopeId: "id_aaaaaaaaaaaaaaaaaaaaaaaa", targetId: "id_bbbbbbbbbbbbbbbbbbbbbbbb", status: "verified" }, verification: { scopeId: "id_aaaaaaaaaaaaaaaaaaaaaaaa", before: { status: "observed", activeTargetId: "id_cccccccccccccccccccccccc", orderTargetIds: ["id_cccccccccccccccccccccccc"] }, after: { status: "observed", activeTargetId: "id_bbbbbbbbbbbbbbbbbbbbbbbb", orderTargetIds: ["id_bbbbbbbbbbbbbbbbbbbbbbbb"] } } }
     } })

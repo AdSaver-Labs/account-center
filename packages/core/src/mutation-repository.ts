@@ -27,6 +27,8 @@ export interface MutationReceipt {
 export interface MutationEvidence {
   receiptId: string;
   verification: "verified" | "unproven";
+  /** Whether the historical operation reached a native runtime invocation. */
+  liveRuntimeMutation?: boolean;
   proof?: {
     nativeEvent: { action: string; scopeId: string; targetId: string; status: "verified" };
     verification: {
@@ -170,16 +172,17 @@ function validateEvidence(value: MutationReceipt["evidence"]): MutationReceipt["
   return value.proof ? {
     receiptId: value.receiptId,
     verification: value.verification,
+    liveRuntimeMutation: value.liveRuntimeMutation,
     proof: {
       nativeEvent: { ...value.proof.nativeEvent },
       verification: { scopeId: value.proof.verification.scopeId, before: cloneScopeEvidence(value.proof.verification.before), after: cloneScopeEvidence(value.proof.verification.after) }
     }
-  } : { receiptId: value.receiptId, verification: value.verification };
+  } : { receiptId: value.receiptId, verification: value.verification, ...(value.liveRuntimeMutation === true ? { liveRuntimeMutation: true } : {}) };
 }
 function isEvidence(value: unknown): value is MutationEvidence {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Partial<MutationEvidence>;
-  if (!/^evt_[A-Za-z0-9_-]{1,100}$/.test(item.receiptId ?? "") || (item.verification !== "verified" && item.verification !== "unproven")) return false;
+  if (!/^evt_[A-Za-z0-9_-]{1,100}$/.test(item.receiptId ?? "") || (item.verification !== "verified" && item.verification !== "unproven") || (item.liveRuntimeMutation !== undefined && typeof item.liveRuntimeMutation !== "boolean")) return false;
   if (item.proof === undefined) return true;
   const proof = item.proof;
   return isProofAction(proof.nativeEvent?.action) && isProofIdentifier(proof.nativeEvent?.scopeId) && isProofIdentifier(proof.nativeEvent?.targetId) && proof.nativeEvent?.status === "verified" && proof.verification?.scopeId === proof.nativeEvent.scopeId && isRouteScopeEvidence(proof.verification.before) && isRouteScopeEvidence(proof.verification.after);

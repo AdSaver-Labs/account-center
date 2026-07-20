@@ -50,7 +50,7 @@ async function openClawWorkspace() {
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
   await writeFile(switchScript, "#!/usr/bin/env node\n", "utf8");
   await writeFile(sentinel, "#!/usr/bin/env node\n", "utf8");
-  await writeFile(join(root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
+  await writeFile(join(root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"], "main")), "utf8");
   return { root, cli, switchScript, sentinel };
 }
 
@@ -175,10 +175,12 @@ test("hostile direct adapter callers cannot supply a verifier secret or forge a 
 
 test("OpenClaw confirmed manual route uses the exact scoped native command and verifies fresh status", async () => {
   const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"], "jacques")), "utf8");
   const calls: Array<{ command: string; args: string[] }> = [];
   const fresh = routedStatus("openai:helper-2", ["openai:helper-2", "openai:helper-1"], "jacques");
   const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command, args) => {
     calls.push({ command, args });
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"], "jacques")), stderr: "" };
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.use", agent: "jacques", selected: { profileId: "openai:helper-2" } }), stderr: "" };
   } });
@@ -195,10 +197,12 @@ test("OpenClaw confirmed manual route uses the exact scoped native command and v
 
 test("OpenClaw confirmed remove invokes only the native route-only remove contract and persists opaque proof", async () => {
   const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"], "jacques")), "utf8");
   const calls: Array<{ command: string; args: string[] }> = [];
   const fresh = routedStatus("openai:helper-1", ["openai:helper-1"], "jacques");
   const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command, args) => {
     calls.push({ command, args });
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"], "jacques")), stderr: "" };
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.remove", agent: "jacques", target: "openai:helper-2" }), stderr: "" };
   } });
@@ -217,6 +221,7 @@ test("OpenClaw confirmed remove invokes only the native route-only remove contra
 test("OpenClaw remove treats a native target mismatch or retained route entry as unproven", async () => {
   const workspace = await openClawWorkspace();
   const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"], "main")), stderr: "" };
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"], "main")), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.remove", agent: "main", target: "openai:helper-1" }), stderr: "" };
   } });
@@ -253,6 +258,7 @@ test("OpenClaw confirmed automatic route invokes --auto for one exact agent and 
   const calls: string[][] = [];
   const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
     calls.push(args);
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"])), stderr: "" };
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(fresh), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.auto", agent: "main", selected: { profileId: "openai:helper-2" } }), stderr: "" };
   } });
@@ -275,7 +281,9 @@ test("OpenClaw route apply rejects implicit, all, and non-agent scopes without n
 test("OpenClaw native route failure returns a truthful non-applied receipt", async () => {
   const workspace = await openClawWorkspace();
   const receiptPath = join(workspace.root, "receipt.json");
-  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 9, stdout: "", stderr: "private@example.test sk-secret" }) });
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => args.includes("status")
+    ? { code: 0, stdout: JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"])), stderr: "" }
+    : { code: 9, stdout: "", stderr: "private@example.test sk-secret" } });
   const result = await capabilityRoute(adapter, "route.use", "openai:helper-2", "main", receiptPath);
   assert.equal(result.code, 2);
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
@@ -287,6 +295,7 @@ test("OpenClaw native route failure returns a truthful non-applied receipt", asy
 test("OpenClaw read-after-write mismatch never reports applied", async () => {
   const workspace = await openClawWorkspace();
   const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, args) => {
+    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routedStatus("openai:helper-1", ["openai:helper-1", "openai:helper-2"])), stderr: "" };
     if (args.includes("--print")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
     return { code: 0, stdout: JSON.stringify({ action: "route.use", agent: "main", selected: { profileId: "openai:helper-2" } }), stderr: "" };
   } });
