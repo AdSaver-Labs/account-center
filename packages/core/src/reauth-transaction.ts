@@ -53,9 +53,10 @@ export async function executeReauthTransaction(request: ReauthTransactionRequest
   });
   if (claim.kind === "replay") {
     const evidence = isMutationEvidence(claim.receipt.evidence) ? reauthEvidence(claim.receipt.evidence.reauth) : undefined;
-    return evidence && isReauthOutcomeConsistent(claim.outcome, evidence, claim.receipt.audit.warningCodes)
-      ? replayResult(claim.operationId, claim.outcome, evidence.verification, evidence.route, claim.receipt.audit.warningCodes)
-      : replayResult(claim.operationId, "not_applied", "unproven", "not_requested", claim.receipt.audit.warningCodes);
+    const warnings = replayWarningCodes(claim.receipt);
+    return evidence && warnings && isReauthOutcomeConsistent(claim.outcome, evidence, warnings)
+      ? replayResult(claim.operationId, claim.outcome, evidence.verification, evidence.route, warnings)
+      : replayResult(claim.operationId, "not_applied", "unproven", "not_requested", []);
   }
   if (claim.kind === "blocked") throw new Error(claim.reason);
 
@@ -101,6 +102,14 @@ function reauthEvidence(value: unknown): ReauthReceiptEvidence | undefined {
   if ((evidence.verification !== "verified" && evidence.verification !== "failed" && evidence.verification !== "unproven") || (evidence.route !== "not_requested" && evidence.route !== "applied" && evidence.route !== "not_applied" && evidence.route !== "unproven")) return undefined;
   if (evidence.verification !== "verified" && evidence.route !== "not_requested") return undefined;
   return { verification: evidence.verification, route: evidence.route };
+}
+
+function replayWarningCodes(receipt: unknown): string[] | undefined {
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) return undefined;
+  const audit = (receipt as { audit?: unknown }).audit;
+  if (!audit || typeof audit !== "object" || Array.isArray(audit)) return undefined;
+  const warningCodes = (audit as { warningCodes?: unknown }).warningCodes;
+  return Array.isArray(warningCodes) && warningCodes.every((warning) => typeof warning === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(warning)) ? [...warningCodes] : undefined;
 }
 
 function assertRequest(value: ReauthTransactionRequest): void {

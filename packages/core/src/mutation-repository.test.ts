@@ -218,3 +218,11 @@ test("mutation repository rejects malformed persisted operations before a redact
 
   await assert.rejects(() => new MutationRepository(root).list(), /repository_corrupt/);
 });
+
+test("mutation repository normalizes malformed persisted JSON to repository_corrupt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-mutations-malformed-json-"));
+  await writeFile(join(root, "mutation-repository.v1.json"), "{not valid JSON", { mode: 0o600 });
+  await chmod(root, 0o700);
+
+  await assert.rejects(() => new MutationRepository(root).list(), /repository_corrupt/);
+});

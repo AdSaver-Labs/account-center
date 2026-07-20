@@ -126,7 +126,7 @@ export class MutationRepository {
   }
   private async read(): Promise<State> {
     try { await assertPrivateFile(this.statePath); const parsed: unknown = JSON.parse(await readFile(this.statePath, "utf8")); if (!isState(parsed)) throw new Error("repository_corrupt"); return parsed; }
-    catch (error: unknown) { if (isMissing(error)) return { schemaVersion: "account-center.mutation-repository.v1", operations: [] }; throw error; }
+    catch (error: unknown) { if (isMissing(error)) return { schemaVersion: "account-center.mutation-repository.v1", operations: [] }; if (error instanceof SyntaxError) throw new Error("repository_corrupt"); throw error; }
   }
   private async write(state: State): Promise<void> {
     const temporary = join(this.root, `.mutation-repository.${randomUUID()}.tmp`);

@@ -123,6 +123,28 @@ test("reauth replay fails closed when durable reauth evidence is missing or malf
   }
 });
 
+test("reauth replay returns the fixed safe result when an injected receipt audit is missing or malformed", async () => {
+  for (const audit of [undefined, {}, { warningCodes: "not-an-array" }]) {
+    let calls = 0;
+    const repository = {
+      claim: async () => ({
+        kind: "replay" as const,
+        operationId: "op_reauth_malformed_audit",
+        outcome: "applied" as const,
+        receipt: { audit, evidence: { receiptId: "evt_reauth_audit", verification: "verified", reauth: { verification: "verified", route: "not_requested" } } }
+      })
+    } as unknown as MutationRepository;
+    const result = await executeReauthTransaction(request("malformed-audit-replay".padEnd(22, "x")), {
+      repository,
+      stage: async () => { calls += 1; throw new Error("must not stage on replay"); },
+      verifyIdentityAndHealth: async () => { calls += 1; throw new Error("must not verify on replay"); },
+      decideRoute: async () => { calls += 1; throw new Error("must not route on replay"); }
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual(result, { operationId: "op_reauth_malformed_audit", outcome: "not_applied", verification: "unproven", route: "not_requested", replayed: true, warnings: ["idempotency_replay"] });
+  }
+});
+
 test("reauth direct replay fails closed for evidence with an unknown top-level key without invoking dependencies", async () => {
   let calls = 0;
   const repository = {
