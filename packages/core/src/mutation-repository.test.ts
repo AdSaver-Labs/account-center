@@ -278,3 +278,57 @@ test("mutation repository rejects unknown durable envelope keys before history, 
     assert.equal(dependencyCalls, 0, `${name} must fail before dependencies are used`);
   }
 });
+
+test("mutation repository rejects prototype-inherited durable envelopes and fields", async () => {
+  const descriptors = new Map<string, PropertyDescriptor | undefined>();
+  const replaceObjectPrototype = (key: string, value: unknown): void => {
+    descriptors.set(key, Object.getOwnPropertyDescriptor(Object.prototype, key));
+    Object.defineProperty(Object.prototype, key, { configurable: true, enumerable: false, writable: true, value });
+  };
+  const restoreObjectPrototype = (): void => {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(Object.prototype, key, descriptor);
+      else delete (Object.prototype as Record<string, unknown>)[key];
+    }
+  };
+
+  try {
+    const emptyRoot = await mkdtemp(join(tmpdir(), "account-center-mutations-prototype-empty-"));
+    replaceObjectPrototype("schemaVersion", "account-center.mutation-repository.v1");
+    replaceObjectPrototype("operations", []);
+    await writeFile(join(emptyRoot, "mutation-repository.v1.json"), "{}", { mode: 0o600 });
+    await chmod(emptyRoot, 0o700);
+    await assert.rejects(() => new MutationRepository(emptyRoot).list(), /repository_corrupt/);
+
+    const receipt = {
+      schemaVersion: "account-center.mutation-receipt.v1",
+      operationId: "op_inherited_receipt",
+      idempotencyKeyDigest: "a".repeat(64),
+      requestDigest: "b".repeat(64),
+      state: "completed",
+      outcome: "not_applied",
+      createdAt: "2026-07-15T00:00:00.000Z",
+      completedAt: "2026-07-15T00:01:00.000Z",
+      audit: { ...input.audit, warningCodes: [] }
+    };
+    const inheritedReceiptRoot = await mkdtemp(join(tmpdir(), "account-center-mutations-prototype-receipt-"));
+    replaceObjectPrototype("receipt", receipt);
+    await writeFile(join(inheritedReceiptRoot, "mutation-repository.v1.json"), JSON.stringify({
+      schemaVersion: "account-center.mutation-repository.v1",
+      operations: [{ operationId: "op_pending", idempotencyKeyDigest: "c".repeat(64), requestDigest: "d".repeat(64), state: "pending", createdAt: "2026-07-15T00:00:00.000Z", audit: input.audit }]
+    }), { mode: 0o600 });
+    await chmod(inheritedReceiptRoot, 0o700);
+    await assert.rejects(() => new MutationRepository(inheritedReceiptRoot).list(), /repository_corrupt/);
+
+    const inheritedEvidenceRoot = await mkdtemp(join(tmpdir(), "account-center-mutations-prototype-evidence-"));
+    replaceObjectPrototype("evidence", { receiptId: "evt_inherited", verification: "verified" });
+    await writeFile(join(inheritedEvidenceRoot, "mutation-repository.v1.json"), JSON.stringify({
+      schemaVersion: "account-center.mutation-repository.v1",
+      operations: [{ receipt }]
+    }), { mode: 0o600 });
+    await chmod(inheritedEvidenceRoot, 0o700);
+    await assert.rejects(() => new MutationRepository(inheritedEvidenceRoot).list(), /repository_corrupt/);
+  } finally {
+    restoreObjectPrototype();
+  }
+});

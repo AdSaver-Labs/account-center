@@ -140,7 +140,7 @@ function digest(value: string): string { return createHash("sha256").update(valu
 function operationKeyDigest(operation: Operation): string { return isCompleted(operation) ? operation.receipt.idempotencyKeyDigest : operation.idempotencyKeyDigest; }
 function operationRequestDigest(operation: Operation): string { return isCompleted(operation) ? operation.receipt.requestDigest : operation.requestDigest; }
 function operationId(operation: Operation): string { return isCompleted(operation) ? operation.receipt.operationId : operation.operationId; }
-function isCompleted(operation: Operation): operation is CompletedOperation { return "receipt" in operation; }
+function isCompleted(operation: Operation): operation is CompletedOperation { return Object.hasOwn(operation, "receipt"); }
 function operationView(operation: Operation): MutationOperationView {
   if (isCompleted(operation)) {
     const { operationId, state, outcome, createdAt, completedAt, audit } = operation.receipt;
@@ -153,7 +153,7 @@ function assertKey(value: string): void { if (!/^[A-Za-z0-9_-]{22,128}$/.test(va
 function assertDigest(value: string): void { if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("invalid_digest"); }
 function assertIdentifier(value: string): void { if (!/^op_[A-Za-z0-9_-]{1,100}$/.test(value)) throw new Error("invalid_operation_id"); }
 function assertOutcome(value: string): asserts value is MutationOutcome { if (!["applied", "not_applied", "blocked", "failed"].includes(value)) throw new Error("invalid_outcome"); }
-function assertAudit(value: MutationAudit): void { for (const item of [value.action, value.provider, value.runtime]) if (!/^[a-z][a-z0-9._-]{0,63}$/.test(item)) throw new Error("invalid_audit_identifier"); if (!["agent", "profile", "session", "default", "all"].includes(value.scopeKind)) throw new Error("invalid_scope_kind"); assertDigest(value.scopeIdDigest); assertDigest(value.targetDigest); }
+function assertAudit(value: MutationAudit): void { if (!isAudit(value)) throw new Error("invalid_audit"); }
 function validateWarnings(values: string[]): string[] { if (values.length > 32 || values.some((value) => !/^[a-z][a-z0-9_]{0,79}$/.test(value))) throw new Error("invalid_warning_code"); return [...values]; }
 function equalWarnings(left: string[], right: string[]): boolean { return left.length === right.length && left.every((value, index) => value === right[index]); }
 function isMissing(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT"; }
@@ -163,13 +163,14 @@ async function assertPrivateFile(path: string): Promise<void> { const info = awa
 function isState(value: unknown): value is State { if (!isClosedObject(value, ["schemaVersion", "operations"])) return false; const candidate = value as Partial<State>; return candidate.schemaVersion === "account-center.mutation-repository.v1" && Array.isArray(candidate.operations) && candidate.operations.every(isOperation); }
 function isOperation(value: unknown): value is Operation {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if ("receipt" in value) return isClosedObject(value, ["receipt"]) && isReceipt((value as { receipt: unknown }).receipt);
+  if (Object.hasOwn(value, "receipt")) return isClosedObject(value, ["receipt"]) && isReceipt((value as { receipt: unknown }).receipt);
+  if (hasInheritedProperty(value, "receipt")) return false;
   if (!isClosedObject(value, ["operationId", "idempotencyKeyDigest", "requestDigest", "state", "createdAt", "audit"])) return false;
   const item = value as Partial<PendingOperation>;
   return item.state === "pending" && isOperationId(item.operationId) && isDigest(item.idempotencyKeyDigest) && isDigest(item.requestDigest) && isTimestamp(item.createdAt) && isAudit(item.audit);
 }
 function isReceipt(value: unknown): value is MutationReceipt {
-  if (!isClosedObject(value, ["schemaVersion", "operationId", "requestDigest", "idempotencyKeyDigest", "state", "outcome", "createdAt", "completedAt", "audit", "evidence"])) return false;
+  if (!isClosedObject(value, ["schemaVersion", "operationId", "requestDigest", "idempotencyKeyDigest", "state", "outcome", "createdAt", "completedAt", "audit", "evidence"], ["schemaVersion", "operationId", "requestDigest", "idempotencyKeyDigest", "state", "outcome", "createdAt", "completedAt", "audit"])) return false;
   const receipt = value as Partial<MutationReceipt>;
   return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit) && isStageFailureOutcomeConsistent(receipt.outcome, receipt.audit.warningCodes) && (receipt.evidence === undefined || isMutationEvidence(receipt.evidence)) && (receipt.evidence?.reauth === undefined || isReauthOutcomeConsistent(receipt.outcome, receipt.evidence.reauth, receipt.audit.warningCodes));
 }
@@ -189,7 +190,7 @@ function validateEvidence(value: MutationReceipt["evidence"], outcome: MutationO
   } : { receiptId: value.receiptId, verification: value.verification, ...(value.liveRuntimeMutation === true ? { liveRuntimeMutation: true } : {}), ...(value.reauth ? { reauth: { verification: value.reauth.verification, route: value.reauth.route } } : {}) };
 }
 export function isMutationEvidence(value: unknown): value is MutationEvidence {
-  if (!isClosedObject(value, ["receiptId", "verification", "liveRuntimeMutation", "reauth", "proof"])) return false;
+  if (!isClosedObject(value, ["receiptId", "verification", "liveRuntimeMutation", "reauth", "proof"], ["receiptId", "verification"])) return false;
   const item = value as Partial<MutationEvidence>;
   if (!/^evt_[A-Za-z0-9_-]{1,100}$/.test(item.receiptId ?? "") || (item.verification !== "verified" && item.verification !== "unproven") || (item.liveRuntimeMutation !== undefined && typeof item.liveRuntimeMutation !== "boolean") || (item.reauth !== undefined && !isReauthEvidence(item.reauth))) return false;
   if (item.proof === undefined) return true;
@@ -214,11 +215,21 @@ export function isReauthOutcomeConsistent(outcome: MutationOutcome, evidence: Re
 }
 function cloneScopeEvidence(value: RouteScopeEvidence): RouteScopeEvidence { return { status: value.status, ...(value.activeTargetId ? { activeTargetId: value.activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] }; }
 function isRouteScopeEvidence(value: unknown): value is RouteScopeEvidence {
-  if (!isClosedObject(value, ["status", "activeTargetId", "orderTargetIds"])) return false;
+  if (!isClosedObject(value, ["status", "activeTargetId", "orderTargetIds"], ["status", "orderTargetIds"])) return false;
   const item = value as Partial<RouteScopeEvidence>;
   return (item.status === "observed" || item.status === "absent") && (typeof item.activeTargetId === "undefined" || isProofIdentifier(item.activeTargetId)) && Array.isArray(item.orderTargetIds) && item.orderTargetIds.length <= 10 && item.orderTargetIds.every(isProofIdentifier);
 }
-function isClosedObject(value: unknown, allowedKeys: readonly string[]): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every((key) => allowedKeys.includes(key)); }
+function isClosedObject(value: unknown, allowedKeys: readonly string[], requiredKeys: readonly string[] = allowedKeys): value is Record<string, unknown> {
+  if (!isPlainObject(value)) return false;
+  return Object.keys(value).every((key) => allowedKeys.includes(key))
+    && requiredKeys.every((key) => Object.hasOwn(value, key))
+    && allowedKeys.every((key) => !hasInheritedProperty(value, key));
+}
+function isPlainObject(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
+function hasInheritedProperty(value: object, key: string): boolean {
+  for (let prototype = Object.getPrototypeOf(value); prototype !== null; prototype = Object.getPrototypeOf(prototype)) if (Object.hasOwn(prototype, key)) return true;
+  return false;
+}
 function isStageFailureOutcomeConsistent(outcome: MutationOutcome, warningCodes: string[]): boolean { return !warningCodes.includes("reauth_stage_failed") || outcome === "failed"; }
 function isProofIdentifier(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
 function isProofAction(value: unknown): value is string { return value === "route.auto" || value === "route.use" || value === "route.remove"; }
