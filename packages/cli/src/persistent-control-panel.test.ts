@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
+import { AuditStore, AuthChallengeStore, MutationRepository } from "../../core/dist/index.js";
 import { createPersistentControlPanel } from "./index.js";
 
 test("persistent control panel reads the owner-only local state used by the launcher", async () => {

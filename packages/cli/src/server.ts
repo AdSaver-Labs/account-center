@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, GuidedAuthTerminalOutcome, GuidedAuthTerminalVerifier, isValidGuidedAuthStart, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, GuidedAuthTerminalOutcome, GuidedAuthTerminalVerifier, isValidGuidedAuthStart, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "../../core/dist/index.js";
 
 export interface AccountCenterServerOptions {
   token: string;

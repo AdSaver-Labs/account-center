@@ -36,6 +36,26 @@ test("challenge store durably records verified completion or failure once and pr
   assert.equal(persisted.includes("@example.test"), false);
 });
 
+test("terminal audit verification remains redacted and is only exposed for verified completion or failure", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
+  const store = new AuthChallengeStore(path);
+  const completed = await store.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" });
+  const cancelled = await store.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "cancelled@example.test", scope: "default" });
+
+  await store.completeWithResult(completed.id);
+  const verified = await store.markTerminalAuditVerified(completed.id);
+  await store.cancel(cancelled.id);
+  const nonTerminal = await store.markTerminalAuditVerified(cancelled.id);
+  const persisted = await readFile(path, "utf8");
+
+  assert.equal(verified?.auditState, "verified");
+  assert.equal(nonTerminal?.auditState, undefined);
+  assert.equal(persisted.includes("private@example.test"), false);
+  assert.equal(persisted.includes("cancelled@example.test"), false);
+  assert.equal(JSON.parse(persisted).find((challenge: { id: string }) => challenge.id === completed.id).auditState, "verified");
+  assert.equal("auditState" in JSON.parse(persisted).find((challenge: { id: string }) => challenge.id === cancelled.id), false);
+});
+
 test("independent challenge stores serialize competing creation of the same active challenge", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
   const input = { mode: "reauth" as const, provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" };

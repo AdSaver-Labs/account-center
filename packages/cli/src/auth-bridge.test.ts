@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthChallengeStore } from "@account-center/core";
+import { AuthChallengeStore } from "../../core/dist/index.js";
 import { inspectAuthCommand, parseAuthCommand, renderAuthHelp, tokenizeAuthCommand } from "./auth-bridge.js";
 import { runCli } from "./index.js";
 

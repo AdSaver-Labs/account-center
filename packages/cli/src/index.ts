@@ -23,7 +23,7 @@ import {
   PublicStatusView,
   publicStatusView,
   redactJson
-} from "@account-center/core";
+} from "../../core/dist/index.js";
 import { randomBytes } from "node:crypto";
 import { createAccountCenterServer } from "./server.js";
 import { parseAuthCommand, renderAuthHelp } from "./auth-bridge.js";

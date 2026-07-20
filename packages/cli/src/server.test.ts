@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
+import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "../../core/dist/index.js";
 import { createAccountCenterServer } from "./server.js";
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
