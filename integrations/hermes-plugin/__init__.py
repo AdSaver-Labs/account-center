@@ -20,6 +20,7 @@ _REDACTION_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     re.compile(r"(?i)(access_token|refresh_token|id_token|api_key|agent_key)([\"'\s:=]+)([^\s\"']{4,})"),
 ]
+_AUTH_UNPROVEN_TEXT = "Account Center `/auth` request UNPROVEN. Check `/auth status` or the durable redacted receipt."
 
 
 def _cfg_get(path: str, default: Any = None) -> Any:
@@ -93,23 +94,27 @@ def _env_for_account_center() -> dict[str, str]:
 
 
 def _run_auth(raw_args: str) -> str:
-    root = _account_center_root()
-    message = _build_auth_message(raw_args)
-    timeout = int(_cfg_get("account_center.command_timeout", 45) or 45)
-    proc = subprocess.run(
-        ["node", str(root / "scripts" / "chatops.mjs"), message],
-        cwd=str(root),
-        env=_env_for_account_center(),
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        root = _account_center_root()
+        message = _build_auth_message(raw_args)
+        timeout = int(_cfg_get("account_center.command_timeout", 45) or 45)
+        proc = subprocess.run(
+            ["node", str(root / "scripts" / "chatops.mjs"), message],
+            cwd=str(root),
+            env=_env_for_account_center(),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        return _AUTH_UNPROVEN_TEXT
     output = (proc.stdout or "").strip()
     if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
-        detail = stderr or output or f"exit code {proc.returncode}"
-        return "Account Center `/auth` command failed:\n\n```text\n" + _redact_output(detail)[:3500] + "\n```"
+        # The subprocess can contain runtime paths, command diagnostics, or
+        # malformed external output. Hermes must expose only the same bounded
+        # Account Center outcome contract Dexter receives through ChatOps.
+        return _AUTH_UNPROVEN_TEXT
     return _redact_output(output or "Account Center returned no output.")[:3900]
 
 

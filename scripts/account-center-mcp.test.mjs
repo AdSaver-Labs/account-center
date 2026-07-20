@@ -9,6 +9,7 @@ import { dirname, resolve } from "node:path";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bridge = resolve(root, "scripts/account-center-mcp.mjs");
+const chatops = resolve(root, "scripts/chatops.mjs");
 
 function call(command, env = {}) {
   const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "account_center_auth", arguments: { command } } };
@@ -51,6 +52,24 @@ test("MCP initializes and lists tools before ignored CLI build artifacts exist",
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
+});
+
+test("Dexter ChatOps returns a fixed canonical UNPROVEN result when its adapter throws", () => {
+  const inaccessibleWorkspace = resolve(tmpdir(), "account-center-no-openclaw-status");
+  const result = spawnSync(process.execPath, [chatops, "/auth status"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ACCOUNT_CENTER_SOURCE: "openclaw",
+      ACCOUNT_CENTER_OPENCLAW_WORKSPACE: inaccessibleWorkspace,
+    },
+  });
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "Account Center /auth request UNPROVEN.\n");
+  assert.equal(result.stderr.includes(inaccessibleWorkspace), false);
+  assert.equal(result.stderr.includes("OpenClaw status unavailable"), false);
 });
 
 for (const { name, command, privateValues } of [

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 def load_plugin_module():
@@ -28,6 +30,19 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
         self.assertNotIn("sample-refresh-value", redacted)
         self.assertNotIn("sample-access-value", redacted)
         self.assertIn("[REDACTED]", redacted)
+
+    def test_failed_chatops_subprocess_returns_fixed_unproven_contract(self):
+        plugin = load_plugin_module()
+        hostile_output = "email=person@example.test path=/srv/private/ac token=sk-secret-value-123456789"
+        with patch.object(plugin, "_account_center_root", return_value=Path("/fixture/account-center")), patch.object(
+            plugin.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=2, stdout="", stderr=hostile_output),
+        ):
+            result = plugin._run_auth("delete person@example.test")
+        self.assertEqual(result, plugin._AUTH_UNPROVEN_TEXT)
+        self.assertNotIn("person@example.test", result)
+        self.assertNotIn("sk-secret", result)
 
     def test_registered_command_metadata(self):
         plugin = load_plugin_module()

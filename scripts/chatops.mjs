@@ -21,7 +21,14 @@ try {
   process.exit(1);
 }
 
-const result = await runCli(["auth", ...tokens]);
-if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : `${result.stdout}\n`);
-if (result.stderr) process.stderr.write(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
-process.exitCode = result.code;
+// Hermes and Dexter both enter through this wrapper. Do not let a thrown
+// adapter/process diagnostic escape that canonical public contract.
+try {
+  const result = await runCli(["auth", ...tokens]);
+  if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : `${result.stdout}\n`);
+  if (result.stderr) process.stderr.write(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
+  process.exitCode = result.code;
+} catch {
+  console.error("Account Center /auth request UNPROVEN.");
+  process.exitCode = 2;
+}
