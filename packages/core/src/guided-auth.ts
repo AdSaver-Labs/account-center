@@ -1,7 +1,18 @@
-import type { AuthChallengeInput } from "./auth-challenges.js";
+import type { AuthChallenge, AuthChallengeInput } from "./auth-challenges.js";
 import type { AccountCenterStatus } from "./schemas.js";
 
 export type GuidedAuthStartInput = Pick<AuthChallengeInput, "mode" | "provider" | "runtime" | "scope" | "target">;
+export type GuidedAuthTerminalOutcome = "completed" | "failed";
+
+/**
+ * Narrow seam for a local worker/result adapter. The verifier receives only
+ * the already-redacted challenge record and returns an observed terminal
+ * outcome; it never receives request payloads, credentials, identities, or
+ * device codes.
+ */
+export interface GuidedAuthTerminalVerifier {
+  verifyTerminal(challenge: AuthChallenge): Promise<GuidedAuthTerminalOutcome>;
+}
 
 /** Local intent creation only; it does not mutate an adapter or credentials. */
 export function isValidGuidedAuthStart(status: AccountCenterStatus, input: unknown): input is GuidedAuthStartInput {

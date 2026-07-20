@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 export type AuthChallengeMode = "add" | "reauth";
 export type AuthChallengeStatus = "pending" | "completed" | "failed" | "cancelled" | "expired";
+export type AuthChallengeAuditState = "pending" | "verified";
 
 export interface AuthChallengeInput {
   mode: AuthChallengeMode;
@@ -18,6 +19,8 @@ export interface AuthChallenge extends Omit<AuthChallengeInput, "target"> {
   status: AuthChallengeStatus;
   createdAt: string;
   updatedAt: string;
+  /** Required only for verifier-confirmed terminal outcomes. */
+  auditState?: AuthChallengeAuditState;
 }
 
 export function createAuthChallenge(input: AuthChallengeInput, existing: AuthChallenge[] = [], now = new Date()): AuthChallenge {
@@ -47,13 +50,29 @@ export function expireAuthChallenge(challenge: AuthChallenge, now = new Date()):
 }
 
 export function cancelAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
-  const current = expireAuthChallenge(challenge, now);
-  if (current.status !== "pending") return current;
-  return { ...current, status: "cancelled", updatedAt: now.toISOString() };
+  return terminalAuthChallenge(challenge, "cancelled", now);
+}
+
+/** Records only a verifier-confirmed completion; terminal evidence is immutable. */
+export function completeAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
+  return terminalAuthChallenge(challenge, "completed", now);
+}
+
+/** Records only a verifier-confirmed failure; no credential or identity detail is retained. */
+export function failAuthChallenge(challenge: AuthChallenge, now = new Date()): AuthChallenge {
+  return terminalAuthChallenge(challenge, "failed", now);
 }
 
 export function getAuthChallenge(challenges: AuthChallenge[], id: string): AuthChallenge | undefined {
   return challenges.find((challenge) => challenge.id === id);
+}
+
+function terminalAuthChallenge(challenge: AuthChallenge, status: Exclude<AuthChallengeStatus, "pending" | "expired">, now: Date): AuthChallenge {
+  const current = expireAuthChallenge(challenge, now);
+  if (current.status !== "pending") return current;
+  return status === "completed" || status === "failed"
+    ? { ...current, status, auditState: "pending", updatedAt: now.toISOString() }
+    : { ...current, status, updatedAt: now.toISOString() };
 }
 
 function challengeKey(input: AuthChallengeInput): string {

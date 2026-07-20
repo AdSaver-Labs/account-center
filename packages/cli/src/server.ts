@@ -1,13 +1,14 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, isValidGuidedAuthStart, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, GuidedAuthTerminalOutcome, GuidedAuthTerminalVerifier, isValidGuidedAuthStart, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
   source?: unknown;
   auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
+  guidedAuthVerifier?: GuidedAuthTerminalVerifier;
   mutationRepository?: MutationRepository;
 }
 
@@ -71,13 +72,51 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       }
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
+    const terminal = request.method === "POST" ? authChallengeTerminal(request.url) : undefined;
+    if (terminal) {
+      if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
+      if (!options.challengeStore) return send(response, 503, { error: "challenge_store_unavailable" });
+      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
+      try {
+        await options.auditStore.list({ limit: 1 });
+      } catch {
+        return send(response, 503, { error: "audit_unavailable" });
+      }
+      const challenge = await options.challengeStore.get(terminal.id);
+      if (!challenge) return send(response, 404, { error: "not_found" });
+      if (challenge.status !== "pending" && challenge.status !== terminal.outcome) return send(response, 409, { error: "invalid_lifecycle_transition" });
+      if (challenge.status === "pending") {
+        if (!options.guidedAuthVerifier) return send(response, 503, { error: "guided_auth_verifier_unavailable" });
+        if (await options.guidedAuthVerifier.verifyTerminal(challenge) !== terminal.outcome) return send(response, 409, { error: "terminal_verification_mismatch" });
+      }
+      const result = terminal.outcome === "completed"
+        ? await options.challengeStore.completeWithResult(terminal.id)
+        : await options.challengeStore.failWithResult(terminal.id);
+      if (!result || result.challenge.status !== terminal.outcome) return send(response, 409, { error: "invalid_lifecycle_transition" });
+      let proven;
+      try {
+        proven = await persistTerminalAudit(options.challengeStore, options.auditStore, result.challenge);
+      } catch {
+        // The terminal observation is durable but explicitly UNPROVEN until the
+        // same opaque challenge can be replayed or startup reconciliation writes
+        // its one deduplicated proof record.
+        return send(response, 503, { error: "audit_recovery_required" });
+      }
+      return send(response, 200, {
+        schemaVersion: terminal.outcome === "completed" ? "account-center.auth-challenge-complete.v1" : "account-center.auth-challenge-fail.v1",
+        generatedAt: new Date().toISOString(),
+        idempotent: !result.changed,
+        result: { outcome: terminal.outcome, verificationState: "verified" },
+        challenge: authChallengeView(proven)
+      });
+    }
     const allowedMethods = endpointMethods(request.url);
     if (allowedMethods && !allowedMethods.includes(request.method ?? "")) {
       response.setHeader("Allow", allowedMethods.join(", "));
       return send(response, 405, { error: "method_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
-    if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore)));
+    if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore), Boolean(options.guidedAuthVerifier)));
     const auditId = request.method === "GET" ? auditRecordId(request.url) : undefined;
     if (auditId) {
       const record = await auditRecordDetail(options.auditStore, auditId);
@@ -159,6 +198,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   });
   return {
     async listen(port = 0): Promise<{ port: number }> {
+      if (options.challengeStore && options.auditStore) {
+        try { await reconcileTerminalAudits(options.challengeStore, options.auditStore); } catch { /* retry remains available after startup */ }
+      }
       await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
       return { port: (server.address() as AddressInfo).port };
     },
@@ -394,8 +436,33 @@ function auditScopeKind(scope: string): AuditRecord["scopeKind"] | undefined {
   return kind === "agent" || kind === "profile" || kind === "session" || kind === "default" || kind === "all" ? kind : undefined;
 }
 
-function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
-  return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
+async function reconcileTerminalAudits(challenges: AuthChallengeStore, audit: AuditStore): Promise<void> {
+  for (const challenge of await challenges.list()) {
+    if ((challenge.status === "completed" || challenge.status === "failed") && challenge.auditState !== "verified") {
+      await persistTerminalAudit(challenges, audit, challenge);
+    }
+  }
+}
+
+async function persistTerminalAudit(challenges: AuthChallengeStore, audit: AuditStore, challenge: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  if (challenge.status !== "completed" && challenge.status !== "failed") throw new Error("invalid_terminal_challenge");
+  await audit.append({
+    action: challenge.status === "completed" ? "guided_auth.complete" : "guided_auth.fail",
+    outcome: "applied",
+    proofState: "verified",
+    requestDigest: createHash("sha256").update(`guided_auth.${challenge.status}\0${challenge.id}`).digest("hex"),
+    dedupeKey: `guided-auth-${challenge.id}-${challenge.status}`,
+    summary: challenge.status === "completed" ? "Local guided-auth completion verified." : "Local guided-auth failure verified.",
+    warnings: [],
+    runtime: challenge.runtime,
+    ...(auditScopeKind(challenge.scope) ? { scopeKind: auditScopeKind(challenge.scope) } : {})
+  });
+  return (await challenges.markTerminalAuditVerified(challenge.id)) ?? challenge;
+}
+
+function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt, auditState }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  const verificationState = (status === "completed" || status === "failed") ? auditState === "verified" ? "verified" : "UNPROVEN" : undefined;
+  return { id, mode, provider, runtime, scope, status, ...(verificationState ? { verificationState } : {}), ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
 }
 
 function endpointMethods(path: string | undefined): string[] | undefined {
@@ -404,6 +471,7 @@ function endpointMethods(path: string | undefined): string[] | undefined {
   if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/scopes", "/api/status"].includes(pathname ?? "")) return ["GET"];
   if (mutationOperationId(pathname) || auditRecordId(pathname)) return ["GET"];
   if (authChallengeCancelId(pathname)) return ["POST"];
+  if (authChallengeTerminal(pathname)) return ["POST"];
   if (authChallengeId(pathname)) return ["GET"];
   return undefined;
 }
@@ -418,11 +486,16 @@ function auditRecordId(path: string | undefined): string | undefined {
 function authChallengeCancelId(path: string | undefined): string | undefined {
   return path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})\/cancel$/)?.[1];
 }
+function authChallengeTerminal(path: string | undefined): { id: string; outcome: GuidedAuthTerminalOutcome } | undefined {
+  const match = path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})\/(complete|fail)$/);
+  if (!match) return undefined;
+  return { id: match[1], outcome: match[2] === "complete" ? "completed" : "failed" };
+}
 function authChallengeId(path: string | undefined): string | undefined {
   return path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})$/)?.[1];
 }
 
-function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boolean): unknown {
+function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boolean, verifierAvailable: boolean): unknown {
   return {
     schemaVersion: "account-center.agent-capabilities.v1",
     target: "account-center",
@@ -441,6 +514,8 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
       challengeStoreAvailable && auditAvailable
         ? { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] }
         : { id: "auth_challenges.cancel", mode: "mutation", state: "blocked", reason: challengeStoreAvailable ? "durable_audit_store_unavailable" : "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] },
+      terminalCapability("auth_challenges.complete", "complete", challengeStoreAvailable, auditAvailable, verifierAvailable),
+      terminalCapability("auth_challenges.fail", "fail", challengeStoreAvailable, auditAvailable, verifierAvailable),
       { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] },
       { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id"] },
       { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] },
@@ -458,6 +533,12 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
       "Mutations become available only through protected endpoints with explicit confirmation and idempotency handling."
     ]
   };
+}
+
+function terminalCapability(id: "auth_challenges.complete" | "auth_challenges.fail", path: "complete" | "fail", challengeStoreAvailable: boolean, auditAvailable: boolean, verifierAvailable: boolean): unknown {
+  const requires = ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store", "verified_local_adapter"];
+  if (challengeStoreAvailable && auditAvailable && verifierAvailable) return { id, mode: "mutation", state: "available", endpoint: { method: "POST", path: `/api/auth-challenges/:id/${path}` }, requires };
+  return { id, mode: "mutation", state: "blocked", reason: !challengeStoreAvailable ? "durable_challenge_store_unavailable" : !auditAvailable ? "durable_audit_store_unavailable" : "guided_auth_verifier_unavailable", requires };
 }
 
 function authorized(request: IncomingMessage, token: string): boolean {

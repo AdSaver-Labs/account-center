@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
-import { AuthChallenge, AuthChallengeInput, cancelAuthChallenge, createAuthChallenge, expireAuthChallenge, getAuthChallenge, isSafePublicChallengeMetadata } from "./auth-challenges.js";
+import { AuthChallenge, AuthChallengeInput, cancelAuthChallenge, completeAuthChallenge, createAuthChallenge, expireAuthChallenge, failAuthChallenge, getAuthChallenge, isSafePublicChallengeMetadata } from "./auth-challenges.js";
 
 export class AuthChallengeStore {
   private readonly lockPath: string;
@@ -55,16 +55,45 @@ export class AuthChallengeStore {
    * evidence for an already-terminal lifecycle record.
    */
   async cancelWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
+    return this.transitionWithResult(id, cancelAuthChallenge);
+  }
+
+  /** Atomically persists a verifier-confirmed terminal completion. */
+  async completeWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
+    return this.transitionWithResult(id, completeAuthChallenge);
+  }
+
+  /** Atomically persists a verifier-confirmed terminal failure. */
+  async failWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
+    return this.transitionWithResult(id, failAuthChallenge);
+  }
+
+  /** Marks the terminal lifecycle result as proven only after its audit record is durable. */
+  async markTerminalAuditVerified(id: string): Promise<AuthChallenge | undefined> {
+    return this.withLock(async () => {
+      const challenges = await this.listUnsafe();
+      const index = challenges.findIndex((item) => item.id === id);
+      if (index < 0) return undefined;
+      const challenge = challenges[index];
+      if ((challenge.status !== "completed" && challenge.status !== "failed") || challenge.auditState === "verified") return challenge;
+      const verified = { ...challenge, auditState: "verified" as const, updatedAt: new Date().toISOString() };
+      challenges[index] = verified;
+      await this.write(challenges);
+      return verified;
+    });
+  }
+
+  private async transitionWithResult(id: string, transition: (challenge: AuthChallenge) => AuthChallenge): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
     return this.withLock(async () => {
       const challenges = await this.listUnsafe();
       const index = challenges.findIndex((item) => item.id === id);
       if (index < 0) return undefined;
       const before = challenges[index];
-      const cancelled = cancelAuthChallenge(challenges[index]);
-      challenges[index] = cancelled;
-      const changed = before.status !== cancelled.status;
+      const changedChallenge = transition(challenges[index]);
+      challenges[index] = changedChallenge;
+      const changed = before.status !== changedChallenge.status;
       if (changed) await this.write(challenges);
-      return { challenge: cancelled, changed };
+      return { challenge: changedChallenge, changed };
     });
   }
 
@@ -109,6 +138,7 @@ function isChallenge(value: unknown): value is AuthChallenge {
     typeof candidate.key === "string" &&
     (candidate.mode === "add" || candidate.mode === "reauth") &&
     (candidate.status === "pending" || candidate.status === "completed" || candidate.status === "failed" || candidate.status === "cancelled" || candidate.status === "expired") &&
+    (candidate.auditState === undefined || candidate.auditState === "pending" || candidate.auditState === "verified") &&
     typeof candidate.provider === "string" &&
     typeof candidate.runtime === "string" &&
     typeof candidate.scope === "string" &&
@@ -128,6 +158,7 @@ function hasRawTarget(value: unknown): boolean {
   return typeof value === "object" && value !== null && !Array.isArray(value) && "target" in value;
 }
 
-function redactChallenge({ id, key, mode, status, provider, runtime, scope, expiresAt, createdAt, updatedAt }: AuthChallenge): AuthChallenge {
-  return { id, key, mode, status, provider, runtime, scope, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
+function redactChallenge({ id, key, mode, status, provider, runtime, scope, expiresAt, createdAt, updatedAt, auditState }: AuthChallenge): AuthChallenge {
+  const terminalAuditState = (status === "completed" || status === "failed") ? auditState ?? "pending" : undefined;
+  return { id, key, mode, status, provider, runtime, scope, ...(expiresAt ? { expiresAt } : {}), ...(terminalAuditState ? { auditState: terminalAuditState } : {}), createdAt, updatedAt };
 }
