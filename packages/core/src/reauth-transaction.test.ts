@@ -152,6 +152,26 @@ test("reauth replay fails closed for route evidence paired with failed or UNPROV
   }
 });
 
+test("reauth replay fails closed for valid evidence paired with a contradictory receipt outcome", async () => {
+  let calls = 0;
+  const repository = {
+    claim: async () => ({
+      kind: "replay" as const,
+      operationId: "op_reauth_corrupt_outcome",
+      outcome: "applied" as const,
+      receipt: { audit: { warningCodes: [] }, evidence: { reauth: { verification: "verified" as const, route: "not_applied" as const } } }
+    })
+  } as unknown as MutationRepository;
+  const result = await executeReauthTransaction(request("outcome-corrupt".padEnd(22, "x")), {
+    repository,
+    stage: async () => { calls += 1; throw new Error("must not stage on replay"); },
+    verifyIdentityAndHealth: async () => { calls += 1; throw new Error("must not verify on replay"); },
+    decideRoute: async () => { calls += 1; throw new Error("must not route on replay"); }
+  });
+  assert.equal(calls, 0);
+  assert.deepEqual({ outcome: result.outcome, verification: result.verification, route: result.route, replayed: result.replayed }, { outcome: "not_applied", verification: "unproven", route: "not_requested", replayed: true });
+});
+
 test("reauth transaction rejects raw target-like inputs by accepting only fixed-length digests", async () => {
   await withRepository(async (repository) => {
     await assert.rejects(() => executeReauthTransaction({ ...request(), targetDigest: "someone@example.test" }, { repository, stage: async () => ({ state: "staged" }), verifyIdentityAndHealth: async () => ({ state: "verified" }) }), /invalid_reauth_digest/);

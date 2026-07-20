@@ -109,7 +109,7 @@ export class MutationRepository {
         if (existing.receipt.outcome === input.outcome && equalWarnings(existing.receipt.audit.warningCodes, warningCodes)) return existing.receipt;
         throw new Error("immutable_receipt_conflict");
       }
-      const evidence = validateEvidence(input.evidence);
+      const evidence = validateEvidence(input.evidence, input.outcome, warningCodes);
       const receipt: MutationReceipt = { schemaVersion: "account-center.mutation-receipt.v1", operationId: existing.operationId, requestDigest: existing.requestDigest, idempotencyKeyDigest: existing.idempotencyKeyDigest, state: "completed", outcome: input.outcome, createdAt: existing.createdAt, completedAt: this.now().toISOString(), audit: { ...existing.audit, warningCodes }, ...(evidence ? { evidence } : {}) };
       state.operations[index] = { receipt }; await this.write(state); return receipt;
     });
@@ -170,11 +170,11 @@ function isOperation(value: unknown): value is Operation {
 function isReceipt(value: unknown): value is MutationReceipt {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const receipt = value as Partial<MutationReceipt>;
-  return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit) && (receipt.evidence === undefined || isEvidence(receipt.evidence));
+  return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit) && (receipt.evidence === undefined || isEvidence(receipt.evidence)) && (receipt.evidence?.reauth === undefined || isReauthOutcomeConsistent(receipt.outcome, receipt.evidence.reauth, receipt.audit.warningCodes));
 }
-function validateEvidence(value: MutationReceipt["evidence"]): MutationReceipt["evidence"] {
+function validateEvidence(value: MutationReceipt["evidence"], outcome: MutationOutcome, warningCodes: string[]): MutationReceipt["evidence"] {
   if (value === undefined) return undefined;
-  if (!isEvidence(value)) throw new Error("invalid_receipt_evidence");
+  if (!isEvidence(value) || (value.reauth !== undefined && !isReauthOutcomeConsistent(outcome, value.reauth, warningCodes))) throw new Error("invalid_receipt_evidence");
   return value.proof ? {
     receiptId: value.receiptId,
     verification: value.verification,
@@ -199,6 +199,12 @@ function isReauthEvidence(value: unknown): value is ReauthReceiptEvidence {
   const evidence = value as Partial<ReauthReceiptEvidence>;
   if ((evidence.verification !== "verified" && evidence.verification !== "failed" && evidence.verification !== "unproven") || (evidence.route !== "not_requested" && evidence.route !== "applied" && evidence.route !== "not_applied" && evidence.route !== "unproven")) return false;
   return (evidence.verification === "verified" || evidence.route === "not_requested") && Object.keys(value).every((key) => key === "verification" || key === "route");
+}
+export function isReauthOutcomeConsistent(outcome: MutationOutcome, evidence: ReauthReceiptEvidence, warningCodes: string[]): boolean {
+  if (evidence.route === "applied") return outcome === "applied";
+  if (evidence.verification === "verified" && evidence.route === "not_requested") return outcome === "applied";
+  if (outcome === "failed") return evidence.verification === "unproven" && evidence.route === "not_requested" && warningCodes.includes("reauth_stage_failed");
+  return outcome === "not_applied";
 }
 function cloneScopeEvidence(value: RouteScopeEvidence): RouteScopeEvidence { return { status: value.status, ...(value.activeTargetId ? { activeTargetId: value.activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] }; }
 function isRouteScopeEvidence(value: unknown): value is RouteScopeEvidence { return !!value && typeof value === "object" && !Array.isArray(value) && ((value as RouteScopeEvidence).status === "observed" || (value as RouteScopeEvidence).status === "absent") && (typeof (value as RouteScopeEvidence).activeTargetId === "undefined" || isProofIdentifier((value as RouteScopeEvidence).activeTargetId)) && Array.isArray((value as RouteScopeEvidence).orderTargetIds) && (value as RouteScopeEvidence).orderTargetIds.length <= 10 && (value as RouteScopeEvidence).orderTargetIds.every(isProofIdentifier); }

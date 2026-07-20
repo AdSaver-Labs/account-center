@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { MutationRepository, type ReauthReceiptEvidence } from "./mutation-repository.js";
+import { isReauthOutcomeConsistent, MutationRepository, type ReauthReceiptEvidence } from "./mutation-repository.js";
 import type { MutationScopeKind } from "./mutation-contract.js";
 
 /**
@@ -53,7 +53,7 @@ export async function executeReauthTransaction(request: ReauthTransactionRequest
   });
   if (claim.kind === "replay") {
     const evidence = reauthEvidence(claim.receipt.evidence?.reauth);
-    return evidence
+    return evidence && isReauthOutcomeConsistent(claim.outcome, evidence, claim.receipt.audit.warningCodes)
       ? replayResult(claim.operationId, claim.outcome, evidence.verification, evidence.route, claim.receipt.audit.warningCodes)
       : replayResult(claim.operationId, "not_applied", "unproven", "not_requested", claim.receipt.audit.warningCodes);
   }
