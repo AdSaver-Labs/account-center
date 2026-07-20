@@ -18,7 +18,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [x] Durable Account Center audit history is available through the bearer-protected `GET /api/audit` endpoint as bounded, newest-first, redacted records; request digests and unsafe context are not returned.
 - [x] Durable protected-operation history is available through the bearer-protected `GET /api/mutation-operations` endpoint with redacted lifecycle/outcome evidence only; request, target, scope, and idempotency digests are not returned. Malformed persisted operation records are rejected as corrupt before they can reach that view.
 - [ ] Reauth follows `stage → verify identity/health → optional route switch → receipt`; previous working auth remains usable until verified.
-- [ ] `/auth remove` changes routing only.
+- [x] `/auth remove` changes routing only; it requires an observed exact agent scope, canonical connected target, preview/review/idempotency, native route-only apply, and fresh scoped verification with redacted durable evidence.
 - [ ] `/auth delete` requires an exact normalized connected identity, takes a runtime backup, returns a redacted receipt, and proves the outcome or labels it `UNPROVEN`.
 - [x] Every mutation uses the shared command executor and produces audit/receipt output; scoped OpenClaw manual/automatic route actions require preview/review/idempotency, exact confirmation, redacted durable evidence, and fresh post-apply verification.
 
