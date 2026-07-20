@@ -160,15 +160,16 @@ function isMissing(error: unknown): boolean { return typeof error === "object" &
 function isExists(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "EEXIST"; }
 async function assertPrivateDirectory(path: string): Promise<void> { const info = await lstat(path); if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error("unsafe_repository_directory"); }
 async function assertPrivateFile(path: string): Promise<void> { const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error("unsafe_repository_state"); }
-function isState(value: unknown): value is State { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const candidate = value as Partial<State>; return candidate.schemaVersion === "account-center.mutation-repository.v1" && Array.isArray(candidate.operations) && candidate.operations.every(isOperation); }
+function isState(value: unknown): value is State { if (!isClosedObject(value, ["schemaVersion", "operations"])) return false; const candidate = value as Partial<State>; return candidate.schemaVersion === "account-center.mutation-repository.v1" && Array.isArray(candidate.operations) && candidate.operations.every(isOperation); }
 function isOperation(value: unknown): value is Operation {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if ("receipt" in value) return isReceipt((value as { receipt: unknown }).receipt);
+  if ("receipt" in value) return isClosedObject(value, ["receipt"]) && isReceipt((value as { receipt: unknown }).receipt);
+  if (!isClosedObject(value, ["operationId", "idempotencyKeyDigest", "requestDigest", "state", "createdAt", "audit"])) return false;
   const item = value as Partial<PendingOperation>;
   return item.state === "pending" && isOperationId(item.operationId) && isDigest(item.idempotencyKeyDigest) && isDigest(item.requestDigest) && isTimestamp(item.createdAt) && isAudit(item.audit);
 }
 function isReceipt(value: unknown): value is MutationReceipt {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!isClosedObject(value, ["schemaVersion", "operationId", "requestDigest", "idempotencyKeyDigest", "state", "outcome", "createdAt", "completedAt", "audit", "evidence"])) return false;
   const receipt = value as Partial<MutationReceipt>;
   return receipt.schemaVersion === "account-center.mutation-receipt.v1" && receipt.state === "completed" && isOperationId(receipt.operationId) && isDigest(receipt.idempotencyKeyDigest) && isDigest(receipt.requestDigest) && isTimestamp(receipt.createdAt) && isTimestamp(receipt.completedAt) && isOutcome(receipt.outcome) && isReceiptAudit(receipt.audit) && isStageFailureOutcomeConsistent(receipt.outcome, receipt.audit.warningCodes) && (receipt.evidence === undefined || isMutationEvidence(receipt.evidence)) && (receipt.evidence?.reauth === undefined || isReauthOutcomeConsistent(receipt.outcome, receipt.evidence.reauth, receipt.audit.warningCodes));
 }
@@ -222,14 +223,14 @@ function isStageFailureOutcomeConsistent(outcome: MutationOutcome, warningCodes:
 function isProofIdentifier(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
 function isProofAction(value: unknown): value is string { return value === "route.auto" || value === "route.use" || value === "route.remove"; }
 function isAudit(value: unknown): value is MutationAudit {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!isClosedObject(value, ["action", "provider", "runtime", "scopeKind", "scopeIdDigest", "targetDigest"])) return false;
   const audit = value as Partial<MutationAudit>;
   return isAuditIdentifier(audit.action) && isAuditIdentifier(audit.provider) && isAuditIdentifier(audit.runtime) && isScopeKind(audit.scopeKind) && isDigest(audit.scopeIdDigest) && isDigest(audit.targetDigest);
 }
 function isReceiptAudit(value: unknown): value is MutationReceipt["audit"] {
-  if (!isAudit(value)) return false;
-  const warnings = (value as Partial<MutationReceipt["audit"]>).warningCodes;
-  return Array.isArray(warnings) && warnings.length <= 32 && warnings.every((warning) => typeof warning === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(warning));
+  if (!isClosedObject(value, ["action", "provider", "runtime", "scopeKind", "scopeIdDigest", "targetDigest", "warningCodes"])) return false;
+  const audit = value as Partial<MutationReceipt["audit"]>;
+  return isAuditIdentifier(audit.action) && isAuditIdentifier(audit.provider) && isAuditIdentifier(audit.runtime) && isScopeKind(audit.scopeKind) && isDigest(audit.scopeIdDigest) && isDigest(audit.targetDigest) && Array.isArray(audit.warningCodes) && audit.warningCodes.length <= 32 && audit.warningCodes.every((warning) => typeof warning === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(warning));
 }
 function isOperationId(value: unknown): value is string { return typeof value === "string" && /^op_[A-Za-z0-9_-]{1,100}$/.test(value); }
 function isDigest(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }

@@ -226,3 +226,55 @@ test("mutation repository normalizes malformed persisted JSON to repository_corr
 
   await assert.rejects(() => new MutationRepository(root).list(), /repository_corrupt/);
 });
+
+test("mutation repository rejects unknown durable envelope keys before history, replay, or dependencies", async () => {
+  const completed = {
+    receipt: {
+      schemaVersion: "account-center.mutation-receipt.v1",
+      operationId: "op_completed",
+      idempotencyKeyDigest: "e".repeat(64),
+      requestDigest: input.requestDigest,
+      state: "completed",
+      outcome: "not_applied",
+      createdAt: "2026-07-15T00:00:00.000Z",
+      completedAt: "2026-07-15T00:01:00.000Z",
+      audit: { ...input.audit, warningCodes: [] }
+    }
+  };
+  const pending = {
+    operationId: "op_pending",
+    idempotencyKeyDigest: "f".repeat(64),
+    requestDigest: "d".repeat(64),
+    state: "pending",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    audit: input.audit
+  };
+  const corruptions: Array<[string, (state: { schemaVersion: string; operations: Array<Record<string, unknown>> }) => void]> = [
+    ["top-level state", (state) => { (state as Record<string, unknown>).unexpected = true; }],
+    ["pending operation", (state) => { state.operations[1].unexpected = true; }],
+    ["completed operation wrapper", (state) => { state.operations[0].unexpected = true; }],
+    ["receipt", (state) => { ((state.operations[0].receipt as Record<string, unknown>)).unexpected = true; }],
+    ["audit", (state) => { (((state.operations[0].receipt as { audit: Record<string, unknown> }).audit)).unexpected = true; }]
+  ];
+
+  for (const [name, corrupt] of corruptions) {
+    const root = await mkdtemp(join(tmpdir(), "account-center-mutations-envelope-corrupt-"));
+    const state = {
+      schemaVersion: "account-center.mutation-repository.v1",
+      operations: [structuredClone(completed), structuredClone(pending)]
+    };
+    corrupt(state);
+    await writeFile(join(root, "mutation-repository.v1.json"), JSON.stringify(state), { mode: 0o600 });
+    await chmod(root, 0o700);
+
+    let dependencyCalls = 0;
+    const repository = new MutationRepository(root, {
+      now: () => { dependencyCalls += 1; return new Date("2026-07-15T00:02:00.000Z"); },
+      operationId: () => { dependencyCalls += 1; return "op_should_not_be_created"; }
+    });
+    await assert.rejects(() => repository.list(), new RegExp(`repository_corrupt`, "i"), name);
+    await assert.rejects(() => repository.claim(input), /repository_corrupt/, name);
+    await assert.rejects(() => repository.complete({ operationId: "op_completed", outcome: "not_applied" }), /repository_corrupt/, name);
+    assert.equal(dependencyCalls, 0, `${name} must fail before dependencies are used`);
+  }
+});
