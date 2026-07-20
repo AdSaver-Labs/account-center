@@ -332,3 +332,48 @@ test("mutation repository rejects prototype-inherited durable envelopes and fiel
     restoreObjectPrototype();
   }
 });
+
+test("mutation repository rejects null and prototype-inherited envelopes before history, replay, completion, or dependencies", async () => {
+  for (const malformedEnvelope of ["null", "prototype-inherited"] as const) {
+    const root = await mkdtemp(join(tmpdir(), `account-center-mutations-${malformedEnvelope}-envelope-`));
+    const seed = new MutationRepository(root, { now: () => new Date("2026-07-15T00:00:00.000Z"), operationId: () => "op_replay" });
+    const claim = await seed.claim(input);
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await seed.complete({ operationId: claim.operationId, outcome: "not_applied" });
+    const statePath = join(root, "mutation-repository.v1.json");
+    const persistedState = JSON.parse(await readFile(statePath, "utf8"));
+
+    const assertFailsClosed = async (): Promise<void> => {
+      let dependencyCalls = 0;
+      const repository = new MutationRepository(root, {
+        now: () => { dependencyCalls += 1; return new Date("2026-07-15T00:02:00.000Z"); },
+        operationId: () => { dependencyCalls += 1; return "op_should_not_be_created"; }
+      });
+      await assert.rejects(() => repository.list(), /repository_corrupt/, `${malformedEnvelope} must fail before list`);
+      await assert.rejects(() => repository.claim(input), /repository_corrupt/, `${malformedEnvelope} must fail before replay-capable claim`);
+      await assert.rejects(() => repository.complete({ operationId: "op_replay", outcome: "not_applied" }), /repository_corrupt/, `${malformedEnvelope} must fail before complete`);
+      assert.equal(dependencyCalls, 0, `${malformedEnvelope} must fail before injected dependencies are used`);
+    };
+
+    if (malformedEnvelope === "null") {
+      await writeFile(statePath, "null", { mode: 0o600 });
+      await assertFailsClosed();
+      continue;
+    }
+
+    const descriptors = new Map<string, PropertyDescriptor | undefined>();
+    try {
+      for (const [key, value] of Object.entries(persistedState)) {
+        descriptors.set(key, Object.getOwnPropertyDescriptor(Object.prototype, key));
+        Object.defineProperty(Object.prototype, key, { configurable: true, enumerable: false, writable: true, value });
+      }
+      await writeFile(statePath, "{}", { mode: 0o600 });
+      await assertFailsClosed();
+    } finally {
+      for (const [key, descriptor] of descriptors) {
+        if (descriptor) Object.defineProperty(Object.prototype, key, descriptor);
+        else delete (Object.prototype as Record<string, unknown>)[key];
+      }
+    }
+  }
+});
