@@ -12,6 +12,7 @@ export * from "./policy.js";
 export * from "./public-views.js";
 export * from "./provider-probes.js";
 export * from "./redaction.js";
+export * from "./reauth-transaction.js";
 export * from "./runtime-adapters.js";
 export * from "./schemas.js";
 export * from "./store.js";
