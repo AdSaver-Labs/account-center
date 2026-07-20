@@ -290,14 +290,16 @@ type PublicGuardView = {
 };
 type PublicMutationView = {
   schemaVersion: "account-center.public-mutation.v1";
-  verificationState: "UNPROVEN";
+  verificationState: "VERIFIED" | "UNPROVEN";
   applied: boolean;
   dryRun: boolean;
   liveRuntimeMutation: boolean;
-  state: "APPLIED" | "DRY_RUN" | "BLOCKED" | "REPLAYED";
+  state: "APPLIED" | "DRY_RUN" | "BLOCKED" | "ATTEMPTED_UNPROVEN" | "REPLAYED" | "REPLAYED_ATTEMPTED_UNPROVEN";
   receipt: { id: string; action: string; dryRun: boolean; target: "redacted-target" };
   replayed?: true;
   historicalOutcome?: string;
+  historicalLiveRuntimeMutation?: boolean;
+  historicalVerification?: "VERIFIED" | "UNPROVEN";
   operationId?: string;
   confirmationToken?: string;
 };
@@ -364,21 +366,26 @@ function publicGuardView(status: AccountCenterStatus, guarded: { ok: boolean; ne
   };
 }
 
-function publicMutationView(payload: unknown): PublicMutationView {
+export function publicMutationView(payload: unknown): PublicMutationView {
   const report = isReport(payload) ? payload : {};
   const receipt = isReport(report.receipt) ? report.receipt : {};
   const applied = report.applied === true;
   const dryRun = report.dryRun === true || receipt.dryRun === true;
   const liveRuntimeMutation = report.liveRuntimeMutation === true;
+  const verificationState = isReport(report.verification) && report.verification.kind === "verified" ? "VERIFIED" as const : "UNPROVEN" as const;
+  const historicalLiveRuntimeMutation = report.historicalLiveRuntimeMutation === true;
+  const historicalVerification = report.historicalVerification === "verified" ? "VERIFIED" as const : "UNPROVEN" as const;
+  const attemptedUnproven = liveRuntimeMutation && (!applied || verificationState === "UNPROVEN");
+  const replayedAttemptedUnproven = report.replayed === true && historicalLiveRuntimeMutation && historicalVerification === "UNPROVEN";
   return {
     schemaVersion: "account-center.public-mutation.v1",
-    verificationState: "UNPROVEN",
+    verificationState,
     applied,
     dryRun,
     liveRuntimeMutation,
-    state: report.replayed === true ? "REPLAYED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
+    state: report.replayed === true ? (replayedAttemptedUnproven ? "REPLAYED_ATTEMPTED_UNPROVEN" : "REPLAYED") : attemptedUnproven ? "ATTEMPTED_UNPROVEN" : typeof report.reason === "string" ? "BLOCKED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
     receipt: publicReceipt(receipt),
-    ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown", ...(typeof report.operationId === "string" && /^op_[A-Za-z0-9_-]{1,100}$/.test(report.operationId) ? { operationId: report.operationId } : {}) } : {}),
+    ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown", historicalLiveRuntimeMutation, historicalVerification, ...(typeof report.operationId === "string" && /^op_[A-Za-z0-9_-]{1,100}$/.test(report.operationId) ? { operationId: report.operationId } : {}) } : {}),
     ...(typeof report.confirmationToken === "string" ? { confirmationToken: report.confirmationToken } : {})
   };
 }
@@ -622,10 +629,28 @@ function renderGuard(payload: PublicGuardView): string {
   return `Guard: ${payload.state}\nNext: ${payload.next}\nVerification: ${payload.verificationState}\n`;
 }
 
-function renderMutation(payload: PublicMutationView): string {
+export function renderMutation(payload: PublicMutationView): string {
   const { action, target } = payload.receipt;
   const { applied, dryRun, liveRuntimeMutation } = payload;
   const lines: string[] = [];
+
+  if (payload.state === "ATTEMPTED_UNPROVEN") {
+    lines.push("ATTEMPTED BUT UNPROVEN — a native runtime action may have been attempted; no store-change claim is made.");
+    lines.push(`Action: ${action}`);
+    lines.push(`Target: ${target}`);
+    lines.push(`Result: ${payload.state}`);
+    lines.push(`Verification: ${payload.verificationState}`);
+    return `${lines.join("\n")}\n`;
+  }
+
+  if (payload.state === "REPLAYED_ATTEMPTED_UNPROVEN") {
+    lines.push("REPLAYED HISTORICAL ATTEMPT BUT UNPROVEN — no current runtime action was attempted.");
+    lines.push(`Action: ${action}`);
+    lines.push(`Target: ${target}`);
+    lines.push(`Result: ${payload.state}`);
+    lines.push("Historical verification: UNPROVEN");
+    return `${lines.join("\n")}\n`;
+  }
 
   if (dryRun || !applied || !liveRuntimeMutation) {
     lines.push("DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.");

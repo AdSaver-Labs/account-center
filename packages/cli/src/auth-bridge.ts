@@ -48,7 +48,10 @@ export function parseAuthCommand(input: string | string[]): string[] {
     case "use":
       return ["routes", "use", ...withApplyByDefault(rest)];
     case "remove":
-      return ["routes", "remove", ...withApplyByDefault(rest)];
+      // Route removal has a public preview-first lifecycle.  An explicit
+      // --apply still needs the exact review token, idempotency key, and one
+      // observed agent scope in the shared executor.
+      return ["routes", "remove", ...withPreviewByDefault(rest)];
     case "delete":
       return ["accounts", "delete", ...withApplyByDefault(rest)];
     case "disable":
@@ -111,13 +114,17 @@ export function renderAuthHelp(): string {
   /auth doctor [--source openclaw]
   /auth audit [--limit 20]
 
-Manual /auth commands use the recovery/operator defaults Alej requested: /auth auto, /auth use <target>, /auth remove <target>, and /auth delete <target> apply live when the target/route is valid; add --dry-run to preview. Delete is credential deletion, requires an exact connected target, and backs up first. Remove is routing-only and does not delete credentials. Other mutation-shaped lower-level commands remain dry-run unless --apply is explicit and supported.
+Manual /auth commands use recovery/operator defaults: /auth auto, /auth use <target>, and /auth delete <target> request live apply when valid; add --dry-run to preview. /auth remove <target> always starts with a routing-only preview, then requires an exact review confirmation, idempotency key, and one explicit agent scope for apply. Delete is credential deletion, requires an exact connected target, and backs up first. Remove never deletes credentials. Other mutation-shaped lower-level commands remain dry-run unless --apply is explicit and supported.
 `;
 }
 
 function withApplyByDefault(rest: string[]): string[] {
   if (rest.includes("--apply") || rest.includes("--dry-run")) return rest;
   return [...rest, "--apply"];
+}
+
+function withPreviewByDefault(rest: string[]): string[] {
+  return rest.includes("--apply") || rest.includes("--dry-run") ? rest : [...rest, "--dry-run"];
 }
 
 function withModeAndApplyByDefault(rest: string[], mode: "add" | "reauth"): string[] {

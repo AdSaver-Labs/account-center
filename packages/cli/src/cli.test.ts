@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { runCli } from "./index.js";
+import { publicMutationView, renderMutation, runCli } from "./index.js";
 
 test("serve accepts an equals-form fixture source on an ephemeral loopback port", async () => {
   const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -581,6 +581,54 @@ test("public route preview requires an exact agent scope and returns an exact co
   assert.equal(payload.liveRuntimeMutation, false);
   const confirmed = await runCli(["routes", "use", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", payload.confirmationToken, "--idempotency-key", "route-preview-confirm-regression-001", "--json"]);
   assert.notEqual(JSON.parse(confirmed.stdout).state, "BLOCKED", "the exact public preview token must be accepted by --confirm");
+});
+
+test("public fixture /auth remove rejects an unobserved agent scope before minting a preview token", async () => {
+  const result = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:not_observed", "--json"]);
+  assert.equal(result.code, 2);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.state, "BLOCKED");
+  assert.equal(payload.confirmationToken, undefined);
+});
+
+test("public JSON and human mutation renderers distinguish attempted-but-unproven results and historical replays", () => {
+  const attempted = publicMutationView({ applied: false, dryRun: false, liveRuntimeMutation: true, verification: { kind: "unproven" }, receipt: { id: "evt_attempted", action: "route.remove", dryRun: false, target: "private@example.test" } });
+  assert.equal(attempted.state, "ATTEMPTED_UNPROVEN");
+  assert.equal(attempted.receipt.target, "redacted-target");
+  assert.equal(JSON.stringify(attempted).includes("private@example.test"), false);
+  assert.match(renderMutation(attempted), /^ATTEMPTED BUT UNPROVEN/m);
+  assert.doesNotMatch(renderMutation(attempted), /DRY RUN|no live Sentinel\/OpenClaw store was changed/);
+
+  const replay = publicMutationView({ applied: false, dryRun: true, liveRuntimeMutation: false, replayed: true, historicalOutcome: "failed", historicalLiveRuntimeMutation: true, historicalVerification: "unproven", receipt: { id: "evt_replay", action: "route.remove", dryRun: true } });
+  assert.equal(replay.state, "REPLAYED_ATTEMPTED_UNPROVEN");
+  assert.equal(replay.liveRuntimeMutation, false);
+  assert.equal(replay.historicalLiveRuntimeMutation, true);
+  assert.match(renderMutation(replay), /^REPLAYED HISTORICAL ATTEMPT BUT UNPROVEN/m);
+  assert.match(renderMutation(replay), /no current runtime action was attempted/);
+});
+
+test("public /auth remove is preview-first and exact confirmation cannot authorize a different target", async () => {
+  const previousDataDir = process.env.ACCOUNT_CENTER_DATA_DIR;
+  process.env.ACCOUNT_CENTER_DATA_DIR = await mkdtemp(join(tmpdir(), "account-center-auth-remove-"));
+  try {
+    const preview = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--json"]);
+    assert.equal(preview.code, 0);
+    const planned = JSON.parse(preview.stdout);
+    assert.equal(planned.applied, false);
+    assert.equal(planned.receipt.action, "route.remove");
+    assert.equal(typeof planned.confirmationToken, "string");
+
+    const confirmed = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
+    assert.equal(JSON.parse(confirmed.stdout).liveRuntimeMutation, false, "fixture confirmation never performs a live apply");
+    const replay = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
+    assert.equal(JSON.parse(replay.stdout).state, "REPLAYED", "an exact public confirmation is idempotent");
+
+    const changedTarget = await runCli(["auth", "/auth", "remove", "openai:helper-1", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-002", "--json"]);
+    assert.equal(JSON.parse(changedTarget.stdout).state, "BLOCKED", "a confirmation token cannot authorize a different route target");
+  } finally {
+    if (previousDataDir === undefined) delete process.env.ACCOUNT_CENTER_DATA_DIR;
+    else process.env.ACCOUNT_CENTER_DATA_DIR = previousDataDir;
+  }
 });
 
 test("/auth delete --dry-run renders a clear redacted no-deletion message", async () => {

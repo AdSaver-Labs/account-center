@@ -122,6 +122,7 @@
     {
       "provider": "openai",
       "runtime": "openclaw",
+      "scope": "agent:main",
       "activeProfileId": "openai:helper-1",
       "order": ["openai:helper-1", "openai:helper-2", "openai:business-backup", "openai:reauth-needed"],
       "updatedAt": "2026-07-09T00:00:00.000Z"

@@ -42,7 +42,7 @@ test("completed operation links only a redacted adapter receipt reference and ve
   const repository = new MutationRepository(root, { operationId: () => "op_evidence" });
   const claim = await repository.claim(input);
   if (claim.kind !== "execute") throw new Error("expected executable operation");
-  await repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: "evt_route_verified", verification: "verified" } });
+  await repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: "evt_route_verified", verification: "verified", liveRuntimeMutation: true } });
   const raw = await readFile(join(root, "mutation-repository.v1.json"), "utf8");
   assert.match(raw, /evt_route_verified/);
   assert.doesNotMatch(raw, /helper-2|private@example/);
