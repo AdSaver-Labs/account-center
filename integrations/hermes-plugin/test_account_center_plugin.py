@@ -44,12 +44,17 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
         self.assertNotIn("person@example.test", result)
         self.assertNotIn("sk-secret", result)
 
-    def test_successful_chatops_stdout_redacts_email_paths_and_tokens(self):
+    def test_successful_chatops_stdout_redacts_email_real_token_and_all_path_forms(self):
         plugin = load_plugin_module()
         hostile_stdout = (
             "Account Center outcome: BLOCKED\n"
-            "contact=person@example.test path=/srv/private/account-center/state "
-            "token=hostile-token-value-123456789"
+            "contact=person@example.test token=real-credential-token-value-123456789\n"
+            "posix=/srv/private/Account Center/state file.json\n"
+            "windows=C:\\Users\\Alej\\Account Center\\state file.json\n"
+            "unc=\\\\server\\private share\\state file.json\n"
+            "uri=file:///srv/private/Account%20Center/state%20file.json\n"
+            "Run /auth status to continue.\n"
+            '"confirmationToken":"public-preview-token-123456789"'
         )
         with patch.object(plugin, "_account_center_root", return_value=Path("/fixture/account-center")), patch.object(
             plugin.subprocess,
@@ -60,11 +65,16 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
         self.assertIn("Account Center outcome: BLOCKED", result)
         for private_value in (
             "person@example.test",
-            "/srv/private/account-center/state",
-            "hostile-token-value-123456789",
+            "real-credential-token-value-123456789",
+            "/srv/private/Account Center/state file.json",
+            "C:\\Users\\Alej\\Account Center\\state file.json",
+            "\\\\server\\private share\\state file.json",
+            "file:///srv/private/Account%20Center/state%20file.json",
         ):
             self.assertNotIn(private_value, result)
         self.assertIn("[REDACTED]", result)
+        self.assertIn("/auth status", result)
+        self.assertIn('"confirmationToken":"public-preview-token-123456789"', result)
 
     def test_registered_command_metadata(self):
         plugin = load_plugin_module()

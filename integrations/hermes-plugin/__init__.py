@@ -18,11 +18,18 @@ _REDACTION_PATTERNS = [
     re.compile(r"rt\.1\.[A-Za-z0-9._~+/=-]{12,}"),
     re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{12,}"),
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
-    re.compile(r"(?i)(access_token|refresh_token|id_token|api_key|agent_key|token|secret|password)([\"'\s:=]+)([^\s\"']{4,})"),
+    # A word boundary prevents the generic `token` alternative from matching
+    # the public `confirmationToken` field required by the apply flow.
+    re.compile(r"(?i)\b(access_token|refresh_token|id_token|api_key|agent_key|token|secret|password|credential)([\"'\s:=]+)([^\s\"']{4,})"),
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{12,}"),
     re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
-    re.compile(r"(?<![:/A-Za-z0-9_])/(?:[^\s\"'<>]+)"),
-    re.compile(r"\b[A-Za-z]:\\(?:[^\s\"'<>]+)"),
+    # Paths are removed through the end of their text field/line so spaces in
+    # directory names cannot leave a private suffix visible.  `/auth` is the
+    # one public slash-command namespace this bridge intentionally preserves.
+    re.compile(r"(?i)file:///[^\r\n\"'<>]*"),
+    re.compile(r"(?<!\w)\\\\[^\r\n\"'<>]*"),
+    re.compile(r"\b[A-Za-z]:\\[^\r\n\"'<>]*"),
+    re.compile(r"(?<![:/A-Za-z0-9_])/(?!auth(?:\s|$))[^\r\n\"'<>]*", re.IGNORECASE),
 ]
 _AUTH_UNPROVEN_TEXT = "Account Center `/auth` request UNPROVEN. Check `/auth status` or the durable redacted receipt."
 
