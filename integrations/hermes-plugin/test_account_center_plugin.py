@@ -44,6 +44,28 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
         self.assertNotIn("person@example.test", result)
         self.assertNotIn("sk-secret", result)
 
+    def test_successful_chatops_stdout_redacts_email_paths_and_tokens(self):
+        plugin = load_plugin_module()
+        hostile_stdout = (
+            "Account Center outcome: BLOCKED\n"
+            "contact=person@example.test path=/srv/private/account-center/state "
+            "token=hostile-token-value-123456789"
+        )
+        with patch.object(plugin, "_account_center_root", return_value=Path("/fixture/account-center")), patch.object(
+            plugin.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=0, stdout=hostile_stdout, stderr=""),
+        ):
+            result = plugin._run_auth("status")
+        self.assertIn("Account Center outcome: BLOCKED", result)
+        for private_value in (
+            "person@example.test",
+            "/srv/private/account-center/state",
+            "hostile-token-value-123456789",
+        ):
+            self.assertNotIn(private_value, result)
+        self.assertIn("[REDACTED]", result)
+
     def test_registered_command_metadata(self):
         plugin = load_plugin_module()
 

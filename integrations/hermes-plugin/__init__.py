@@ -18,7 +18,11 @@ _REDACTION_PATTERNS = [
     re.compile(r"rt\.1\.[A-Za-z0-9._~+/=-]{12,}"),
     re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{12,}"),
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
-    re.compile(r"(?i)(access_token|refresh_token|id_token|api_key|agent_key)([\"'\s:=]+)([^\s\"']{4,})"),
+    re.compile(r"(?i)(access_token|refresh_token|id_token|api_key|agent_key|token|secret|password)([\"'\s:=]+)([^\s\"']{4,})"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{12,}"),
+    re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
+    re.compile(r"(?<![:/A-Za-z0-9_])/(?:[^\s\"'<>]+)"),
+    re.compile(r"\b[A-Za-z]:\\(?:[^\s\"'<>]+)"),
 ]
 _AUTH_UNPROVEN_TEXT = "Account Center `/auth` request UNPROVEN. Check `/auth status` or the durable redacted receipt."
 
