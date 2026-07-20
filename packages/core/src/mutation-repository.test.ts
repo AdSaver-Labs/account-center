@@ -85,6 +85,20 @@ test("mutation repository rejects reauth evidence paired with a contradictory ou
   }
 });
 
+test("mutation repository permits reauth_stage_failed only for failed receipts", async () => {
+  const invalid = [
+    { outcome: "applied", reauth: { verification: "verified", route: "not_requested" } },
+    { outcome: "not_applied", reauth: { verification: "failed", route: "not_requested" } }
+  ] as const;
+  for (const [index, { outcome, reauth }] of invalid.entries()) {
+    const root = await mkdtemp(join(tmpdir(), "account-center-mutations-reauth-stage-warning-"));
+    const repository = new MutationRepository(root);
+    const claim = await repository.claim({ ...input, idempotencyKey: `${key.slice(0, -1)}${index}` });
+    if (claim.kind !== "execute") throw new Error("expected executable operation");
+    await assert.rejects(() => repository.complete({ operationId: claim.operationId, outcome, warningCodes: ["reauth_stage_failed"], evidence: { receiptId: `evt_reauth_stage_warning_${index}`, verification: "unproven", reauth } }), /invalid_receipt_evidence/);
+  }
+});
+
 test("mutation repository rejects persisted reauth route evidence without verified authentication", async () => {
   const invalid = [
     { verification: "failed", route: "applied" },
@@ -112,6 +126,21 @@ test("mutation repository fails closed when stored reauth evidence pairs an unpr
   const statePath = join(root, "mutation-repository.v1.json");
   const state = JSON.parse(await readFile(statePath, "utf8"));
   state.operations[0].receipt.evidence.reauth = { verification: "unproven", route: "applied" };
+  await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
+
+  await assert.rejects(() => new MutationRepository(root).claim(input), /repository_corrupt/);
+});
+
+test("mutation repository rejects unknown top-level evidence keys on persistence and read", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-mutations-evidence-keys-"));
+  const repository = new MutationRepository(root, { operationId: () => "op_evidence_keys" });
+  const claim = await repository.claim(input);
+  if (claim.kind !== "execute") throw new Error("expected executable operation");
+  await assert.rejects(() => repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: "evt_evidence_keys", verification: "verified", unexpected: "rejected" } as never }), /invalid_receipt_evidence/);
+  await repository.complete({ operationId: claim.operationId, outcome: "applied", evidence: { receiptId: "evt_evidence_keys", verification: "verified" } });
+  const statePath = join(root, "mutation-repository.v1.json");
+  const state = JSON.parse(await readFile(statePath, "utf8"));
+  state.operations[0].receipt.evidence.unexpected = "rejected";
   await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
 
   await assert.rejects(() => new MutationRepository(root).claim(input), /repository_corrupt/);
