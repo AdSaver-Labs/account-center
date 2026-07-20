@@ -29,6 +29,10 @@ export type CommandRunner = (command: string, args: string[], options?: { cwd?: 
 export const MAX_GENERIC_COMMAND_STATUS_BYTES = 1_048_576;
 const PROCESS_TERMINATION_GRACE_MS = 250;
 const GENERIC_COMMAND_FAILURE = "Generic command status is unavailable or unproven";
+// The status contract is deliberately redacted before it leaves normalization.
+// Keep connected emails only in this module-scoped, non-serializable sidecar so
+// account.delete can make its exact identity decision without publishing them.
+const privateConnectedEmails = new WeakMap<AccountCenterStatus, Map<string, string>>();
 
 export interface RuntimeMutationInput {
   action: AuditAction;
@@ -489,7 +493,9 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
     warnings: [`source=${sourceDetail}`]
   };
   assertAccountCenterStatus(status);
-  return redactJson(status) as AccountCenterStatus;
+  const publicStatus = redactJson(status) as AccountCenterStatus;
+  privateConnectedEmails.set(publicStatus, new Map(accounts.map((account) => [account.id, account.email])));
+  return publicStatus;
 }
 
 export async function execFileRunner(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number } = {}): Promise<CommandResult> {
@@ -866,13 +872,15 @@ type DeleteTargetResolution =
 
 function resolveExactDeleteTarget(target: string, status: AccountCenterStatus): DeleteTargetResolution {
   const normalized = normalizeProfileTarget(target);
+  const connectedEmails = privateConnectedEmails.get(status);
   const matches = status.profiles.filter((profile) => {
     // A destructive delete accepts only the immutable profile id or the
     // explicitly connected email. Labels and derived provider aliases are
     // intentionally excluded: they are presentation/routing hints, not a
     // canonical credential identity.
+    const connectedEmail = connectedEmails?.get(profile.id) ?? profileEmail(profile);
     return normalizeProfileTarget(profile.id) === normalized
-      || normalizeProfileTarget(profileEmail(profile) ?? "") === normalized;
+      || normalizeProfileTarget(connectedEmail ?? "") === normalized;
   });
   if (matches.length === 1) return { kind: "resolved", profile: matches[0]! };
   return { kind: matches.length === 0 ? "target_not_found" : "target_ambiguous" };

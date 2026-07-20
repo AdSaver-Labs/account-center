@@ -339,7 +339,7 @@ test("OpenClaw account delete remains blocked until atomic transaction support e
   assert.ok(receipt.warningCodes.includes("atomic_delete_transaction_not_implemented"));
 });
 
-test("OpenClaw account delete does not dereference a redacted email through an undocumented runtime helper", async () => {
+test("OpenClaw account delete privately resolves a case- and whitespace-normalized connected email before failing closed", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-email-"));
   const cli = join(workspace, "oauth_routing_cli.py");
   const email = "Connected.Member@Example.Test";
@@ -358,14 +358,17 @@ test("OpenClaw account delete does not dereference a redacted email through an u
     runnerCalls += 1;
     throw new Error("credential delete must not invoke an undocumented runtime helper");
   } });
+  const publicStatus = await adapter.readStatus();
+  assert.doesNotMatch(JSON.stringify(publicStatus), /connected\.member@example\.test/i);
   const receiptPath = join(workspace, "receipt.json");
-  const result = await adapter.mutate({ action: "account.delete", target: email.toLowerCase(), apply: true, provider: "openai", runtime: "openclaw", receiptPath });
+  const result = await adapter.mutate({ action: "account.delete", target: ` \t${email.toLowerCase()}\n`, apply: true, provider: "openai", runtime: "openclaw", receiptPath });
   assert.equal(result.code, 2);
   assert.equal(runnerCalls, 0);
-  assert.equal((result.payload as { reason: string }).reason, "target_not_found");
+  assert.equal((result.payload as { reason: string }).reason, "atomic_delete_transaction_not_implemented");
   const receipt = await readFile(receiptPath, "utf8");
   assert.doesNotMatch(receipt, /connected\.member@example\.test/i);
-  assert.match(receipt, /exact_match_required/);
+  assert.match(receipt, /atomic_delete_transaction_not_implemented/);
+  assert.match(receipt, /no_live_mutation/);
 });
 
 test("OpenClaw account delete blocks profile labels rather than treating them as canonical identities", async () => {
