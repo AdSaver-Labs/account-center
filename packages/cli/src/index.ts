@@ -160,6 +160,10 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
   if (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) {
+    if (subcommand === "delete" && options.apply) {
+      const view = blockedCredentialDeleteView();
+      return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
+    }
     const mutation = await adapter.mutate({
       action: accountAction(subcommand),
       target,
@@ -406,6 +410,7 @@ function publicGuardView(status: AccountCenterStatus, guarded: { ok: boolean; ne
 export function publicMutationView(payload: unknown): PublicMutationView {
   const report = isReport(payload) ? payload : {};
   const receipt = isReport(report.receipt) ? report.receipt : {};
+  const credentialDelete = receipt.action === "account.delete";
   const applied = report.applied === true;
   const dryRun = report.dryRun === true || receipt.dryRun === true;
   const liveRuntimeMutation = report.liveRuntimeMutation === true;
@@ -416,11 +421,11 @@ export function publicMutationView(payload: unknown): PublicMutationView {
   const replayedAttemptedUnproven = report.replayed === true && historicalLiveRuntimeMutation && historicalVerification === "UNPROVEN";
   return {
     schemaVersion: "account-center.public-mutation.v1",
-    verificationState,
-    applied,
-    dryRun,
-    liveRuntimeMutation,
-    state: report.replayed === true ? (replayedAttemptedUnproven ? "REPLAYED_ATTEMPTED_UNPROVEN" : "REPLAYED") : attemptedUnproven ? "ATTEMPTED_UNPROVEN" : typeof report.reason === "string" ? "BLOCKED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
+    verificationState: credentialDelete ? "UNPROVEN" : verificationState,
+    applied: credentialDelete ? false : applied,
+    dryRun: credentialDelete ? true : dryRun,
+    liveRuntimeMutation: credentialDelete ? false : liveRuntimeMutation,
+    state: credentialDelete ? "BLOCKED" : report.replayed === true ? (replayedAttemptedUnproven ? "REPLAYED_ATTEMPTED_UNPROVEN" : "REPLAYED") : attemptedUnproven ? "ATTEMPTED_UNPROVEN" : typeof report.reason === "string" ? "BLOCKED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
     receipt: publicReceipt(receipt),
     ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown", historicalLiveRuntimeMutation, historicalVerification, ...(typeof report.operationId === "string" && /^op_[A-Za-z0-9_-]{1,100}$/.test(report.operationId) ? { operationId: report.operationId } : {}) } : {}),
     ...(typeof report.confirmationToken === "string" ? { confirmationToken: report.confirmationToken } : {})
@@ -434,6 +439,10 @@ function parseAgentScope(value: string): MutationScope | undefined {
 
 function blockedRouteView(action: "route.auto" | "route.use" | "route.remove"): PublicMutationView {
   return { schemaVersion: "account-center.public-mutation.v1", verificationState: "UNPROVEN", applied: false, dryRun: true, liveRuntimeMutation: false, state: "BLOCKED", receipt: { id: "receipt-redacted", action, dryRun: true, target: "redacted-target" } };
+}
+
+function blockedCredentialDeleteView(): PublicMutationView {
+  return { schemaVersion: "account-center.public-mutation.v1", verificationState: "UNPROVEN", applied: false, dryRun: true, liveRuntimeMutation: false, state: "BLOCKED", receipt: { id: "receipt-redacted", action: "account.delete", dryRun: true, target: "redacted-target" } };
 }
 
 async function mutationLifecycle(): Promise<{ secret: string; repository: MutationRepository }> {
@@ -698,22 +707,29 @@ export function renderMutation(payload: PublicMutationView): string {
     lines.push(`Verification: ${payload.verificationState}`);
     if (action === "account.delete") {
       lines.push("");
+      lines.push("Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.");
       lines.push("Exact connected-target confirmation remains required before credential deletion.");
     } else if (action === "route.remove") {
       lines.push("");
       lines.push("This is routing removal only. It does not delete credentials.");
-      lines.push("To delete credentials instead, use /auth delete <email> --apply.");
+      lines.push("Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.");
     }
     return `${lines.join("\n")}\n`;
   }
 
-  lines.push(action === "account.delete"
-    ? "DELETED — account credentials were removed from the Sentinel/OpenClaw auth store."
-    : "APPLIED — live Sentinel/OpenClaw runtime store was changed.");
+  if (action === "account.delete") {
+    lines.push("BLOCKED/UNPROVEN — credential deletion is unavailable because no documented native transactional delete adapter is available.");
+    lines.push("No Sentinel/OpenClaw credential store was changed.");
+    lines.push(`Action: ${action}`);
+    lines.push(`Target: ${target}`);
+    lines.push("Result: BLOCKED");
+    lines.push("Verification: UNPROVEN");
+    return `${lines.join("\n")}\n`;
+  }
+  lines.push("APPLIED — live Sentinel/OpenClaw runtime store was changed.");
   lines.push(`Action: ${action}`);
   lines.push(`Target: ${target}`);
   lines.push(`Result: ${payload.state}`);
-  if (action === "account.delete") lines.push("Run /auth to confirm the account no longer appears.");
   return `${lines.join("\n")}\n`;
 }
 
@@ -785,7 +801,7 @@ function helpText(): string {
   providers probe [--provider openai|all] [--json]
   accounts disable <profile> [--apply] -- dry-run unless apply is supported and explicit
   accounts enable <profile> [--apply] -- dry-run unless apply is supported and explicit
-  accounts delete <email-or-profile> [--apply] -- destructive credential deletion; backs up first; dry-run unless --apply
+  accounts delete <email-or-profile> [--dry-run] -- BLOCKED/UNPROVEN; no documented native transactional delete adapter is available
   routes next
   routes auto --scope agent:<id> -- preview returns a confirmation token
   routes use <canonical-profile-id> --scope agent:<id> -- preview returns a confirmation token

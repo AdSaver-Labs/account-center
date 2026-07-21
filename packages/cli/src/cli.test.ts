@@ -736,6 +736,28 @@ test("/auth delete --dry-run renders a clear redacted no-deletion message", asyn
   assert.equal(JSON.parse(jsonResult.stdout).receipt.action, "account.delete");
 });
 
+test("credential delete apply and renderer both fail closed without a native transaction contract", async () => {
+  const result = await runCli(["auth", "/auth", "delete", "helper-1", "--apply"]);
+  assert.equal(result.code, 2);
+  assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
+  assert.match(result.stdout, /Result: BLOCKED/);
+  assert.match(result.stdout, /BLOCKED\/UNPROVEN/);
+  assert.doesNotMatch(result.stdout, /DELETED|credentials were removed|--apply/);
+
+  const impossibleSuccess = publicMutationView({
+    applied: true,
+    dryRun: false,
+    liveRuntimeMutation: true,
+    verification: { kind: "verified" },
+    receipt: { id: "evt_delete", action: "account.delete", dryRun: false, target: "private@example.test" }
+  });
+  assert.equal(impossibleSuccess.state, "BLOCKED");
+  assert.equal(impossibleSuccess.applied, false);
+  assert.equal(impossibleSuccess.liveRuntimeMutation, false);
+  assert.match(renderMutation(impossibleSuccess), /BLOCKED\/UNPROVEN/);
+  assert.doesNotMatch(renderMutation(impossibleSuccess), /DELETED|credentials were removed/);
+});
+
 test("models list reports fixture model policy", async () => {
   const result = await runCli(["models", "list", "--json"]);
   assert.equal(result.code, 0);
@@ -749,6 +771,8 @@ test("help promotes /auth compatibility as the manual chat command", async () =>
   const result = await runCli(["help"]);
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Manual chat compatibility command is \/auth/);
+  assert.match(result.stdout, /accounts delete <email-or-profile> \[--dry-run\] -- BLOCKED\/UNPROVEN/);
+  assert.doesNotMatch(result.stdout, /accounts delete <email-or-profile> \[--apply\]/);
   assert.doesNotMatch(result.stdout, /\/oauth/);
 });
 

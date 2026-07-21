@@ -23,7 +23,7 @@ test("contract-critical auth commands map to expected executor argv", () => {
   assert.deepEqual(parseAuthCommand("/auth auto"), ["routes", "auto", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth use openai:helper-2"), ["routes", "use", "openai:helper-2", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth remove openai:helper-2"), ["routes", "remove", "openai:helper-2", "--dry-run"]);
-  assert.deepEqual(parseAuthCommand("/auth delete openai:helper-2"), ["accounts", "delete", "openai:helper-2", "--apply"]);
+  assert.deepEqual(parseAuthCommand("/auth delete openai:helper-2"), ["accounts", "delete", "openai:helper-2", "--dry-run"]);
   assert.deepEqual(parseAuthCommand("/auth add new@example.com"), ["reauth", "start", "new@example.com", "--mode", "add", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth reauth old@example.com"), ["reauth", "start", "old@example.com", "--mode", "reauth", "--apply"]);
 });

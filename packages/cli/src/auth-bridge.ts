@@ -53,7 +53,11 @@ export function parseAuthCommand(input: string | string[]): string[] {
       // observed agent scope in the shared executor.
       return ["routes", "remove", ...withPreviewByDefault(rest)];
     case "delete":
-      return ["accounts", "delete", ...withApplyByDefault(rest)];
+      // Credential deletion has no documented native transactional contract.
+      // Keep the manual command on the non-mutating path even when callers
+      // omit flags; an explicitly supplied --apply is still rejected by the
+      // CLI's fail-closed delete boundary.
+      return ["accounts", "delete", ...withPreviewByDefault(rest)];
     case "disable":
       return ["accounts", "disable", ...rest];
     case "enable":

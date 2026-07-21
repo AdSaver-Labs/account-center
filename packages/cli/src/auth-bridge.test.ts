@@ -24,7 +24,7 @@ test("manual /auth route/delete commands preserve their guarded defaults", () =>
   assert.deepEqual(parseAuthCommand("/auth use openai:helper-2 --dry-run"), ["routes", "use", "openai:helper-2", "--dry-run"]);
   assert.deepEqual(parseAuthCommand("/auth remove helper-1"), ["routes", "remove", "helper-1", "--dry-run"]);
   assert.deepEqual(parseAuthCommand("/auth remove helper-1 --apply"), ["routes", "remove", "helper-1", "--apply"]);
-  assert.deepEqual(parseAuthCommand("/auth delete helper-1"), ["accounts", "delete", "helper-1", "--apply"]);
+  assert.deepEqual(parseAuthCommand("/auth delete helper-1"), ["accounts", "delete", "helper-1", "--dry-run"]);
   assert.deepEqual(parseAuthCommand("/auth delete helper-1 --dry-run"), ["accounts", "delete", "helper-1", "--dry-run"]);
   assert.deepEqual(parseAuthCommand("/auth delete old@example.com --apply"), ["accounts", "delete", "old@example.com", "--apply"]);
   assert.deepEqual(parseAuthCommand("/auth disable helper-1"), ["accounts", "disable", "helper-1"]);
