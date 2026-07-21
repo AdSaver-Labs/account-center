@@ -36,7 +36,7 @@ const tools = [
   {
     name: 'account_center_auth',
     description:
-      'Run Account Center /auth commands for status, routing, account add/reauth/remove/use/delete, and recovery flows. Live mutations are allowed only through Account Center guardrails: exact targets, backups/receipts, and redacted output.',
+      'Run Account Center /auth commands for status, routing, account add/reauth/remove/use/delete, and recovery flows. All paths use the canonical account contract. Credential delete fails closed unless a documented native transaction provides exact targeting, backup/rollback, redacted receipt, and fresh proof.',
     inputSchema: {
       type: 'object',
       properties: {

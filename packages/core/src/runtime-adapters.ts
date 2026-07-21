@@ -1,4 +1,4 @@
-import { access, chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -269,9 +269,9 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       return { code: 2, payload };
     }
     const target = resolution.profile.id;
-    // The previous helper edits several JSON and SQLite stores sequentially.
-    // Until its journaled atomic transaction and recovery verifier exist, fail
-    // closed rather than risking a partial credential deletion.
+    // OpenClaw/Sentinel exposes no documented native exact-profile credential
+    // transaction. Direct JSON/SQLite edits and private internals are unsafe,
+    // so fail closed rather than risk a partial credential deletion.
     const receipt = createReceipt({
       action: "account.delete",
       dryRun: true,
@@ -601,200 +601,6 @@ async function exists(path: string): Promise<boolean> {
 
 async function pathCheck(name: string, path: string): Promise<{ name: string; ok: boolean; detail: string }> {
   return { name, ok: await exists(path), detail: path };
-}
-
-async function acquireRuntimeLock(workspace: string, name: string): Promise<string> {
-  const lockRoot = join(workspace, ".account-center", "locks");
-  const lockDir = join(lockRoot, `${name}.lock`);
-  await mkdir(lockRoot, { recursive: true });
-  await mkdir(lockDir, { recursive: false });
-  await writeFile(join(lockDir, "owner.json"), `${JSON.stringify({ name, pid: process.pid, acquiredAt: nowIso() }, null, 2)}\n`, "utf8");
-  return lockDir;
-}
-
-async function releaseRuntimeLock(lockDir: string): Promise<void> {
-  await rm(lockDir, { recursive: true, force: true });
-}
-
-async function backupOpenClawRoutingState(workspace: string, agentDir?: string): Promise<{ backupDir: string; files: string[] }> {
-  const backupDir = join(workspace, ".account-center", "backups", "openclaw-routing", safeStamp());
-  await mkdir(backupDir, { recursive: true, mode: 0o700 });
-  await chmod(backupDir, 0o700);
-  const candidates = [
-    join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"),
-    join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"),
-    ...(agentDir ? [
-      join(agentDir, "openclaw-agent.sqlite"),
-      join(agentDir, "auth-profiles.json"),
-      join(agentDir, "auth-state.json")
-    ] : [])
-  ];
-  const files: string[] = [];
-  for (const source of candidates) {
-    if (!(await exists(source))) continue;
-    const destination = join(backupDir, source.replace(workspace, "").replace(/^\/+/, "").replace(/[\\/]/g, "__"));
-    await copyFile(source, destination);
-    await chmod(destination, 0o600);
-    files.push(destination);
-  }
-  await writeFile(join(backupDir, "ROLLBACK.md"), rollbackText(files), { encoding: "utf8", mode: 0o600 });
-  return { backupDir, files };
-}
-
-function rollbackText(files: string[]): string {
-  return [`# Account Center OpenClaw routing backup`, ``, `Created: ${nowIso()}`, ``, `Files copied (may contain credentials; directory and files are owner-only):`, ...files.map((file) => `- ${file}`), ``, `Rollback is manual in v0: restore only through the OpenClaw/Sentinel native routing tools. Do not edit unrelated session, prompt, memory, or bootstrap files.`].join("\n") + "\n";
-}
-
-function credentialDeletePython(): string {
-  return String.raw`
-import json, os, sqlite3, sys, time
-from pathlib import Path
-agent_dir = Path(sys.argv[1])
-target = sys.argv[2]
-workspace = Path(sys.argv[3]) if len(sys.argv) > 3 else None
-
-def ids_for(value):
-    raw = str(value).strip()
-    email = raw.split(':', 1)[1] if ':' in raw else raw
-    ids = {raw}
-    if '@' in email:
-        ids.add('openai:' + email)
-        ids.add('openai-codex:' + email)
-    return ids
-
-targets = ids_for(target)
-summary = {'deletedProfiles': [], 'removedFromOrder': [], 'clearedLastGood': [], 'filesTouched': []}
-
-def matches(value):
-    if value is None:
-        return False
-    return bool(ids_for(value) & targets)
-
-def scrub_state(state):
-    order = state.get('order') if isinstance(state.get('order'), dict) else {}
-    for provider, values in list(order.items()):
-        if not isinstance(values, list):
-            continue
-        kept = [item for item in values if item not in targets]
-        removed = [item for item in values if item in targets]
-        if removed:
-            summary['removedFromOrder'].extend(removed)
-            order[provider] = kept
-    last = state.get('lastGood') if isinstance(state.get('lastGood'), dict) else {}
-    for provider, value in list(last.items()):
-        if value in targets:
-            summary['clearedLastGood'].append(value)
-            last.pop(provider, None)
-    usage = state.get('usageStats') if isinstance(state.get('usageStats'), dict) else {}
-    for key in list(usage.keys()):
-        if key in targets:
-            usage.pop(key, None)
-    return state
-
-def scrub_store(store):
-    profiles = store.get('profiles') if isinstance(store.get('profiles'), dict) else {}
-    for key, row in list(profiles.items()):
-        email = row.get('email') if isinstance(row, dict) else None
-        row_ids = ids_for(email) if email else set()
-        row_ids.add(key)
-        if row_ids & targets:
-            profiles.pop(key, None)
-            summary['deletedProfiles'].append(key)
-    return store
-
-def scrub_status(status):
-    accounts = status.get('accounts')
-    if isinstance(accounts, list):
-        kept = []
-        for row in accounts:
-            if isinstance(row, dict) and (matches(row.get('profileId')) or matches(row.get('email')) or matches(row.get('id'))):
-                summary['deletedProfiles'].append(str(row.get('profileId') or row.get('email') or row.get('id')))
-            else:
-                kept.append(row)
-        status['accounts'] = kept
-    elif isinstance(accounts, dict):
-        for key, row in list(accounts.items()):
-            if matches(key) or (isinstance(row, dict) and (matches(row.get('profileId')) or matches(row.get('email')) or matches(row.get('id')))):
-                accounts.pop(key, None)
-                summary['deletedProfiles'].append(str(key))
-
-    for key in ['effectiveAuthOrder', 'currentAuthOrder']:
-        values = status.get(key)
-        if isinstance(values, list):
-            removed = [item for item in values if matches(item)]
-            if removed:
-                status[key] = [item for item in values if not matches(item)]
-                summary['removedFromOrder'].extend(map(str, removed))
-
-    route_policy = status.get('routePolicy') if isinstance(status.get('routePolicy'), dict) else {}
-    for key in ['primary', 'lastGood']:
-        if matches(route_policy.get(key)):
-            summary['clearedLastGood'].append(str(route_policy.get(key)))
-            route_policy.pop(key, None)
-    order = route_policy.get('order')
-    if isinstance(order, list):
-        removed = [item for item in order if matches(item)]
-        if removed:
-            route_policy['order'] = [item for item in order if not matches(item)]
-            summary['removedFromOrder'].extend(map(str, removed))
-    alerts = status.get('alerts')
-    if isinstance(alerts, dict):
-        for key in list(alerts.keys()):
-            if any(str(t) in str(key) for t in targets):
-                alerts.pop(key, None)
-    return status
-
-def edit_json_file(path, editor):
-    if not path.exists():
-        return
-    data = json.loads(path.read_text())
-    new_data = editor(data)
-    path.write_text(json.dumps(new_data, indent=2, sort_keys=True) + '\n')
-    summary['filesTouched'].append(str(path))
-
-edit_json_file(agent_dir / 'auth-profiles.json', scrub_store)
-edit_json_file(agent_dir / 'auth-state.json', scrub_state)
-if workspace:
-    edit_json_file(workspace / '3-Resources' / 'codex-account-ops' / 'CODEX-ACCOUNT-STATUS.json', scrub_status)
-    edit_json_file(workspace / '3-Resources' / 'codex-account-ops' / 'state' / 'sentinel-state.json', scrub_status)
-
-db = agent_dir / 'openclaw-agent.sqlite'
-if db.exists():
-    con = sqlite3.connect(db)
-    try:
-        cur = con.execute("SELECT store_json FROM auth_profile_store WHERE store_key='primary'")
-        row = cur.fetchone()
-        if row:
-            store = scrub_store(json.loads(row[0]))
-            con.execute("UPDATE auth_profile_store SET store_json=?, updated_at=? WHERE store_key='primary'", (json.dumps(store, separators=(',', ':')), int(time.time()*1000)))
-            summary['filesTouched'].append(str(db) + ':auth_profile_store')
-        cur = con.execute("SELECT state_json FROM auth_profile_state WHERE state_key='primary'")
-        row = cur.fetchone()
-        if row:
-            state = scrub_state(json.loads(row[0]))
-            con.execute("UPDATE auth_profile_state SET state_json=?, updated_at=? WHERE state_key='primary'", (json.dumps(state, separators=(',', ':')), int(time.time()*1000)))
-            summary['filesTouched'].append(str(db) + ':auth_profile_state')
-        con.commit()
-    finally:
-        con.close()
-
-if not summary['deletedProfiles'] and not summary['removedFromOrder'] and not summary['clearedLastGood']:
-    summary['warning'] = 'target_not_found'
-print(json.dumps(summary, sort_keys=True))
-`;
-}
-
-function redactedDeletionSummary(value: unknown): unknown {
-  if (!isRecord(value)) return value;
-  const keep: Record<string, unknown> = {};
-  for (const key of ["deletedProfiles", "removedFromOrder", "clearedLastGood", "filesTouched", "warning", "parseError"]) {
-    if (key in value) keep[key] = value[key];
-  }
-  return keep;
-}
-
-function safeStamp(): string {
-  return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
 async function writeReceipt(path: string, payload: unknown): Promise<void> {

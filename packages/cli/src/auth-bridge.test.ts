@@ -67,6 +67,8 @@ test("/auth add and reauth reject malformed, conflicting, or repeated guided-aut
 test("/auth help promotes auth and never promotes oauth", () => {
   const help = renderAuthHelp();
   assert.match(help, /^\/auth commands/m);
+  assert.match(help, /documented native transactional adapter/);
+  assert.match(help, /fails closed without a store change/);
   assert.doesNotMatch(help, /\/oauth/);
 });
 

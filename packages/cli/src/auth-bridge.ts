@@ -104,8 +104,8 @@ export function renderAuthHelp(): string {
   /auth auto [--dry-run]
   /auth use <profile> [--dry-run]
   /auth remove <profile> [--dry-run]
-  /auth delete <email-or-profile> -- fully delete credentials from Sentinel/OpenClaw auth store after backup
-  /auth delete <email-or-profile> --dry-run -- preview only; no deletion
+  /auth delete <email-or-profile> -- request credential deletion through a documented native transactional adapter
+  /auth delete <email-or-profile> --dry-run -- preview only; no deletion (live apply is blocked until that adapter exists)
   /auth disable <profile> [--apply]
   /auth enable <profile> [--apply]
   /auth models
@@ -114,7 +114,7 @@ export function renderAuthHelp(): string {
   /auth doctor [--source openclaw]
   /auth audit [--limit 20]
 
-Manual /auth commands use recovery/operator defaults: /auth auto, /auth use <target>, and /auth delete <target> request live apply when valid; add --dry-run to preview. /auth remove <target> always starts with a routing-only preview, then requires an exact review confirmation, idempotency key, and one explicit agent scope for apply. Delete is credential deletion, requires an exact connected target, and backs up first. Remove never deletes credentials. Other mutation-shaped lower-level commands remain dry-run unless --apply is explicit and supported.
+Manual /auth commands use recovery/operator defaults: /auth auto, /auth use <target>, and /auth delete <target> request live apply when valid; add --dry-run to preview. /auth remove <target> always starts with a routing-only preview, then requires an exact review confirmation, idempotency key, and one explicit agent scope for apply. Delete is credential deletion and requires an exact connected target, owner-only runtime-local backup, native atomic rollback, durable redacted receipt, and fresh authoritative verification. Until a documented native OpenClaw/Sentinel transaction provides those guarantees, delete fails closed without a store change. Remove never deletes credentials. Other mutation-shaped lower-level commands remain dry-run unless --apply is explicit and supported.
 `;
 }
 

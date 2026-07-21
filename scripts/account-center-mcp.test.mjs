@@ -54,6 +54,15 @@ test("MCP initializes and lists tools before ignored CLI build artifacts exist",
   }
 });
 
+test("MCP describes delete as the canonical fail-closed transaction contract", () => {
+  const request = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
+  const response = callRequest(request);
+  const auth = response.result.tools.find((tool) => tool.name === "account_center_auth");
+  assert.match(auth.description, /canonical account contract/);
+  assert.match(auth.description, /fails closed unless a documented native transaction/);
+  assert.doesNotMatch(auth.description, /direct JSON|SQLite/i);
+});
+
 test("Dexter ChatOps returns a fixed canonical UNPROVEN result when its adapter throws", () => {
   const inaccessibleWorkspace = resolve(tmpdir(), "account-center-no-openclaw-status");
   const result = spawnSync(process.execPath, [chatops, "/auth status"], {
