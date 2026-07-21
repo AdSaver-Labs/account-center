@@ -470,7 +470,8 @@ function renderStatus(status: PublicStatusView): string {
     `Source: ${status.source}`,
     `Accounts observed: ${status.profiles.length}`,
     `Routes observed: ${status.routes.length}`,
-    "Verification: UNPROVEN"
+    "Verification: UNPROVEN",
+    "Credential delete: BLOCKED/UNPROVEN until a documented native transactional delete adapter exists"
   ].join("\n") + "\n";
 }
 
@@ -553,8 +554,8 @@ function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): st
   lines.push("• /auth add <email> — record a local guided-auth initiation for a new account; it does not start device-code/OAuth login, store credentials, or activate routing");
   lines.push("• /auth reauth <email> — record a local guided-auth initiation for an existing account; it does not reauthenticate or change credentials or routing");
   lines.push("• /auth remove <email> — remove from routing without deleting credentials");
-  lines.push("• /auth delete <email> — permanently delete that account's Sentinel/OpenClaw credentials after backup");
-  lines.push("• /auth delete <email> --dry-run — preview delete only; no deletion");
+  lines.push("• /auth delete <email> — BLOCKED/UNPROVEN: live credential deletion is unavailable until a documented native transactional delete adapter exists");
+  lines.push("• /auth delete <email> --dry-run — preview only; no deletion (live delete remains blocked/UNPROVEN)");
   lines.push("• Fallback CLI only if Telegram commands are unavailable: node 3-Resources/codex-account-ops/scripts/codex-device-auth-telegram.mjs start --email <email>");
   lines.push("");
   for (const profile of orderCodexProfiles(status.profiles)) {

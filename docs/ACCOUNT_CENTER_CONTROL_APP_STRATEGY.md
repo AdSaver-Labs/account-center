@@ -32,7 +32,7 @@ The Account Center command contract must be available from the app UI and from c
 | `/auth auto` | apply safe auto-switch to best readable account | live route mutation by default; `--dry-run` previews |
 | `/auth use <email-or-profile>` | switch active route to a connected account | live route mutation by default; `--dry-run` previews |
 | `/auth remove <email-or-profile>` | remove from routing only | live route mutation by default; does **not** delete credentials; `--dry-run` previews |
-| `/auth delete <email-or-profile>` | delete credentials | live only after exact connected target match, backup, receipt; `--dry-run` previews |
+| `/auth delete <email-or-profile>` | delete credentials | **currently BLOCKED/`UNPROVEN`**; live delete remains fail-closed until a documented native transactional delete adapter exists; `--dry-run` previews only |
 | `/auth add <email>` | start account/device-code add flow | app should launch guided flow |
 | `/auth reauth <email>` | refresh expired/broken account | app should launch guided flow |
 
@@ -47,6 +47,8 @@ Alej explicitly allows live Account Center mutations from Codex/MCP/app paths. T
 - redacted output;
 - no raw credential/token display;
 - runtime-specific adapter instead of blind file edits.
+
+Credential delete is the current exception: it is blocked/`UNPROVEN`, not a live mutation path. Do not claim a backup makes deletion available. It remains fail-closed until a documented native transactional delete adapter supplies exact-target identity, owner-only backup, atomic rollback, a durable redacted receipt, and fresh authoritative post-delete proof.
 
 ## Codex integration tiers
 

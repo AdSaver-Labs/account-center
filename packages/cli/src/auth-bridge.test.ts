@@ -64,12 +64,20 @@ test("/auth add and reauth reject malformed, conflicting, or repeated guided-aut
   }
 });
 
-test("/auth help promotes auth and never promotes oauth", () => {
+test("/auth help reports credential delete as blocked/UNPROVEN until a native transactional adapter exists", () => {
   const help = renderAuthHelp();
   assert.match(help, /^\/auth commands/m);
-  assert.match(help, /documented native transactional adapter/);
-  assert.match(help, /fails closed without a store change/);
+  assert.match(help, /BLOCKED\/UNPROVEN until a documented native transactional delete adapter exists/);
+  assert.match(help, /live delete is currently BLOCKED\/UNPROVEN and fails closed without a store change/);
+  assert.doesNotMatch(help, /and \/auth delete <target> request live apply when valid/);
   assert.doesNotMatch(help, /\/oauth/);
+});
+
+test("/auth status renders the current credential-delete blocker", async () => {
+  const result = await runCli(["auth", "/auth", "status", "--no-write-export"]);
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Credential delete: BLOCKED\/UNPROVEN until a documented native transactional delete adapter exists/);
+  assert.doesNotMatch(result.stdout, /permanently delete/);
 });
 
 test("/oauth is rejected as a manual chat command", () => {
