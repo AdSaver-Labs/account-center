@@ -32,6 +32,15 @@ _REDACTION_PATTERNS = [
     re.compile(r"(?<![:/A-Za-z0-9_])/(?!auth(?:\s|$))[^\r\n\"'<>]*", re.IGNORECASE),
 ]
 _AUTH_UNPROVEN_TEXT = "Account Center `/auth` request UNPROVEN. Check `/auth status` or the durable redacted receipt."
+_DELETE_UNPROVEN_TEXT = (
+    "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\n"
+    "Action: account.delete\n"
+    "Target: redacted-target\n"
+    "Result: BLOCKED\n"
+    "Verification: UNPROVEN\n\n"
+    "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n"
+    "Exact connected-target confirmation remains required before credential deletion."
+)
 
 
 def _cfg_get(path: str, default: Any = None) -> Any:
@@ -105,9 +114,10 @@ def _env_for_account_center() -> dict[str, str]:
 
 
 def _run_auth(raw_args: str) -> str:
+    message = _build_auth_message(raw_args)
+    delete_request = bool(re.match(r"^/auth\s+delete(?:\s|$)", message, re.IGNORECASE))
     try:
         root = _account_center_root()
-        message = _build_auth_message(raw_args)
         timeout = int(_cfg_get("account_center.command_timeout", 45) or 45)
         proc = subprocess.run(
             ["node", str(root / "scripts" / "chatops.mjs"), message],
@@ -119,13 +129,13 @@ def _run_auth(raw_args: str) -> str:
             check=False,
         )
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-        return _AUTH_UNPROVEN_TEXT
+        return _DELETE_UNPROVEN_TEXT if delete_request else _AUTH_UNPROVEN_TEXT
     output = (proc.stdout or "").strip()
     if proc.returncode != 0:
         # The subprocess can contain runtime paths, command diagnostics, or
         # malformed external output. Hermes must expose only the same bounded
         # Account Center outcome contract Dexter receives through ChatOps.
-        return _AUTH_UNPROVEN_TEXT
+        return _DELETE_UNPROVEN_TEXT if delete_request else _AUTH_UNPROVEN_TEXT
     return _redact_output(output or "Account Center returned no output.")[:3900]
 
 

@@ -40,7 +40,9 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
             return_value=SimpleNamespace(returncode=2, stdout="", stderr=hostile_output),
         ):
             result = plugin._run_auth("delete person@example.test")
-        self.assertEqual(result, plugin._AUTH_UNPROVEN_TEXT)
+        self.assertEqual(result, plugin._DELETE_UNPROVEN_TEXT)
+        self.assertIn("Action: account.delete", result)
+        self.assertIn("Target: redacted-target", result)
         self.assertNotIn("person@example.test", result)
         self.assertNotIn("sk-secret", result)
 

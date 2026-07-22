@@ -18,6 +18,7 @@ import {
   MutationScope,
   nextEligible,
   parseRuntimeSource,
+  persistRedactedReceipt,
   probeProviders,
   publicDoctorView,
   PublicStatusView,
@@ -456,18 +457,13 @@ async function credentialDeleteStatusFailure(options: CliOptions): Promise<CliRe
   // This fixed allow-list record is safe even though status never established
   // a canonical connected target.
   const receipt = {
-    schemaVersion: "account-center.persisted-route-receipt.v1",
-    action: "account.delete",
     outcome: "unproven",
     applied: false,
     dryRun: true,
     liveRuntimeMutation: false,
-    receiptId: "receipt-redacted",
-    warningCodes: ["status_adapter_unavailable", "no_live_mutation"]
+    receipt: { id: "receipt-redacted", action: "account.delete", dryRun: true, warnings: ["status_adapter_unavailable", "no_live_mutation"] }
   };
-  await mkdir(dirname(options.receiptPath), { recursive: true, mode: 0o700 });
-  await writeFile(options.receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await chmod(options.receiptPath, 0o600);
+  await persistRedactedReceipt(options.receiptPath, receipt);
   return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
 }
 

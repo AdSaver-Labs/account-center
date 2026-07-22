@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -796,6 +796,41 @@ test("/auth delete status-adapter failures fail closed with an opaque unproven r
     else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = previousCli;
     if (previousDataDir === undefined) delete process.env.ACCOUNT_CENTER_DATA_DIR;
     else process.env.ACCOUNT_CENTER_DATA_DIR = previousDataDir;
+  }
+});
+
+test("/auth delete status failure keeps directory and symlink receipt paths opaque", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-auth-delete-unsafe-receipt-"));
+  const workspace = join(root, "workspace");
+  const cli = join(workspace, "oauth_routing_cli.py");
+  const target = join(root, "private-receipt-target.json");
+  const link = join(root, "receipt-link.json");
+  await mkdir(workspace, { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  await writeFile(target, "unchanged-private-fixture", "utf8");
+  await symlink(target, link);
+  const priorWorkspace = process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+  const priorCli = process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+  process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = workspace;
+  process.env.ACCOUNT_CENTER_OPENCLAW_CLI = cli;
+  try {
+    for (const receiptPath of [join(root, "receipt-directory"), link]) {
+      if (receiptPath.endsWith("directory")) await mkdir(receiptPath);
+      const result = await runCli(["auth", "/auth", "delete", "private@example.test", "--source", "openclaw", "--receipt-path", receiptPath, "--json"], process.cwd(), {
+        runner: async () => ({ code: 1, stdout: "", stderr: "private adapter diagnostic" })
+      });
+      assert.equal(result.code, 2);
+      const publicResult = JSON.parse(result.stdout);
+      assert.equal(publicResult.state, "BLOCKED");
+      assert.deepEqual(publicResult.receipt, { id: "receipt-redacted", action: "account.delete", dryRun: true, target: "redacted-target" });
+      for (const privateValue of [receiptPath, "private@example.test", "private adapter diagnostic", "Error:"]) assert.equal(result.stdout.includes(privateValue), false, privateValue);
+    }
+    assert.equal(await readFile(target, "utf8"), "unchanged-private-fixture");
+  } finally {
+    if (priorWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = priorWorkspace;
+    if (priorCli === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = priorCli;
   }
 });
 

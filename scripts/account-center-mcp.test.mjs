@@ -21,7 +21,7 @@ function callRequest(request, env = {}, input = `${JSON.stringify(request)}\n`) 
     cwd: root,
     input,
     encoding: "utf8",
-    env: { ...process.env, ...env, ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS: "" },
+    env: { ...process.env, ...env, ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS: env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS ?? "" },
   });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout.trim());
@@ -31,6 +31,14 @@ const MUTATION_BLOCKED_TEXT =
   "Blocked potentially mutating Account Center command in Codex MCP.\n\n" +
   "For safety, this MCP bridge allows status/help and dry-runs by default. " +
   "Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.";
+const DELETE_UNPROVEN_TEXT =
+  "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\n" +
+  "Action: account.delete\n" +
+  "Target: redacted-target\n" +
+  "Result: BLOCKED\n" +
+  "Verification: UNPROVEN\n\n" +
+  "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n" +
+  "Exact connected-target confirmation remains required before credential deletion.";
 
 test("MCP initializes and lists tools before ignored CLI build artifacts exist", () => {
   const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-clean-"));
@@ -79,6 +87,19 @@ test("Dexter ChatOps returns a fixed canonical UNPROVEN result when its adapter 
   assert.equal(result.stderr, "Account Center /auth request UNPROVEN.\n");
   assert.equal(result.stderr.includes(inaccessibleWorkspace), false);
   assert.equal(result.stderr.includes("OpenClaw status unavailable"), false);
+});
+
+test("Dexter delete bridge returns the Hermes canonical blocked/UNPROVEN receipt result", () => {
+  const privateWorkspace = resolve(tmpdir(), "account-center-private-delete-workspace");
+  const response = call("/auth delete private@example.test", {
+    ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS: "1",
+    ACCOUNT_CENTER_SOURCE: "openclaw",
+    ACCOUNT_CENTER_OPENCLAW_WORKSPACE: privateWorkspace,
+  });
+  assert.equal(response.result.isError, true);
+  assert.equal(response.result.content[0].text, DELETE_UNPROVEN_TEXT);
+  assert.equal(JSON.stringify(response).includes("private@example.test"), false);
+  assert.equal(JSON.stringify(response).includes(privateWorkspace), false);
 });
 
 for (const { name, command, privateValues } of [

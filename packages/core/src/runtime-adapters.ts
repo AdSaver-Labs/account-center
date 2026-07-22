@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -604,12 +604,54 @@ async function pathCheck(name: string, path: string): Promise<{ name: string; ok
 }
 
 async function writeReceipt(path: string, payload: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await persistRedactedReceipt(path, payload);
+}
+
+/** Persist the allow-listed receipt without ever surfacing filesystem detail. */
+export async function persistRedactedReceipt(path: string, payload: unknown): Promise<boolean> {
+  try {
+    const receiptPath = resolve(path);
+    await ensureNonSymlinkDirectory(dirname(receiptPath));
+    try {
+      const existing = await lstat(receiptPath);
+      if (existing.isSymbolicLink() || !existing.isFile()) return false;
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) return false;
+    }
   // Receipts cross a persistence boundary.  Redacting arbitrary payloads is
   // insufficient because route snapshots contain identity-bearing ids and
   // route order.  Persist a small allow-list projection instead.
-  await writeFile(path, `${JSON.stringify(persistedReceipt(payload), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  await chmod(path, 0o600);
+    const handle = await open(receiptPath, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
+    try {
+      if (!(await handle.stat()).isFile()) return false;
+      await handle.writeFile(`${JSON.stringify(persistedReceipt(payload), null, 2)}\n`, { encoding: "utf8" });
+      await handle.chmod(0o600);
+    } finally {
+      await handle.close();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureNonSymlinkDirectory(directory: string): Promise<void> {
+  const chain: string[] = [];
+  for (let current = resolve(directory); ; current = dirname(current)) {
+    chain.push(current);
+    if (current === dirname(current)) break;
+  }
+  for (const current of chain.reverse()) {
+    try {
+      const entry = await lstat(current);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("unsafe_receipt_directory");
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      await mkdir(current, { mode: 0o700 });
+      const created = await lstat(current);
+      if (!created.isDirectory() || created.isSymbolicLink()) throw new Error("unsafe_receipt_directory");
+    }
+  }
 }
 
 function persistedReceipt(payload: unknown): Record<string, unknown> {
@@ -622,7 +664,7 @@ function persistedReceipt(payload: unknown): Record<string, unknown> {
   const persisted: Record<string, unknown> = {
     schemaVersion: "account-center.persisted-route-receipt.v1",
     action,
-    outcome: value.applied === true ? "applied" : value.liveRuntimeMutation === true ? "unproven" : "not_applied",
+    outcome: value.applied === true ? "applied" : value.liveRuntimeMutation === true || value.outcome === "unproven" ? "unproven" : "not_applied",
     applied: value.applied === true,
     dryRun: value.dryRun === true,
     liveRuntimeMutation: value.liveRuntimeMutation === true,

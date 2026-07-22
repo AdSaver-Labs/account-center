@@ -12,6 +12,14 @@ const ALLOW_MUTATIONS = process.env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS === '1';
 const DEFAULT_SOURCE = process.env.ACCOUNT_CENTER_SOURCE || 'openclaw';
 const MAX_OUTPUT = 12000;
 const OPAQUE_FAILURE_TEXT = 'Account Center request UNPROVEN.\n';
+const DELETE_UNPROVEN_TEXT =
+  'DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\n' +
+  'Action: account.delete\n' +
+  'Target: redacted-target\n' +
+  'Result: BLOCKED\n' +
+  'Verification: UNPROVEN\n\n' +
+  'Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n' +
+  'Exact connected-target confirmation remains required before credential deletion.';
 const INVALID_REQUEST_TEXT = 'Invalid Account Center MCP request.';
 const MUTATION_BLOCKED_TEXT =
   'Blocked potentially mutating Account Center command in Codex MCP.\n\n' +
@@ -89,15 +97,16 @@ function normalizeCommand(raw) {
   return `/auth ${text}`;
 }
 
-function opaqueFailure() {
+function opaqueFailure(deleteRequest = false) {
   return {
     isError: true,
-    content: [{ type: 'text', text: OPAQUE_FAILURE_TEXT }],
+    content: [{ type: 'text', text: deleteRequest ? DELETE_UNPROVEN_TEXT : OPAQUE_FAILURE_TEXT }],
   };
 }
 
 async function runAuth(command) {
   const normalized = normalizeCommand(command);
+  const deleteRequest = /^\/auth\s+delete(?:\s|$)/i.test(normalized);
   let inspection;
   try {
     // The MCP transport must be able to initialize from a clean checkout,
@@ -130,9 +139,9 @@ async function runAuth(command) {
       maxBuffer: 1024 * 1024,
     });
   } catch {
-    return opaqueFailure();
+    return opaqueFailure(deleteRequest);
   }
-  if (proc.error || proc.signal || proc.status !== 0) return opaqueFailure();
+  if (proc.error || proc.signal || proc.status !== 0) return opaqueFailure(deleteRequest);
   const text = redact(proc.stdout || 'Account Center returned no output.').slice(0, MAX_OUTPUT);
   return {
     isError: false,
