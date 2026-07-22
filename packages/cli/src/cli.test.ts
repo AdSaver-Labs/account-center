@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -734,6 +734,69 @@ test("/auth delete --dry-run renders a clear redacted no-deletion message", asyn
   const jsonResult = await runCli(["auth", "/auth", "delete", "helper-1", "--json"]);
   assert.equal(jsonResult.code, 0);
   assert.equal(JSON.parse(jsonResult.stdout).receipt.action, "account.delete");
+});
+
+test("/auth delete status-adapter failures fail closed with an opaque unproven receipt boundary", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-auth-delete-status-failure-"));
+  const workspace = join(root, "workspace");
+  const cli = join(workspace, "oauth_routing_cli.py");
+  const receiptPath = join(root, "delete-receipt.json");
+  const previousWorkspace = process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+  const previousCli = process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+  const previousDataDir = process.env.ACCOUNT_CENTER_DATA_DIR;
+  process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = workspace;
+  process.env.ACCOUNT_CENTER_OPENCLAW_CLI = cli;
+  process.env.ACCOUNT_CENTER_DATA_DIR = join(root, "data");
+  await mkdir(workspace, { recursive: true });
+  await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
+  const hostile = "Error: adapter stack at /srv/private/account-center/adapter.ts:42 for person@example.test token=sk-hostile-token-value-123456789";
+  try {
+    for (const json of [false, true]) {
+      const result = await runCli(["auth", "/auth", "delete", "person@example.test", "--source", "openclaw", "--receipt-path", receiptPath, ...(json ? ["--json"] : [])], process.cwd(), {
+        runner: async () => ({ code: 1, stdout: "", stderr: hostile })
+      });
+      assert.equal(result.code, 2);
+      assert.equal(result.stderr, undefined);
+      if (json) {
+        assert.deepEqual(JSON.parse(result.stdout), {
+          schemaVersion: "account-center.public-mutation.v1",
+          verificationState: "UNPROVEN",
+          applied: false,
+          dryRun: true,
+          liveRuntimeMutation: false,
+          state: "BLOCKED",
+          receipt: { id: "receipt-redacted", action: "account.delete", dryRun: true, target: "redacted-target" }
+        });
+      } else {
+        assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
+        assert.match(result.stdout, /BLOCKED\/UNPROVEN/);
+      }
+      for (const privateValue of [hostile, cli, "/srv/private/account-center/adapter.ts:42", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
+        assert.equal(result.stdout.includes(privateValue), false, privateValue);
+      }
+    }
+    const receipt = await readFile(receiptPath, "utf8");
+    assert.deepEqual(JSON.parse(receipt), {
+      schemaVersion: "account-center.persisted-route-receipt.v1",
+      action: "account.delete",
+      outcome: "unproven",
+      applied: false,
+      dryRun: true,
+      liveRuntimeMutation: false,
+      receiptId: "receipt-redacted",
+      warningCodes: ["status_adapter_unavailable", "no_live_mutation"]
+    });
+    for (const privateValue of [hostile, cli, receiptPath, "/srv/private/account-center/adapter.ts:42", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
+      assert.equal(receipt.includes(privateValue), false, privateValue);
+    }
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;
+    if (previousCli === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = previousCli;
+    if (previousDataDir === undefined) delete process.env.ACCOUNT_CENTER_DATA_DIR;
+    else process.env.ACCOUNT_CENTER_DATA_DIR = previousDataDir;
+  }
 });
 
 test("credential delete apply and renderer both fail closed without a native transaction contract", async () => {

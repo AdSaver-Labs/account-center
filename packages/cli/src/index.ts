@@ -91,6 +91,11 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   try {
     statusExecution = await executeAccountCenterCommand({ command: "status" }, { adapter });
   } catch (error) {
+    // Credential deletion is unavailable unless status can establish the
+    // canonical connected target. Do not let a pre-lifecycle adapter failure
+    // cross the public CLI boundary. Record only the fixed, target-free
+    // failure evidence: an unavailable adapter must not bypass durable audit.
+    if (command === "accounts" && subcommand === "delete") return credentialDeleteStatusFailure(options);
     if (options.source === "generic-command") return genericCommandFailure(options, command, subcommand);
     throw error;
   }
@@ -443,6 +448,27 @@ function blockedRouteView(action: "route.auto" | "route.use" | "route.remove"): 
 
 function blockedCredentialDeleteView(): PublicMutationView {
   return { schemaVersion: "account-center.public-mutation.v1", verificationState: "UNPROVEN", applied: false, dryRun: true, liveRuntimeMutation: false, state: "BLOCKED", receipt: { id: "receipt-redacted", action: "account.delete", dryRun: true, target: "redacted-target" } };
+}
+
+async function credentialDeleteStatusFailure(options: CliOptions): Promise<CliResult> {
+  const view = blockedCredentialDeleteView();
+  // Do not persist the requested target, adapter error, or runtime details.
+  // This fixed allow-list record is safe even though status never established
+  // a canonical connected target.
+  const receipt = {
+    schemaVersion: "account-center.persisted-route-receipt.v1",
+    action: "account.delete",
+    outcome: "unproven",
+    applied: false,
+    dryRun: true,
+    liveRuntimeMutation: false,
+    receiptId: "receipt-redacted",
+    warningCodes: ["status_adapter_unavailable", "no_live_mutation"]
+  };
+  await mkdir(dirname(options.receiptPath), { recursive: true, mode: 0o700 });
+  await writeFile(options.receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await chmod(options.receiptPath, 0o600);
+  return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
 }
 
 async function mutationLifecycle(): Promise<{ secret: string; repository: MutationRepository }> {
