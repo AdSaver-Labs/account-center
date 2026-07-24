@@ -5,6 +5,7 @@ This CLI-boundary helper deliberately accepts no requested receipt pathname.
 It uses descriptor-relative traversal and no-follow opens on POSIX systems.
 """
 import json
+import errno
 import os
 import secrets
 import stat
@@ -50,6 +51,35 @@ def private_root(path: str) -> int:
         raise
 
 
+def write_all(fd: int, data: bytes) -> None:
+    """Write every byte or raise; POSIX write(2) is permitted to be short."""
+    offset = 0
+    while offset < len(data):
+        written = os.write(fd, data[offset:])
+        if not isinstance(written, int) or written <= 0 or written > len(data) - offset:
+            raise OSError(errno.EIO, "receipt write did not make progress")
+        offset += written
+
+
+def discard_receipt(receipts_fd: int, name: str, receipt_fd: int | None) -> None:
+    """Best-effort cleanup for a receipt which was never durably successful."""
+    if receipt_fd is not None:
+        try:
+            os.close(receipt_fd)
+        except OSError:
+            pass
+    try:
+        os.unlink(name, dir_fd=receipts_fd)
+    except OSError:
+        pass
+    # A failed write/sync must not report success. Try to durably record the
+    # cleanup even when the operation which brought us here was an fsync.
+    try:
+        os.fsync(receipts_fd)
+    except OSError:
+        pass
+
+
 def persist(root: str) -> bool:
     root_fd = private_root(root)
     try:
@@ -79,12 +109,15 @@ def persist(root: str) -> bool:
                 try:
                     info = os.fstat(receipt_fd)
                     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600:
-                        return False
-                    os.write(receipt_fd, data)
+                        raise OSError(errno.EIO, "unsafe receipt file")
+                    write_all(receipt_fd, data)
                     os.fsync(receipt_fd)
-                finally:
                     os.close(receipt_fd)
-                os.fsync(receipts_fd)
+                    receipt_fd = None
+                    os.fsync(receipts_fd)
+                except OSError:
+                    discard_receipt(receipts_fd, name, receipt_fd)
+                    return False
                 return True
             return False
         finally:
