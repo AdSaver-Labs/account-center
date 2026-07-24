@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, isValidGuidedAuthStart, MutationRepository, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, isValidGuidedAuthStart, MutationRepository, projectRedactedDurableChallenge, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
@@ -394,8 +394,9 @@ function auditScopeKind(scope: string): AuditRecord["scopeKind"] | undefined {
   return kind === "agent" || kind === "profile" || kind === "session" || kind === "default" || kind === "all" ? kind : undefined;
 }
 
-function authChallengeView({ id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt }: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
-  return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
+/** Source-v1 exposes exactly the shared nine-key durable projection. */
+function authChallengeView(challenge: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
+  return projectRedactedDurableChallenge(challenge);
 }
 
 function endpointMethods(path: string | undefined): string[] | undefined {

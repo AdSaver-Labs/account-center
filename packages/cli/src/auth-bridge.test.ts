@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthChallengeStore } from "@account-center/core";
+import { AuthChallengeStore, createAuthChallenge } from "@account-center/core";
 import { inspectAuthCommand, parseAuthCommand, renderAuthHelp, tokenizeAuthCommand } from "./auth-bridge.js";
 import { runCli } from "./index.js";
 
@@ -150,4 +150,14 @@ test("CLI auth bridge rejects oauth manual command", async () => {
   const result = await runCli(["auth", "/oauth", "status"]);
   assert.equal(result.code, 1);
   assert.match(result.stderr ?? "", /Manual command is \/auth/);
+});
+
+test("CLI envelope adds UNPROVEN only at its top level", async () => {
+  const challenge = Object.assign(createAuthChallenge({ mode: "add", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" }), { target: "private@example.test", proof: "forged-proof", verificationState: "VERIFIED" });
+  const store = { createWithResult: async () => ({ challenge, created: true }) } as unknown as AuthChallengeStore;
+  const result = await runCli(["auth", "/auth", "add", "new@example.com", "--json"], process.cwd(), { challengeStore: store });
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.verificationState, "UNPROVEN");
+  assert.deepEqual(Object.keys(payload.challenge).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
+  assert.equal(JSON.stringify(payload).match(/private@example\.test|forged-proof|VERIFIED/), null);
 });

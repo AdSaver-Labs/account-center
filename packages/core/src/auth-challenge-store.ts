@@ -18,7 +18,7 @@ export class AuthChallengeStore {
       const challenges = await this.listUnsafe();
       const challenge = createAuthChallenge(input, challenges);
       const created = !challenges.some((item) => item.id === challenge.id);
-      if (created) await this.write([...challenges, challenge]);
+      if (created) await this.writeUnsafe([...challenges, challenge]);
       return { challenge, created };
     });
   }
@@ -28,14 +28,15 @@ export class AuthChallengeStore {
   private async listUnsafe(): Promise<AuthChallenge[]> {
     try {
       const value: unknown = JSON.parse(await readFile(this.path, "utf8"));
-      // Durable lifecycle evidence must never be silently treated as an empty
-      // history when it is corrupt. In particular, an unknown terminal state
-      // could otherwise be rendered as an innocuous empty list or an
-      // unrecognized UI success-like state.
-      if (!Array.isArray(value) || !value.every(isChallenge)) throw new Error("challenge_store_corrupt");
-      const redacted = value.filter(isChallenge).map(redactChallenge);
+      // This is a durable trust boundary, not merely a decoder. Historical
+      // terminal/proof-bearing files are rejected in place rather than being
+      // overwritten as a harmless-looking lifecycle history.
+      assertDurableChallenges(value, "challenge_store_corrupt", true);
+      const redacted = value.map(redactChallenge);
       const challenges = redacted.map((challenge) => expireAuthChallenge(challenge));
-      if (value.some(hasRawTarget) || challenges.some((challenge, index) => challenge.status !== redacted[index]?.status)) await this.write(challenges);
+      // We already own lockPath. Re-entering write() would deadlock, so only
+      // locked lifecycle code may use this lexical unsafe writer.
+      if (value.some(hasRawTarget) || challenges.some((challenge, index) => challenge.status !== redacted[index]?.status)) await this.writeUnsafe(challenges);
       return challenges;
     } catch (error: unknown) {
       if (isMissing(error)) return [];
@@ -49,11 +50,7 @@ export class AuthChallengeStore {
     return (await this.cancelWithResult(id))?.challenge;
   }
 
-  /**
-   * Atomically reports whether cancellation changed a pending challenge. The
-   * protected API uses this to make retries safe without duplicating audit
-   * evidence for an already-terminal lifecycle record.
-   */
+  /** Atomically reports whether cancellation changed a pending challenge. */
   async cancelWithResult(id: string): Promise<{ challenge: AuthChallenge; changed: boolean } | undefined> {
     return this.withLock(async () => {
       const challenges = await this.listUnsafe();
@@ -63,18 +60,34 @@ export class AuthChallengeStore {
       const cancelled = cancelAuthChallenge(challenges[index]);
       challenges[index] = cancelled;
       const changed = before.status !== cancelled.status;
-      if (changed) await this.write(challenges);
+      if (changed) await this.writeUnsafe(challenges);
       return { challenge: cancelled, changed };
     });
   }
 
+  /**
+   * TypeScript privacy and package export maps do not protect compiled JS.
+   * Validate before any mkdir/temporary-file mutation, then acquire the same
+   * canonical lock used by lifecycle operations and validate again under it.
+   */
   private async write(challenges: AuthChallenge[]): Promise<void> {
+    assertDurableChallenges(challenges, "challenge_store_unsafe_lifecycle", false);
+    return this.withLock(async () => {
+      // The caller can mutate its array while waiting for the lock.
+      assertDurableChallenges(challenges, "challenge_store_unsafe_lifecycle", false);
+      await this.writeUnsafe(challenges);
+    });
+  }
+
+  /** Caller must own lockPath and have validated the bounded durable shape. */
+  private async writeUnsafe(challenges: AuthChallenge[]): Promise<void> {
+    const durable = challenges.map(redactChallenge);
     await mkdir(dirname(this.path), { recursive: true });
     const temporary = `${this.path}.${randomUUID()}.tmp`;
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await open(temporary, "wx", 0o600);
-      await handle.writeFile(`${JSON.stringify(challenges, null, 2)}\n`, "utf8");
+      await handle.writeFile(`${JSON.stringify(durable, null, 2)}\n`, "utf8");
       await handle.sync();
       await handle.close();
       handle = undefined;
@@ -102,19 +115,28 @@ export class AuthChallengeStore {
 
 function isMissing(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT"; }
 function isExists(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "EEXIST"; }
-function isChallenge(value: unknown): value is AuthChallenge {
+const durableChallengeKeys = new Set(["id", "key", "mode", "status", "provider", "runtime", "scope", "expiresAt", "createdAt", "updatedAt"]);
+const legacyChallengeKeys = new Set([...durableChallengeKeys, "target"]);
+
+function assertDurableChallenges(value: unknown, error: string, allowLegacyTarget: boolean): asserts value is AuthChallenge[] {
+  if (!Array.isArray(value) || !value.every((challenge) => isDurableChallenge(challenge, allowLegacyTarget))) throw new Error(error);
+}
+
+function isDurableChallenge(value: unknown, allowLegacyTarget: boolean): value is AuthChallenge {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const candidate = value as Partial<AuthChallenge>;
-  return typeof candidate.id === "string" &&
-    typeof candidate.key === "string" &&
-    (candidate.mode === "add" || candidate.mode === "reauth") &&
-    (candidate.status === "pending" || candidate.status === "completed" || candidate.status === "failed" || candidate.status === "cancelled" || candidate.status === "expired") &&
-    typeof candidate.provider === "string" &&
-    typeof candidate.runtime === "string" &&
-    typeof candidate.scope === "string" &&
+  const allowedKeys = allowLegacyTarget ? legacyChallengeKeys : durableChallengeKeys;
+  return Object.keys(candidate).every((key) => allowedKeys.has(key)) &&
+    hasOwn(candidate, "id") && typeof candidate.id === "string" &&
+    hasOwn(candidate, "key") && typeof candidate.key === "string" &&
+    hasOwn(candidate, "mode") && (candidate.mode === "add" || candidate.mode === "reauth") &&
+    hasOwn(candidate, "status") && (candidate.status === "pending" || candidate.status === "cancelled" || candidate.status === "expired") &&
+    hasOwn(candidate, "provider") && typeof candidate.provider === "string" &&
+    hasOwn(candidate, "runtime") && typeof candidate.runtime === "string" &&
+    hasOwn(candidate, "scope") && typeof candidate.scope === "string" &&
     isSafePublicChallengeMetadata(candidate as Pick<AuthChallenge, "provider" | "runtime" | "scope">) &&
-    isTimestamp(candidate.createdAt) &&
-    isTimestamp(candidate.updatedAt) &&
+    hasOwn(candidate, "createdAt") && isTimestamp(candidate.createdAt) &&
+    hasOwn(candidate, "updatedAt") && isTimestamp(candidate.updatedAt) &&
     (candidate.expiresAt === undefined || isTimestamp(candidate.expiresAt));
 }
 
@@ -127,6 +149,8 @@ function isTimestamp(value: unknown): value is string {
 function hasRawTarget(value: unknown): boolean {
   return typeof value === "object" && value !== null && !Array.isArray(value) && "target" in value;
 }
+
+function hasOwn(value: object, key: string): boolean { return Object.prototype.hasOwnProperty.call(value, key); }
 
 function redactChallenge({ id, key, mode, status, provider, runtime, scope, expiresAt, createdAt, updatedAt }: AuthChallenge): AuthChallenge {
   return { id, key, mode, status, provider, runtime, scope, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };

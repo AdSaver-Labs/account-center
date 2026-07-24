@@ -20,6 +20,24 @@ export interface AuthChallenge extends Omit<AuthChallengeInput, "target"> {
   updatedAt: string;
 }
 
+/** Shared redacted base for versioned challenge projections, not a contract. */
+export interface RedactedDurableChallengeProjection {
+  id: string;
+  mode: AuthChallengeMode;
+  provider: string;
+  runtime: string;
+  scope: string;
+  status: AuthChallengeStatus;
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function projectRedactedDurableChallenge(challenge: AuthChallenge): RedactedDurableChallengeProjection {
+  const { id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt } = challenge;
+  return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
+}
+
 export function createAuthChallenge(input: AuthChallengeInput, existing: AuthChallenge[] = [], now = new Date()): AuthChallenge {
   const normalized = { ...input, target: input.target.trim().toLowerCase(), provider: input.provider.trim().toLowerCase(), runtime: input.runtime.trim().toLowerCase(), scope: input.scope.trim() };
   assertPublicChallengeMetadata(normalized);

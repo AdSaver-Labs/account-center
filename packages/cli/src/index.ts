@@ -22,6 +22,7 @@ import {
   parseRuntimeSource,
   probeProviders,
   publicDoctorView,
+  projectRedactedDurableChallenge,
   PublicStatusView,
   publicStatusView,
   redactJson
@@ -814,7 +815,7 @@ async function startReauth(target: string | undefined, status: AccountCenterStat
     schemaVersion: "account-center.public-auth-challenge-start.v1",
     verificationState: "UNPROVEN" as const,
     idempotent: !durable.created,
-    challenge: publicAuthChallenge(durable.challenge),
+    challenge: projectRedactedDurableChallenge(durable.challenge),
     noLlmTokens: true,
     note: "Local guided-auth challenge recorded. This build does not mutate runtime auth, credentials, OAuth, or device-code state."
   };
@@ -826,10 +827,6 @@ async function startReauth(target: string | undefined, status: AccountCenterStat
   ].join("\n") + "\n");
 }
 
-function publicAuthChallenge(challenge: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
-  const { id, mode, provider, runtime, scope, status, expiresAt, createdAt, updatedAt } = challenge;
-  return { id, mode, provider, runtime, scope, status, ...(expiresAt ? { expiresAt } : {}), createdAt, updatedAt };
-}
 
 function renderProviderProbes(view: ReturnType<typeof publicProviderProbesView>): string {
   return view.probes.map((probe) => `Provider probe ${probe.state} usable=${probe.usableProfiles}/${probe.profiles} limits=${probe.limitsObserved ? "observed" : "unknown"}`).join("\n") + "\n";
