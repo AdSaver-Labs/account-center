@@ -73,11 +73,11 @@ test("/auth help reports credential delete as blocked/UNPROVEN until a native tr
   assert.doesNotMatch(help, /\/oauth/);
 });
 
-test("/auth status renders the current credential-delete blocker", async () => {
+test("/auth status keeps its established normal status rendering", async () => {
   const result = await runCli(["auth", "/auth", "status", "--no-write-export"]);
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /Credential delete: BLOCKED\/UNPROVEN until a documented native transactional delete adapter exists/);
-  assert.doesNotMatch(result.stdout, /permanently delete/);
+  assert.equal(result.stdout, "Account Center: status observed\nSource: fixture\nAccounts observed: 4\nRoutes observed: 1\nVerification: UNPROVEN\n");
+  assert.doesNotMatch(result.stdout, /Credential delete|delete:/i);
 });
 
 test("/oauth is rejected as a manual chat command", () => {

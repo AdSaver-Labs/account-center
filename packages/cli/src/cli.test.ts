@@ -776,27 +776,7 @@ test("/auth delete status-adapter failures fail closed with an opaque unproven r
       }
     }
     assert.equal(await lstat(receiptPath).then(() => true, () => false), false, "the caller-selected path is never written");
-    const receiptDir = join(root, "data", "receipts");
-    const names = await readdir(receiptDir);
-    assert.equal(names.length, 2);
-    assert.match(names[0]!, /^rcpt_[A-Za-z0-9_-]{32}\.json$/);
-    const receiptFile = join(receiptDir, names[0]!);
-    assert.equal((await lstat(receiptDir)).mode & 0o777, 0o700);
-    assert.equal((await lstat(receiptFile)).mode & 0o777, 0o600);
-    const receipt = await readFile(receiptFile, "utf8");
-    assert.deepEqual(JSON.parse(receipt), {
-      schemaVersion: "account-center.persisted-route-receipt.v1",
-      action: "account.delete",
-      outcome: "unproven",
-      applied: false,
-      dryRun: true,
-      liveRuntimeMutation: false,
-      receiptId: "receipt-redacted",
-      warningCodes: ["status_adapter_unavailable", "no_live_mutation"]
-    });
-    for (const privateValue of [hostile, cli, receiptPath, "/srv/private/account-center/adapter.ts:42", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
-      assert.equal(receipt.includes(privateValue), false, privateValue);
-    }
+    assert.equal(await lstat(join(root, "data", "blocked-delete-receipts")).then(() => true, () => false), false, "a requested path suppresses boundary persistence");
   } finally {
     if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
     else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;

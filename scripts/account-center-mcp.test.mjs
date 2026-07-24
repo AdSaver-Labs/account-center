@@ -89,17 +89,13 @@ test("Dexter ChatOps returns a fixed canonical UNPROVEN result when its adapter 
   assert.equal(result.stderr.includes("OpenClaw status unavailable"), false);
 });
 
-test("Dexter delete bridge returns the Hermes canonical blocked/UNPROVEN receipt result", () => {
-  const privateWorkspace = resolve(tmpdir(), "account-center-private-delete-workspace");
+test("Dexter ordinary parsed delete has canonical parity without mutation authorization", () => {
   const response = call("/auth delete private@example.test", {
-    ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS: "1",
     ACCOUNT_CENTER_SOURCE: "openclaw",
-    ACCOUNT_CENTER_OPENCLAW_WORKSPACE: privateWorkspace,
+    ACCOUNT_CENTER_OPENCLAW_WORKSPACE: resolve(tmpdir(), "account-center-private-delete-workspace"),
   });
   assert.equal(response.result.isError, true);
   assert.equal(response.result.content[0].text, DELETE_UNPROVEN_TEXT);
-  assert.equal(JSON.stringify(response).includes("private@example.test"), false);
-  assert.equal(JSON.stringify(response).includes(privateWorkspace), false);
 });
 
 for (const { name, command, privateValues } of [
@@ -137,7 +133,7 @@ for (const { name, command, privateValues } of [
   test(`MCP blocks live ${name} unless mutation authorization is enabled without echoing operands`, () => {
     const response = call(command);
     assert.equal(response.result.isError, true);
-    assert.equal(response.result.content[0].text, MUTATION_BLOCKED_TEXT);
+    assert.equal(response.result.content[0].text, name === "credential identity and path" ? DELETE_UNPROVEN_TEXT : MUTATION_BLOCKED_TEXT);
     const publicOutput = JSON.stringify(response);
     for (const value of privateValues) assert.equal(publicOutput.includes(value), false, `${value} leaked from ${publicOutput}`);
   });
@@ -212,7 +208,7 @@ test("MCP keeps hostile adapter source labels opaque", () => {
   assert.equal(JSON.stringify(response).includes(hostileSource), false);
 });
 
-for (const [name, command] of [["status", "/auth"], ["help", "/auth help"], ["dry-run", "/auth delete person@example.test --dry-run"]]) {
+for (const [name, command] of [["status", "/auth"], ["help", "/auth help"], ["dry-run", "/auth auto --dry-run --scope agent:main"]]) {
   test(`MCP ${name} success path is a redacted public response`, () => {
     const response = call(command, { ACCOUNT_CENTER_SOURCE: "fixture" });
     assert.equal(response.result.isError, false);

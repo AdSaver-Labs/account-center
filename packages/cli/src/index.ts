@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -18,7 +19,6 @@ import {
   MutationScope,
   nextEligible,
   parseRuntimeSource,
-  persistRedactedReceipt,
   probeProviders,
   publicDoctorView,
   PublicStatusView,
@@ -44,7 +44,7 @@ interface CliOptions {
   model?: string;
   limit: number;
   statusPath: string;
-  receiptPath: string;
+  receiptRequested: boolean;
   writeExport: boolean;
   source: "fixture" | "openclaw" | "generic-command";
   apply: boolean;
@@ -110,7 +110,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const guarded = guardStatus(status, options.provider, options.runtime, options.model);
     const receipt = createReceipt({ action: "guard.check", dryRun: true, summary: guarded.reason, target: guarded.next });
     const ensured = options.ensureRoute && guarded.ok
-      ? (await adapter.mutate({ action: "route.auto", target: guarded.next, apply: options.apply, provider: options.provider, runtime: options.runtime, receiptPath: options.receiptPath })).payload
+      ? (await adapter.mutate({ action: "route.auto", target: guarded.next, apply: options.apply, provider: options.provider, runtime: options.runtime })).payload
       : undefined;
     const payload = publicGuardView(status, guarded, receipt, ensured);
     return { code: guarded.ok ? 0 : 2, stdout: options.json ? json(payload) : renderGuard(payload) };
@@ -157,7 +157,6 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       apply: options.apply,
       provider: options.provider,
       runtime: options.runtime,
-      receiptPath: options.receiptPath,
       scope,
       ...(review ? { review, reviewToken: review.token } : {}),
       ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {})
@@ -175,8 +174,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       target,
       apply: options.apply,
       provider: options.provider,
-      runtime: options.runtime,
-      receiptPath: options.receiptPath
+      runtime: options.runtime
     });
     const view = publicMutationView(mutation.payload);
     return { code: mutation.code, stdout: options.json ? json(view) : renderMutation(view) };
@@ -187,8 +185,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       target,
       apply: options.apply,
       provider: options.provider,
-      runtime: options.runtime,
-      receiptPath: options.receiptPath
+      runtime: options.runtime
     });
     const view = publicMutationView(mutation.payload);
     return { code: mutation.code, stdout: options.json ? json(view) : renderMutation(view) };
@@ -206,7 +203,7 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     model: valueAfter(argv, "--model"),
     limit: parseAuditListLimit(valueAfter(argv, "--limit")),
     statusPath: resolve(cwd, valueAfter(argv, "--status-path") ?? ".account-center/status-export.json"),
-    receiptPath: resolve(cwd, valueAfter(argv, "--receipt-path") ?? `.account-center/receipts/${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
+    receiptRequested: valueAfter(argv, "--receipt-path") !== undefined,
     writeExport: !argv.includes("--no-write-export"),
     source: parseSourceOption(argv),
     apply: argv.includes("--apply"),
@@ -463,8 +460,17 @@ async function credentialDeleteStatusFailure(options: CliOptions): Promise<CliRe
     liveRuntimeMutation: false,
     receipt: { id: "receipt-redacted", action: "account.delete", dryRun: true, warnings: ["status_adapter_unavailable", "no_live_mutation"] }
   };
-  await persistRedactedReceipt(options.receiptPath, receipt);
+  // A caller-selected receipt pathname is never inspected or written. If one
+  // was supplied, leave persistence absent; otherwise only this CLI boundary
+  // may ask the descriptor-safe helper for an opaque durable record.
+  if (!options.receiptRequested) persistBlockedDeleteReceipt();
   return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
+}
+
+function persistBlockedDeleteReceipt(): void {
+  const root = resolve(process.env.ACCOUNT_CENTER_DATA_DIR ?? join(homedir(), ".account-center"));
+  const helper = resolve(new URL("../../../scripts/persist_blocked_delete_receipt.py", import.meta.url).pathname);
+  try { spawnSync("python3", [helper, root], { stdio: "ignore", timeout: 5_000 }); } catch { /* fail closed: output remains opaque */ }
 }
 
 async function mutationLifecycle(): Promise<{ secret: string; repository: MutationRepository }> {
@@ -501,8 +507,7 @@ function renderStatus(status: PublicStatusView): string {
     `Source: ${status.source}`,
     `Accounts observed: ${status.profiles.length}`,
     `Routes observed: ${status.routes.length}`,
-    "Verification: UNPROVEN",
-    "Credential delete: BLOCKED/UNPROVEN until a documented native transactional delete adapter exists"
+    "Verification: UNPROVEN"
   ].join("\n") + "\n";
 }
 

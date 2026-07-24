@@ -38,7 +38,6 @@ export interface CommandRequest {
   runtime?: string;
   model?: string;
   apply?: boolean;
-  receiptPath?: string;
   scope?: MutationScope;
   review?: MutationReview;
   reviewToken?: string;
@@ -70,7 +69,7 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   if (["route.auto", "route.use", "route.remove"].includes(action) && request.scope && !isObservedExactAgentScope(status, request.scope, provider, runtime)) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "observed_agent_scope_required") };
   if (["route.auto", "route.use", "route.remove"].includes(action) && request.apply !== true && deps.mutation && request.scope && target) {
     const review = createMutationReview({ action, provider, runtime, scope: request.scope, target }, { secret: deps.mutation.secret });
-    const preview = await deps.adapter.mutate({ action, target, apply: false, provider, runtime, receiptPath: request.receiptPath ?? ".account-center/receipts/executor.json", scope: request.scope });
+    const preview = await deps.adapter.mutate({ action, target, apply: false, provider, runtime, scope: request.scope });
     const payload = asMutation(preview.payload, action, target)!;
     return { code: preview.code, kind: "mutation", mutation: { ...payload, review, confirmationToken: encodeReview(review) } };
   }
@@ -83,7 +82,6 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
     apply: request.apply === true,
     provider,
     runtime,
-    receiptPath: request.receiptPath ?? ".account-center/receipts/executor.json",
     ...(authorization.kind === "confirmed" ? { routeCapability: mintRouteCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
   });
   const payload = asMutation(result.payload, action, target);

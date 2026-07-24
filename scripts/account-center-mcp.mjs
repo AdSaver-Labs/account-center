@@ -120,6 +120,12 @@ async function runAuth(command) {
       content: [{ type: 'text', text: MUTATION_BLOCKED_TEXT }],
     };
   }
+  // An ordinary manual delete maps to the parser's implied --dry-run. It is a
+  // fixed fail-closed result, not an authorization request, so return the
+  // exact CLI/Hermes canonical bytes before generic mutation gating.
+  if (deleteRequest && inspection.invocation[0] === 'accounts' && inspection.invocation[1] === 'delete' && !inspection.invocation.includes('--apply')) {
+    return opaqueFailure(true);
+  }
   if (inspection.mutationCapable && !inspection.explicitlyDryRun && !ALLOW_MUTATIONS) {
     return {
       isError: true,

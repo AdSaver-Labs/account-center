@@ -1,9 +1,9 @@
-import { access, chmod, lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { verifiesExecutorRouteCapability } from "./command-executor.js";
 import { AccountCenterStatus, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
 import { createReceipt } from "./policy.js";
@@ -40,7 +40,6 @@ export interface RuntimeMutationInput {
   apply: boolean;
   provider: string;
   runtime: string;
-  receiptPath: string;
   /** Opaque, executor-minted, one-operation authorization; a boolean is never sufficient. */
   routeCapability?: unknown;
   /** OpenClaw route mutations are deliberately limited to one exact agent. */
@@ -63,7 +62,6 @@ export interface OpenClawAdapterConfig {
   workspace?: string;
   cli?: string;
   agentDir?: string;
-  receiptDir?: string;
   runner?: CommandRunner;
 }
 
@@ -105,14 +103,12 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   private readonly workspace: string;
   private readonly cli: string;
   private readonly agentDir: string;
-  private readonly receiptDir: string;
   private readonly runner: CommandRunner;
 
   constructor(config: OpenClawAdapterConfig = {}) {
     this.workspace = resolve(config.workspace ?? process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE ?? join(homedir(), ".openclaw", "workspace"));
     this.cli = resolve(config.cli ?? process.env.ACCOUNT_CENTER_OPENCLAW_CLI ?? join(this.workspace, "ops", "scripts", "oauth_routing_cli.py"));
     this.agentDir = resolve(config.agentDir ?? process.env.ACCOUNT_CENTER_OPENCLAW_AGENT_DIR ?? join(dirname(this.workspace), "agents", "main", "agent"));
-    this.receiptDir = resolve(config.receiptDir ?? process.env.ACCOUNT_CENTER_RECEIPT_DIR ?? ".account-center/receipts");
     this.runner = config.runner ?? execFileRunner;
   }
 
@@ -178,7 +174,6 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     const blocked = async (reason: string, warning: string): Promise<RuntimeMutationResult> => {
       const receipt = createReceipt({ action: input.action, dryRun: true, target: input.target, summary: "OpenClaw route apply was not authorized or could not be proven; no applied receipt was issued.", before: routeBefore(before), warnings: [warning, "no_live_mutation"] });
       const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason };
-      await writeReceipt(input.receiptPath, payload);
       return { code: 2, payload };
     };
     if (input.scope?.kind !== "agent" || !isExactAgentScope(input.scope.id)) return blocked("explicit_agent_scope_required", "explicit_agent_scope_required");
@@ -232,14 +227,12 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       verification: { kind: "verified", route: routeBefore(after) },
       proof: routeApplyProof(input.action, input.scope.id, expectedTarget, before, after)
     };
-    await writeReceipt(input.receiptPath, payload);
     return { code: 0, payload };
   }
 
   private async routeFailure(input: RuntimeMutationInput, before: AccountCenterStatus, reason: string, warning: string): Promise<RuntimeMutationResult> {
     const receipt = createReceipt({ action: input.action, dryRun: false, target: input.target, summary: "OpenClaw route operation did not receive an applied receipt because its native result or fresh verification was not proven.", before: routeBefore(before), warnings: [warning, "recovery_required"] });
     const payload = { applied: false, dryRun: false, liveRuntimeMutation: true, receipt, reason, verification: { kind: "unproven" } };
-    await writeReceipt(input.receiptPath, payload);
     return { code: 2, payload };
   }
 
@@ -265,7 +258,6 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
         warnings: [reason, "no_live_mutation", "exact_match_required"]
       });
       const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason };
-      await writeReceipt(input.receiptPath, payload);
       return { code: 2, payload };
     }
     const target = resolution.profile.id;
@@ -288,7 +280,6 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       reason: "atomic_delete_transaction_not_implemented",
       resolvedTarget: redactProfileArg(target)
     };
-    await writeReceipt(input.receiptPath, payload);
     return { code: 2, payload };
   }
 
@@ -366,7 +357,6 @@ export class GenericCommandRuntimeAdapter implements RuntimeAdapter {
       warnings: ["generic_apply_requires_protected_native_adapter", "no_live_mutation"]
     });
     const payload = { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason: "generic_apply_requires_protected_native_adapter" };
-    await writeReceipt(input.receiptPath, payload);
     return { code: 2, payload };
   }
 }
@@ -602,160 +592,6 @@ async function exists(path: string): Promise<boolean> {
 async function pathCheck(name: string, path: string): Promise<{ name: string; ok: boolean; detail: string }> {
   return { name, ok: await exists(path), detail: path };
 }
-
-async function writeReceipt(path: string, payload: unknown): Promise<void> {
-  await persistRedactedReceipt(path, payload);
-}
-
-/**
- * Persist an allow-listed receipt without ever writing at a caller-selected
- * pathname. The supplied path is only an opt-in request: it must name a
- * currently absent, non-symlink path with non-symlink existing parents. A
- * rejected request creates no receipt at all. Accepted requests are written
- * under Account Center's process-owned receipt directory with an opaque,
- * exclusively-created filename.
- */
-export async function persistRedactedReceipt(requestedPath: string, payload: unknown): Promise<boolean> {
-  try {
-    if (!(await safeReceiptRequest(requestedPath))) return false;
-    const directory = await privateReceiptDirectory();
-    const directoryHandle = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    try {
-      // Receipts cross a persistence boundary. Redacting arbitrary payloads is
-      // insufficient because route snapshots contain identity-bearing ids and
-      // route order. Persist a small allow-list projection instead.
-      const data = `${JSON.stringify(persistedReceipt(payload), null, 2)}\n`;
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const filename = `rcpt_${randomBytes(24).toString("base64url")}.json`;
-        let handle;
-        try {
-          handle = await open(join(directory, filename), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-        } catch (error) {
-          if (isErrno(error, "EEXIST")) continue;
-          return false;
-        }
-        try {
-          const stat = await handle.stat();
-          if (!stat.isFile() || stat.nlink !== 1) return false;
-          await handle.writeFile(data, { encoding: "utf8" });
-          await handle.chmod(0o600);
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-        await directoryHandle.sync();
-        return true;
-      }
-      return false;
-    } finally {
-      await directoryHandle.close();
-    }
-  } catch {
-    return false;
-  }
-}
-
-async function safeReceiptRequest(path: string): Promise<boolean> {
-  const requested = resolve(path);
-  const parents: string[] = [];
-  for (let current = dirname(requested); ; current = dirname(current)) {
-    parents.push(current);
-    if (current === dirname(current)) break;
-  }
-  for (const parent of parents.reverse()) {
-    try {
-      const stat = await lstat(parent);
-      if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-    } catch (error) {
-      if (isErrno(error, "ENOENT")) break;
-      return false;
-    }
-  }
-  try {
-    // Any existing final entry is unsafe: this deliberately preserves files,
-    // directories, symlinks, and hardlink-like entries without overwriting.
-    await lstat(requested);
-    return false;
-  } catch (error) {
-    return isErrno(error, "ENOENT");
-  }
-}
-
-async function privateReceiptDirectory(): Promise<string> {
-  const root = resolve(process.env.ACCOUNT_CENTER_DATA_DIR ?? join(homedir(), ".account-center"));
-  const directory = join(root, "receipts");
-  await ensureNonSymlinkDirectory(directory);
-  const stat = await lstat(directory);
-  const uid = process.getuid?.();
-  if (!stat.isDirectory() || stat.isSymbolicLink() || uid === undefined || stat.uid !== uid) throw new Error("unsafe_private_receipt_directory");
-  await chmod(directory, 0o700);
-  return directory;
-}
-
-function isErrno(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-
-async function ensureNonSymlinkDirectory(directory: string): Promise<void> {
-  const chain: string[] = [];
-  for (let current = resolve(directory); ; current = dirname(current)) {
-    chain.push(current);
-    if (current === dirname(current)) break;
-  }
-  for (const current of chain.reverse()) {
-    try {
-      const entry = await lstat(current);
-      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("unsafe_receipt_directory");
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-      await mkdir(current, { mode: 0o700 });
-      const created = await lstat(current);
-      if (!created.isDirectory() || created.isSymbolicLink()) throw new Error("unsafe_receipt_directory");
-    }
-  }
-}
-
-function persistedReceipt(payload: unknown): Record<string, unknown> {
-  const value = isRecord(payload) ? payload : {};
-  const receipt = isRecord(value.receipt) ? value.receipt : {};
-  const action = typeof receipt.action === "string" && /^(route\.(auto|use|remove)|account\.delete)$/.test(receipt.action) ? receipt.action : "unknown";
-  const warnings = Array.isArray(receipt.warnings)
-    ? receipt.warnings.filter((warning): warning is string => typeof warning === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(warning)).slice(0, 16)
-    : [];
-  const persisted: Record<string, unknown> = {
-    schemaVersion: "account-center.persisted-route-receipt.v1",
-    action,
-    outcome: value.applied === true ? "applied" : value.liveRuntimeMutation === true || value.outcome === "unproven" ? "unproven" : "not_applied",
-    applied: value.applied === true,
-    dryRun: value.dryRun === true,
-    liveRuntimeMutation: value.liveRuntimeMutation === true,
-    receiptId: typeof receipt.id === "string" && /^evt_[A-Za-z0-9_-]{1,100}$/.test(receipt.id) ? receipt.id : "receipt-redacted",
-    warningCodes: warnings
-  };
-  const proof = persistedRouteProof(value.proof);
-  if (proof) persisted.proof = proof;
-  return persisted;
-}
-
-function persistedRouteProof(value: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(value) || !isRecord(value.nativeEvent) || !isRecord(value.verification)) return undefined;
-  const native = value.nativeEvent;
-  const verification = value.verification;
-  if ((native.action !== "route.auto" && native.action !== "route.use" && native.action !== "route.remove") || native.status !== "verified" || !opaqueProofId(native.scopeId) || !opaqueProofId(native.targetId) || !opaqueProofId(verification.scopeId) || native.scopeId !== verification.scopeId) return undefined;
-  const before = persistedScopeProof(verification.before);
-  const after = persistedScopeProof(verification.after);
-  if (!before || !after) return undefined;
-  return { nativeEvent: { action: native.action, scopeId: native.scopeId, targetId: native.targetId, status: "verified" }, verification: { scopeId: verification.scopeId, before, after } };
-}
-
-function persistedScopeProof(value: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(value) || (value.status !== "observed" && value.status !== "absent") || !Array.isArray(value.orderTargetIds) || value.orderTargetIds.length > 10 || !value.orderTargetIds.every(opaqueProofId)) return undefined;
-  const activeTargetId = value.activeTargetId;
-  if (activeTargetId !== undefined && !opaqueProofId(activeTargetId)) return undefined;
-  return { status: value.status, ...(typeof activeTargetId === "string" ? { activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] };
-}
-
-function opaqueProofId(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
 
 function requiredTarget(target: string | undefined, action: AuditAction): string {
   if (!target) throw new Error(`${action} requires a target profile`);
