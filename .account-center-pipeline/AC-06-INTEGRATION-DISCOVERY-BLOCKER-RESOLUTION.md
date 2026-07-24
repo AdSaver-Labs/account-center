@@ -100,20 +100,46 @@ type ProofFreshness = {
   satisfiesMinimumStatusRevision: true;
 };
 
-type AuthoritativeCredentialDeletionStatus = {
+type AuthoritativeCredentialDeletionStatusBase = {
   // Echoes the required selector. Both must exactly equal the prepared tuple/transaction.
   transactionId: string;
   target: CredentialTarget;
   // Decimal, non-negative provider revision, numerically monotonic for this exact tuple.
   // A later authoritative mutation/proof for the tuple has a strictly greater revision.
   statusRevision: string;
-  // The only terminal-state discriminant. null means non-terminal/in-progress.
-  terminalState: "deleted" | "rolled_back" | "recovery_required" | null;
-  // Present only for a terminal proof; provider-clock retention deadline.
-  terminalProofExpiresAt: string | null;
   proofFreshness: ProofFreshness;
   receiptHandle: OpaqueReceiptHandle;
 };
+
+type NonterminalCredentialDeletionStatus = AuthoritativeCredentialDeletionStatusBase & {
+  // null is non-terminal/in-progress, not deletion proof.
+  terminalState: null;
+  terminalProofExpiresAt: null;
+  // This commit baseline does not exist in a nonterminal proof and is forbidden.
+  preCommitStatusRevision?: never;
+};
+
+type TerminalNonSuccessCredentialDeletionProof = AuthoritativeCredentialDeletionStatusBase & {
+  // Immutable terminal non-success proof; no deletion commit baseline may be claimed.
+  terminalState: "rolled_back" | "recovery_required";
+  terminalProofExpiresAt: string;
+  preCommitStatusRevision?: never;
+};
+
+type TerminalDeletedCredentialDeletionProof = AuthoritativeCredentialDeletionStatusBase & {
+  // Immutable provider-journaled authoritative deletion proof, never a local receipt field.
+  terminalState: "deleted";
+  terminalProofExpiresAt: string;
+  // Decimal, non-negative provider revision journaled atomically at start of this
+  // transaction's commit, internally bound to its same transaction and exact tuple.
+  // It is provider-derived, never Account Center supplied or locally retained.
+  preCommitStatusRevision: string;
+};
+
+type AuthoritativeCredentialDeletionStatus =
+  | NonterminalCredentialDeletionStatus
+  | TerminalNonSuccessCredentialDeletionProof
+  | TerminalDeletedCredentialDeletionProof;
 
 type PrepareDeleteRequest = {
   // All three values are copied verbatim from one unexpired discovery response.
@@ -171,13 +197,13 @@ Required semantics:
 - **Discover then prepare:** discovery is the only authoritative source of the exact target/revision before a transaction exists. Prepare validates the fresh, same-provider discovery snapshot and its exact live target/revision, takes a provider-owned rollback-capable backup before any store change, reserves one transaction bound permanently to that exact tuple, and mints an unguessable provider-owned `recoveryCapability` with its opaque transaction/receipt handles. It changes neither routing nor credential availability. The capability is sufficient for provider-side recovery/status, but conveys no target, idempotency key, credential, or backup location.
 - **Account Center retention boundary:** Account Center may use the exact target and original idempotency key in the in-memory request that prepares/commits the transaction, but must discard both when that request completes or is interrupted. Its durable receipt contains only operation class, outcome/proof state, timestamps/expiry, and redacted opaque `transactionId`, `receiptHandle`, and `recoveryCapability` correlation metadata. It must not persist raw target fields, a serialized target, a target digest, the raw idempotency key, or an idempotency digest. The provider alone journals the tuple/key binding.
 - **Prepared expiry:** `PreparedDelete.expiresAt` is a provider-clock, immutable deadline for an uncommitted prepared transaction. Before it, commit is permitted only with the original transaction/key. At or after it, a commit that has not already atomically begun is rejected without a credential-store change and can never be revived by replaying a key or capability. Rollback remains accepted for the original transaction/key through and after this deadline; for an uncommitted expired prepare it releases the provider backup and finalizes `rolled_back` without deleting. `recoverCredentialDeletionStatus(recoveryCapability)` is accepted through and after this deadline and must atomically finalize an uncommitted expired prepare as `rolled_back`, or return terminal `recovery_required` if it cannot safely do so. A commit that atomically began before expiry has one provider-journaled outcome; recovery reports that outcome and never starts a second delete.
-- **Commit:** is idempotent only for the supplied `transactionId` and its original idempotency key, affects only that transaction's prepared tuple, is atomic from the provider's perspective, and returns only a redacted/opaque handle. It must never expand to all profiles for a provider or initiate login. A commit reply alone is not deletion success.
+- **Commit:** is idempotent only for the supplied `transactionId` and its original idempotency key, affects only that transaction's prepared tuple, is atomic from the provider's perspective, and returns only a redacted/opaque handle. At the atomic start of commit, the provider must journal the then-current decimal non-negative `statusRevision` as `preCommitStatusRevision`, internally bind it to that same transaction and exact tuple, and retain it in its immutable terminal `deleted` proof. This baseline is provider-owned: Account Center must not supply, alter, infer, or persist it. It must never expand to all profiles for a provider or initiate login. A commit reply alone is not deletion success.
 - **Rollback:** is idempotent only for the supplied transaction/key and restores only the provider-owned prepared backup for that transaction's exact tuple. It may finalize a non-terminal committed outcome as `rolled_back` under provider atomicity rules, but cannot alter an already terminal proof. It is available until finalization, including an uncommitted expiry, without requiring Account Center to retain the tuple/key after a restart.
-- **Recovery/status capability:** after transport failure, timeout, restart, expiry, or uncertain outcome, Account Center calls only `recoverCredentialDeletionStatus(recoveryCapability)`. The provider authenticates the opaque capability, resolves its one journaled transaction and exact tuple internally, performs any safe recovery/finalization, and returns the complete `AuthoritativeCredentialDeletionStatus`. It must not accept a caller target or idempotency key, guess, bind to another tuple, or repeat a destructive write. This capability route is deliberately distinct from normal status.
-- **Normal status proof remains strict:** `getCredentialDeletionStatus` remains the sole ordinary status API and has no capability-only, transaction-only, target-only, default-target, or broad-list form. It requires the paired transaction and complete target selector described above. `AuthoritativeCredentialDeletionStatus` is the sole proof object for both this strict route and the provider-side recovery/status capability route. Each returned proof must carry the journaled exact transaction and full tuple and `proofFreshness.authoritativeRead === true`; Account Center validates all fields when it has an in-memory selector, while after restart the provider capability is the authority that returns the complete bound proof. Its `statusRevision` is numerically monotonic for that exact tuple, and the provider must not satisfy a proof from a cache, export, or pre-commit observation. `terminalState === "deleted"` means that exact tuple is authoritatively absent/deleted at `observedAt`; it must distinguish that result from a merely reordered, hidden, unreadable, inherited, replaced-generation, or provider-wide-cleared profile. `"rolled_back"` and `"recovery_required"` are terminal non-success outcomes; `null` is not terminal and is never success. An old cached Sentinel export, exit status, and generic provider health are not proof.
+- **Recovery/status capability:** after transport failure, timeout, restart, expiry, or uncertain outcome, Account Center calls only `recoverCredentialDeletionStatus(recoveryCapability)`. The provider authenticates the opaque capability, resolves its one journaled transaction and exact tuple internally, performs any safe recovery/finalization, and returns the complete `AuthoritativeCredentialDeletionStatus`. A terminal `deleted` capability response must carry its provider-journaled `preCommitStatusRevision`; Account Center verifies it is decimal/non-negative and that `statusRevision` is numerically strictly greater, without retaining raw target, idempotency key, or baseline across restart. Nonterminal and terminal non-success responses must not claim this deletion baseline. It must not accept a caller target or idempotency key, guess, bind to another tuple, or repeat a destructive write. This capability route is deliberately distinct from normal status.
+- **Normal status proof remains strict:** `getCredentialDeletionStatus` remains the sole ordinary status API and has no capability-only, transaction-only, target-only, default-target, or broad-list form. It requires the paired transaction and complete target selector described above. `AuthoritativeCredentialDeletionStatus` is the sole proof object for both this strict route and the provider-side recovery/status capability route. Each returned proof must carry the journaled exact transaction and full tuple and `proofFreshness.authoritativeRead === true`; Account Center validates all fields when it has an in-memory selector, while after restart the provider capability is the authority that returns the complete bound proof. Its `statusRevision` is numerically monotonic for that exact tuple, and the provider must not satisfy a proof from a cache, export, or pre-commit observation. Only an immutable terminal `deleted` proof carries `preCommitStatusRevision`; nonterminal and terminal non-success proofs must omit it. For a terminal `deleted` proof, both revisions must be decimal non-negative and its `statusRevision` must be numerically strictly greater than its same-transaction-and-tuple-bound `preCommitStatusRevision`; equality, reversal, malformed values, or a baseline not journaled atomically at commit start is `UNPROVEN`. `terminalState === "deleted"` means that exact tuple is authoritatively absent/deleted at `observedAt`; it must distinguish that result from a merely reordered, hidden, unreadable, inherited, replaced-generation, or provider-wide-cleared profile. `"rolled_back"` and `"recovery_required"` are terminal non-success outcomes; `null` is not terminal and is never success. An old cached Sentinel export, exit status, and generic provider health are not proof.
 - **Terminal proof retention/expiry:** once a transaction reaches any terminal state, the provider records an immutable terminal proof and retains the recovery capability and proof for a documented provider-clock `terminalProofExpiresAt` that is no earlier than the prepared deadline and sufficient for the documented recovery window. Before that expiry, recovery/status returns the same transaction-and-exact-tuple-bound terminal proof idempotently and neither commit nor rollback may mutate it. At/after terminal-proof expiry, the provider may retire the capability and journal only after its retention policy; a recovery call must return an explicit `terminal_proof_expired` error, never a partial status or success. Account Center treats expiry or inability to retrieve the retained terminal proof as `UNPROVEN` and preserves only its redacted opaque metadata for escalation.
 
-Account Center may expose deletion success only when (1) its `commitDelete` reply echoes the original transaction, (2) it obtains a subsequent strict `getCredentialDeletionStatus` while its in-memory exact tuple is available, or `recoverCredentialDeletionStatus` from its persisted recovery capability after interruption, (3) the returned proof carries the same journaled transaction and complete exact tuple, (4) `proofFreshness.authoritativeRead` and `satisfiesMinimumStatusRevision` are true, (5) the numeric `statusRevision` is strictly greater than the pre-commit revision, and (6) `terminalState === "deleted"`. Any missing/expired capability or terminal proof, stale/non-monotonic revision, tuple or transaction mismatch, non-terminal/ambiguous result, `rolled_back`, `recovery_required`, transport uncertainty, or inability to obtain fresh proof is `UNPROVEN`; it stops automation and preserves the opaque handles for operator escalation. Recovery may clear `UNPROVEN` only by returning the same transaction-and-tuple-bound fresh proof with terminal state `deleted`; it must otherwise remain `UNPROVEN`/`recovery_required` and must not start a new delete transaction automatically.
+Account Center may expose deletion success only when (1) its `commitDelete` reply echoes the original transaction, (2) it obtains a subsequent strict `getCredentialDeletionStatus` while its in-memory exact tuple is available, or `recoverCredentialDeletionStatus` from its persisted recovery capability after interruption, (3) the returned terminal proof carries the same journaled transaction and complete exact tuple, (4) `proofFreshness.authoritativeRead` and `satisfiesMinimumStatusRevision` are true, (5) its provider-journaled `preCommitStatusRevision` and `statusRevision` are decimal non-negative and the latter is numerically strictly greater than the former, and (6) `terminalState === "deleted"`. After restart, Account Center makes that comparison from the recovery response itself and must not persist raw target, idempotency, or baseline. Any missing/expired capability or terminal proof, absent/nonterminal/locally supplied baseline, malformed/non-monotonic/non-advancing revision, tuple or transaction mismatch, non-terminal/ambiguous result, `rolled_back`, `recovery_required`, transport uncertainty, or inability to obtain fresh proof is `UNPROVEN`; it stops automation and preserves the opaque handles for operator escalation. Recovery may clear `UNPROVEN` only by returning the same transaction-and-tuple-bound fresh terminal proof with terminal state `deleted` and the verified internal revision advance; it must otherwise remain `UNPROVEN`/`recovery_required` and must not start a new delete transaction automatically.
 
 ## Filesystem and receipt boundary
 
@@ -200,12 +226,15 @@ Enablement is eligible for review only when all items are demonstrated with non-
 5. Prepare mints an unguessable provider-owned opaque recovery capability; commit and rollback are idempotent and transaction/key-bound, while capability recovery/status is bound by the provider to exactly that one transaction/tuple and cannot affect another profile, provider, or agent.
 6. Account Center durable receipts contain only permitted redacted opaque metadata and no raw/serialized/digested target or raw/digested idempotency; restart recovery works solely through the persisted recovery capability.
 7. Normal `getCredentialDeletionStatus` remains strict (paired transaction plus full exact target selector), while `recoverCredentialDeletionStatus(recoveryCapability)` returns a complete authoritative proof that includes the provider-journaled transaction and exact tuple.
-8. Fresh authoritative status proof is revisioned and proves the exact selected profile is deleted after commit; it distinguishes the stated false positives.
-9. Prepared expiry is provider-clock enforced: post-expiry unstarted commit is rejected without mutation; rollback/recovery finalize the uncommitted prepare as `rolled_back` or explicit `recovery_required`; a pre-expiry begun commit has one recovered journaled outcome.
-10. Terminal proofs are immutable, capability-retrievable through their documented retention deadline, and then fail explicitly as `terminal_proof_expired`, never guessed success.
-11. Failure, timeout, crash/restart, and uncertain-state cases converge through provider capability recovery/status to a complete terminal proof or explicit `recovery_required`, never a guessed success.
-12. Compatibility tests prove byte-identical normal `/auth status` output, preserve detailed Sentinel output, and preserve Hermes/Dexter weekly-only policy.
-13. An independent security/spec review confirms no direct store edit, undocumented internal, live credential, live Sentinel mutation, or live deletion test was used.
+8. The provider demonstrates that, atomically at commit start, it journals a decimal non-negative `preCommitStatusRevision` internally bound to that same transaction and exact tuple; this provider-owned baseline is neither supplied by Account Center nor present in any local receipt.
+9. The discriminated proof contract permits `preCommitStatusRevision` only on an immutable terminal `deleted` proof; nonterminal and terminal non-success proofs omit it. A terminal deleted proof has decimal non-negative revisions and a numerically strictly greater `statusRevision` than its journaled baseline.
+10. Fixture/sandbox crash-restart evidence shows recovery capability returns that terminal deleted proof and Account Center verifies the internal numeric advance after restart without persisting raw target, idempotency, or baseline; missing/malformed/non-advancing proof remains `UNPROVEN`.
+11. Fresh authoritative status proof is revisioned and proves the exact selected profile is deleted after commit; it distinguishes the stated false positives.
+12. Prepared expiry is provider-clock enforced: post-expiry unstarted commit is rejected without mutation; rollback/recovery finalize the uncommitted prepare as `rolled_back` or explicit `recovery_required`; a pre-expiry begun commit has one recovered journaled outcome.
+13. Terminal proofs are immutable, capability-retrievable through their documented retention deadline, and then fail explicitly as `terminal_proof_expired`, never guessed success.
+14. Failure, timeout, crash/restart, and uncertain-state cases converge through provider capability recovery/status to a complete terminal proof or explicit `recovery_required`, never a guessed success.
+15. Compatibility tests prove byte-identical normal `/auth status` output, preserve detailed Sentinel output, and preserve Hermes/Dexter weekly-only policy.
+16. An independent security/spec review confirms no direct store edit, undocumented internal, live credential, live Sentinel mutation, or live deletion test was used.
 
 ## Rejection evidence / fail-closed conditions
 
@@ -216,6 +245,7 @@ Reject the integration and keep delete `BLOCKED`/`UNPROVEN` if any of the follow
 - Backup/rollback is absent, caller-owned, path-based, non-atomic, undocumented, or cannot be recovered after an interrupted request.
 - A receipt contains secret material or a raw provider filesystem path, is not opaque/redacted, or is only an Account Center local receipt.
 - Proof is based on an exit code, stale status export, generic health, changed auth ordering, disappearance from one listing, cached snapshot, or a live probe without an authoritative exact-target status revision.
+- Recovery lacks a provider-journaled, same-transaction-and-exact-tuple-bound decimal non-negative `preCommitStatusRevision`, exposes it on a nonterminal/non-success proof, or accepts a deleted proof whose `statusRevision` does not numerically strictly advance beyond it.
 - Any validation needs a production credential, live delete/apply, re-login, Sentinel mutation, or modification of the existing AC-06 receipt helper.
 - Normal `/auth status` bytes, detailed Sentinel output, or Hermes/Dexter weekly-only policy change as a side effect.
 
@@ -223,7 +253,7 @@ Reject the integration and keep delete `BLOCKED`/`UNPROVEN` if any of the follow
 
 Request one narrow provider feature, not a general credential-store API:
 
-> **OpenClaw Provider Credential Deletion Transaction v1:** for one exact provider-issued profile identity in one configured agent store, expose documented `discoverCredentialTarget`, `prepareDelete`, `commitDelete`, `rollbackDelete`, strict paired-selector `getCredentialDeletionStatus`, and `recoverCredentialDeletionStatus(recoveryCapability)`. Discovery must be a same-provider authoritative read that returns only the complete exact `CredentialTarget`, a numeric monotonic status revision, and provider-enforced short freshness bounds; prepare must bind verbatim to that unexpired snapshot/revision and mint an unguessable provider-owned opaque recovery capability. The provider retains the tuple/key binding, rollback backup, transaction journal, and terminal proof; recovery/status by capability must return the complete transaction-and-exact-tuple-bound authoritative proof without accepting caller target/idempotency. Define provider-clock prepared-commit expiry, post-expiry rollback/recovery finalization, and immutable terminal-proof retention/explicit expiry. Account Center persists only redacted opaque handle metadata—never raw/serialized/digested target or raw/digested idempotency. The capability must be fixture/sandbox testable without a production credential and must not reuse `models auth login --force`.
+> **OpenClaw Provider Credential Deletion Transaction v1:** for one exact provider-issued profile identity in one configured agent store, expose documented `discoverCredentialTarget`, `prepareDelete`, `commitDelete`, `rollbackDelete`, strict paired-selector `getCredentialDeletionStatus`, and `recoverCredentialDeletionStatus(recoveryCapability)`. Discovery must be a same-provider authoritative read that returns only the complete exact `CredentialTarget`, a numeric monotonic status revision, and provider-enforced short freshness bounds; prepare must bind verbatim to that unexpired snapshot/revision and mint an unguessable provider-owned opaque recovery capability. At atomic commit start, the provider must journal a decimal non-negative `preCommitStatusRevision` internally bound to the same transaction/exact tuple; only an immutable terminal `deleted` proof carries it, and its `statusRevision` must numerically strictly exceed it. Recovery by capability must return this complete bound deleted proof so Account Center can verify the advance after restart without persisting raw target/idempotency/baseline; nonterminal/non-success proofs must not claim the baseline. The provider retains the tuple/key binding, rollback backup, transaction journal, and terminal proof; recovery/status by capability must return the complete transaction-and-exact-tuple-bound authoritative proof without accepting caller target/idempotency. Define provider-clock prepared-commit expiry, post-expiry rollback/recovery finalization, and immutable terminal-proof retention/explicit expiry. Account Center persists only redacted opaque handle metadata—never raw/serialized/digested target or raw/digested idempotency. The capability must be fixture/sandbox testable without a production credential and must not reuse `models auth login --force`.
 
 Until this feature and the acceptance evidence exist, Account Center has no supported deletion integration path.
 
@@ -255,9 +285,17 @@ required = [
     'expiresAt is a provider-enforced short freshness deadline',
     'type CredentialDeletionStatusSelector = {',
     'Both fields are REQUIRED as a paired-consistency selector, never optional.',
-    'type AuthoritativeCredentialDeletionStatus = {',
-    'terminalState: "deleted" | "rolled_back" | "recovery_required" | null;',
-    'terminalProofExpiresAt: string | null;',
+    'type AuthoritativeCredentialDeletionStatusBase = {',
+    'type NonterminalCredentialDeletionStatus =',
+    'type TerminalNonSuccessCredentialDeletionProof =',
+    'type TerminalDeletedCredentialDeletionProof =',
+    'preCommitStatusRevision: string;',
+    'preCommitStatusRevision?: never;',
+    'journal the then-current decimal non-negative `statusRevision` as `preCommitStatusRevision`',
+    'internally bind it to that same transaction and exact tuple',
+    'Only an immutable terminal `deleted` proof carries `preCommitStatusRevision`',
+    'statusRevision` must be numerically strictly greater than its same-transaction-and-tuple-bound `preCommitStatusRevision`',
+    'After restart, Account Center makes that comparison from the recovery response itself',
     'proofFreshness: ProofFreshness;',
     'numerically monotonic for this exact tuple',
     'same transaction-and-tuple-bound fresh proof',
@@ -269,6 +307,9 @@ required = [
 ]
 missing = [term for term in required if term not in text]
 assert not missing, missing
+contract = text.split('## Required provider capability contract', 1)[1].split(
+    '## Filesystem and receipt boundary', 1
+)[0]
 for field in ('transactionId: string;', 'target: CredentialTarget;',
               'statusRevision: string;', 'minimumStatusRevision: string;'):
     assert text.count(field) >= 2, f'missing required binding field: {field}'
@@ -299,12 +340,30 @@ normal_status = re.search(
     r': Promise<AuthoritativeCredentialDeletionStatus>', text
 )
 assert normal_status, 'normal status must remain strict paired-selector status'
+deleted = re.search(r'type TerminalDeletedCredentialDeletionProof = .*?\{(?P<body>.*?)\n\};', contract, re.S)
+assert deleted, 'terminal deleted proof type is required'
+deleted_body = deleted.group('body')
+for field in ('terminalState: "deleted";', 'terminalProofExpiresAt: string;',
+              'preCommitStatusRevision: string;'):
+    assert field in deleted_body, f'terminal deleted proof lacks: {field}'
+assert contract.count('preCommitStatusRevision: string;') == 1, \
+    'pre-commit baseline may be required only by terminal deleted proof'
+for typename in ('NonterminalCredentialDeletionStatus',
+                 'TerminalNonSuccessCredentialDeletionProof'):
+    proof = re.search(rf'type {typename} = .*?\{{(?P<body>.*?)\n\}};', contract, re.S)
+    assert proof and 'preCommitStatusRevision?: never;' in proof.group('body'), \
+        f'{typename} must forbid deletion baseline'
+assert 'preCommitStatusRevision?: string;' not in contract, \
+    'optional baseline is forbidden: deleted proof must require it'
+assert 'Account Center must not supply, alter, infer, or persist it.' in contract
+assert 'Nonterminal and terminal non-success responses must not claim this deletion baseline.' in contract
+assert 'malformed/non-monotonic/non-advancing revision' in contract
 assert 'PreparedDelete = {\n  // Opaque provider transaction reference' in text
 prepared = re.search(r'type PreparedDelete = \{(?P<body>.*?)\n\};', text, re.S)
 assert prepared and 'target: CredentialTarget;' not in prepared.group('body'), \
     'prepare response must not make Account Center retain raw target'
 assert 'idempotencyKey:' not in prepared.group('body'), \
     'prepare response must not make Account Center retain idempotency'
-print('AC-06 artifact static contract check: passed')
+print('AC-06 R3 artifact static contract check: passed')
 PY
 ```
