@@ -65,6 +65,24 @@ type OpaqueReceiptHandle = string; // unguessable provider-issued reference; not
 // as the exact tuple (providerId, profileId, agentScope, credentialGeneration).
 // A target is valid only when it resolves to one current, direct saved profile.
 
+// This is a locator only; it cannot be used to prepare or commit a deletion.
+// The provider resolves it atomically and returns the complete canonical tuple.
+type CredentialTargetDiscoveryRequest = {
+  providerId: string;
+  profileId: string;
+  agentScope: string;
+};
+
+type AuthoritativeCredentialTargetDiscovery = {
+  // The complete, provider-issued tuple; no partial target is returned.
+  target: CredentialTarget;
+  // Decimal, non-negative revision, numerically monotonic for this exact tuple.
+  statusRevision: string;
+  // Provider-clock bounds for use as a prepare precondition, RFC 3339 instants.
+  observedAt: string;
+  expiresAt: string;
+};
+
 type CredentialDeletionStatusSelector = {
   // Both fields are REQUIRED as a paired-consistency selector, never optional.
   transactionId: string;
@@ -93,9 +111,11 @@ type AuthoritativeCredentialDeletionStatus = {
 };
 
 type PrepareDeleteRequest = {
+  // All three values are copied verbatim from one unexpired discovery response.
   target: CredentialTarget;
   idempotencyKey: string;
   expectedStatusRevision: string;
+  discoverySnapshot: AuthoritativeCredentialTargetDiscovery;
 };
 
 type PreparedDelete = {
@@ -107,6 +127,9 @@ type PreparedDelete = {
 };
 
 interface ProviderCredentialDeletionV1 {
+  discoverCredentialTarget(
+    request: CredentialTargetDiscoveryRequest
+  ): Promise<AuthoritativeCredentialTargetDiscovery>;
   prepareDelete(request: PrepareDeleteRequest): Promise<PreparedDelete>;
   commitDelete(transactionId: string, idempotencyKey: string): Promise<{
     transactionId: string;
@@ -129,11 +152,15 @@ interface ProviderCredentialDeletionV1 {
 }
 ```
 
+`discoverCredentialTarget` is the required authoritative pre-prepare read, not a broad list, cache, export, status rendering, or transaction-status substitute. For one exact provider/profile/agent locator, the provider authorizes and resolves one direct saved profile atomically and returns **only** the complete canonical `CredentialTarget`, its numeric monotonic `statusRevision`, and the provider-clock freshness bounds above; it returns no credential material, tokens, cookies, emails, paths, backup references, credential metadata, or alternate targets. Ambiguous, inherited, cross-agent, cross-provider, absent, or non-canonical locators fail without a snapshot or mutation. The response is provider-authoritative only when it comes directly from the same provider namespace named by `target.providerId`; Account Center must not construct, merge, cache-substitute, or obtain this snapshot from Sentinel or another provider.
+
+Before `prepareDelete`, Account Center must call `discoverCredentialTarget` and retain that one response as the pre-prepare snapshot. `PrepareDeleteRequest.target` must field-for-field equal `discoverySnapshot.target`, and `expectedStatusRevision` must exactly equal `discoverySnapshot.statusRevision`; the provider rejects every mismatch. It also rejects a snapshot unless it issued that exact tuple/revision, the request is handled by the same provider authority as `target.providerId`, and provider clock is within `observedAt`/`expiresAt` at prepare. `expiresAt` is a provider-enforced short freshness deadline, never caller-extended; an expired, replayed, stale, non-monotonic, cross-provider, or otherwise unverifiable discovery snapshot fails before a transaction, backup, or store change. The provider must compare `expectedStatusRevision` numerically with the then-current revision and reject any change. Thus a prepare can be authorized only by a fresh, same-provider discovery read and never by a pre-existing transaction status (which does not exist until after prepare).
+
 `getCredentialDeletionStatus` has no transaction-only, target-only, default-target, or broad-list form. Its selector is valid only when **both** required values are supplied and they are pairwise consistent: `transactionId` must identify one transaction originally prepared for precisely the supplied full `CredentialTarget`; the supplied tuple must exactly equal that transaction's recorded tuple. Otherwise the provider rejects the request and returns no status proof. `minimumStatusRevision` is required and must be the numeric revision obtained before commit (or the most recently returned authoritative revision during recovery); a response is valid only if its numeric `statusRevision >= minimumStatusRevision`. Account Center must reject a response unless its `transactionId` and every `target` field exactly echo the selector.
 
 Required semantics:
 
-- **Prepare:** validates the exact live target and expected revision, takes a provider-owned rollback-capable backup before any store change, reserves one transaction bound permanently to that exact tuple, and returns an opaque receipt handle. It changes neither routing nor credential availability.
+- **Discover then prepare:** discovery is the only authoritative source of the exact target/revision before a transaction exists. Prepare validates the fresh, same-provider discovery snapshot and its exact live target/revision, takes a provider-owned rollback-capable backup before any store change, reserves one transaction bound permanently to that exact tuple, and returns an opaque receipt handle. It changes neither routing nor credential availability.
 - **Commit:** is idempotent only for the supplied `transactionId` and its original idempotency key, affects only that transaction's prepared tuple, is atomic from the provider's perspective, and returns only a redacted/opaque handle. It must never expand to all profiles for a provider or initiate login. A commit reply alone is not deletion success.
 - **Rollback:** is idempotent only for the supplied transaction/key and restores only the provider-owned prepared backup for that transaction's exact tuple. It must be available until terminal proof is retained under provider policy.
 - **Recover:** is required after transport failure, timeout, restart, or uncertain outcome and is called only with the original transaction/key. It reports a terminal state or `recovery_required`; it must not guess, bind to another tuple, or repeat a destructive write.
@@ -155,15 +182,16 @@ The provider receipt handle is opaque and stable enough to reconcile a transacti
 
 Enablement is eligible for review only when all items are demonstrated with non-production fixture/sandbox evidence supplied by the provider capability owner:
 
-1. A public, versioned OpenClaw/provider document specifies an exact-profile delete interface rather than `login --force`.
-2. The API requires the complete exact target tuple and rejects ambiguous, stale-generation, wrong-agent, inherited, and provider-wide targets before mutation.
-3. Prepare creates a provider-owned rollback-capable backup before change and exposes neither backup content nor location.
-4. Commit, rollback, and recover are idempotent, transaction-bound, and cannot affect another profile, provider, or agent.
-5. The provider returns an opaque redacted receipt handle and Account Center can record only permitted process-private redacted metadata.
-6. Fresh authoritative status proof is revisioned and proves the exact selected profile is deleted after commit; it distinguishes the stated false positives.
-7. Failure, timeout, crash/restart, and uncertain-state cases converge through recover/status to a terminal state or explicit `recovery_required`, never a guessed success.
-8. Compatibility tests prove byte-identical normal `/auth status` output, preserve detailed Sentinel output, and preserve Hermes/Dexter weekly-only policy.
-9. An independent security/spec review confirms no direct store edit, undocumented internal, live credential, live Sentinel mutation, or live deletion test was used.
+1. A public, versioned OpenClaw/provider document specifies `discoverCredentialTarget` plus an exact-profile delete interface rather than `login --force`.
+2. The discovery read returns only a complete exact provider-issued target tuple and numeric monotonic status revision, with provider-enforced freshness bounds and no credential material; it rejects ambiguous, wrong-agent, inherited, and provider-wide locators without mutation.
+3. Prepare is demonstrably bound to one unexpired same-provider discovery snapshot: its tuple and expected revision are copied exactly, stale/replayed/cross-provider snapshots and revision changes fail before a transaction or store change.
+4. Prepare creates a provider-owned rollback-capable backup before change and exposes neither backup content nor location.
+5. Commit, rollback, and recover are idempotent, transaction-bound, and cannot affect another profile, provider, or agent.
+6. The provider returns an opaque redacted receipt handle and Account Center can record only permitted process-private redacted metadata.
+7. Fresh authoritative status proof is revisioned and proves the exact selected profile is deleted after commit; it distinguishes the stated false positives.
+8. Failure, timeout, crash/restart, and uncertain-state cases converge through recover/status to a terminal state or explicit `recovery_required`, never a guessed success.
+9. Compatibility tests prove byte-identical normal `/auth status` output, preserve detailed Sentinel output, and preserve Hermes/Dexter weekly-only policy.
+10. An independent security/spec review confirms no direct store edit, undocumented internal, live credential, live Sentinel mutation, or live deletion test was used.
 
 ## Rejection evidence / fail-closed conditions
 
@@ -181,7 +209,7 @@ Reject the integration and keep delete `BLOCKED`/`UNPROVEN` if any of the follow
 
 Request one narrow provider feature, not a general credential-store API:
 
-> **OpenClaw Provider Credential Deletion Transaction v1:** for one exact provider-issued profile identity in one configured agent store, expose documented `prepareDelete`, `commitDelete`, `rollbackDelete`, `recoverDelete`, and revisioned `getCredentialDeletionStatus`. The provider retains the rollback backup and transaction journal; every response is secret-free and returns only opaque transaction/receipt handles plus authoritative proof state. The capability must be fixture/sandbox testable without a production credential and must not reuse `models auth login --force`.
+> **OpenClaw Provider Credential Deletion Transaction v1:** for one exact provider-issued profile identity in one configured agent store, expose documented `discoverCredentialTarget`, `prepareDelete`, `commitDelete`, `rollbackDelete`, `recoverDelete`, and revisioned `getCredentialDeletionStatus`. Discovery must be a same-provider authoritative read that returns only the complete exact `CredentialTarget`, a numeric monotonic status revision, and provider-enforced short freshness bounds; prepare must bind verbatim to that unexpired snapshot/revision. The provider retains the rollback backup and transaction journal; every response is secret-free and returns only opaque transaction/receipt handles plus authoritative proof state. The capability must be fixture/sandbox testable without a production credential and must not reuse `models auth login --force`.
 
 Until this feature and the acceptance evidence exist, Account Center has no supported deletion integration path.
 
@@ -200,9 +228,16 @@ text = p.read_text(encoding='utf-8')
 required = [
     '2026.7.1-2', 'models auth login --force', 'byte-compatible',
     'weekly-only', 'prepareDelete', 'commitDelete', 'rollbackDelete',
-    'recoverDelete', 'getCredentialDeletionStatus', 'OpaqueReceiptHandle',
+    'recoverDelete', 'discoverCredentialTarget', 'getCredentialDeletionStatus',
+    'OpaqueReceiptHandle',
     'No live credential delete, provider apply, provider probe/test',
     '(providerId, profileId, agentScope, credentialGeneration)',
+    'type CredentialTargetDiscoveryRequest = {',
+    'type AuthoritativeCredentialTargetDiscovery = {',
+    'discoverySnapshot: AuthoritativeCredentialTargetDiscovery;',
+    'expectedStatusRevision must exactly equal `discoverySnapshot.statusRevision`',
+    'same provider authority as `target.providerId`',
+    'expiresAt is a provider-enforced short freshness deadline',
     'type CredentialDeletionStatusSelector = {',
     'Both fields are REQUIRED as a paired-consistency selector, never optional.',
     'type AuthoritativeCredentialDeletionStatus = {',
@@ -216,6 +251,18 @@ assert not missing, missing
 for field in ('transactionId: string;', 'target: CredentialTarget;',
               'statusRevision: string;', 'minimumStatusRevision: string;'):
     assert text.count(field) >= 2, f'missing required binding field: {field}'
+assert re.search(
+    r'discoverCredentialTarget\(\s*request: CredentialTargetDiscoveryRequest\s*\)'
+    r': Promise<AuthoritativeCredentialTargetDiscovery>', text
+), 'authoritative target discovery method is required'
+prepare = re.search(r'type PrepareDeleteRequest = \{(?P<body>.*?)\n\};', text, re.S)
+assert prepare, 'PrepareDeleteRequest is required'
+body = prepare.group('body')
+for field in ('target: CredentialTarget;', 'expectedStatusRevision: string;',
+              'discoverySnapshot: AuthoritativeCredentialTargetDiscovery;'):
+    assert field in body, f'prepare lacks discovery/revision binding: {field}'
+assert 'Before `prepareDelete`, Account Center must call `discoverCredentialTarget`' in text
+assert 'PrepareDeleteRequest.target` must field-for-field equal `discoverySnapshot.target`' in text
 assert not re.search(r'transactionId\?\s*:', text), 'optional status transactionId is forbidden'
 assert not re.search(r'target\?\s*:', text), 'optional status target is forbidden'
 assert re.search(
