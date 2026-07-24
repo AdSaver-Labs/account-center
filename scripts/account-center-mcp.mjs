@@ -19,7 +19,7 @@ const DELETE_UNPROVEN_TEXT =
   'Result: BLOCKED\n' +
   'Verification: UNPROVEN\n\n' +
   'Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n' +
-  'Exact connected-target confirmation remains required before credential deletion.';
+  'Exact connected-target confirmation remains required before credential deletion.\n';
 const INVALID_REQUEST_TEXT = 'Invalid Account Center MCP request.';
 const MUTATION_BLOCKED_TEXT =
   'Blocked potentially mutating Account Center command in Codex MCP.\n\n' +
@@ -141,7 +141,14 @@ async function runAuth(command) {
   } catch {
     return opaqueFailure(deleteRequest);
   }
-  if (proc.error || proc.signal || proc.status !== 0) return opaqueFailure(deleteRequest);
+  // account.delete is already a fixed, target-free public contract rendered by
+  // the CLI. Passing it through unchanged keeps CLI/Hermes/MCP byte-for-byte
+  // aligned instead of letting transport-specific generic redaction rewrite it.
+  if (deleteRequest) {
+    const text = proc.stdout === DELETE_UNPROVEN_TEXT ? proc.stdout : DELETE_UNPROVEN_TEXT;
+    return { isError: Boolean(proc.error || proc.signal || proc.status !== 0), content: [{ type: 'text', text }] };
+  }
+  if (proc.error || proc.signal || proc.status !== 0) return opaqueFailure(false);
   const text = redact(proc.stdout || 'Account Center returned no output.').slice(0, MAX_OUTPUT);
   return {
     isError: false,

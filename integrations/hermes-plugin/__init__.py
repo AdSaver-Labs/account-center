@@ -39,7 +39,7 @@ _DELETE_UNPROVEN_TEXT = (
     "Result: BLOCKED\n"
     "Verification: UNPROVEN\n\n"
     "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n"
-    "Exact connected-target confirmation remains required before credential deletion."
+    "Exact connected-target confirmation remains required before credential deletion.\n"
 )
 
 
@@ -130,12 +130,16 @@ def _run_auth(raw_args: str) -> str:
         )
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
         return _DELETE_UNPROVEN_TEXT if delete_request else _AUTH_UNPROVEN_TEXT
-    output = (proc.stdout or "").strip()
+    output = proc.stdout or ""
     if proc.returncode != 0:
         # The subprocess can contain runtime paths, command diagnostics, or
         # malformed external output. Hermes must expose only the same bounded
         # Account Center outcome contract Dexter receives through ChatOps.
         return _DELETE_UNPROVEN_TEXT if delete_request else _AUTH_UNPROVEN_TEXT
+    if delete_request:
+        # The CLI owns this fixed public result. Do not apply bridge redaction
+        # that could change its canonical wording; reject non-canonical stdout.
+        return output if output == _DELETE_UNPROVEN_TEXT else _DELETE_UNPROVEN_TEXT
     return _redact_output(output or "Account Center returned no output.")[:3900]
 
 

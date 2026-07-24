@@ -38,7 +38,7 @@ const DELETE_UNPROVEN_TEXT =
   "Result: BLOCKED\n" +
   "Verification: UNPROVEN\n\n" +
   "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n" +
-  "Exact connected-target confirmation remains required before credential deletion.";
+  'Exact connected-target confirmation remains required before credential deletion.\n';
 
 test("MCP initializes and lists tools before ignored CLI build artifacts exist", () => {
   const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-clean-"));

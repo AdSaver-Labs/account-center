@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { verifiesExecutorRouteCapability } from "./command-executor.js";
 import { AccountCenterStatus, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
 import { createReceipt } from "./policy.js";
@@ -607,32 +607,93 @@ async function writeReceipt(path: string, payload: unknown): Promise<void> {
   await persistRedactedReceipt(path, payload);
 }
 
-/** Persist the allow-listed receipt without ever surfacing filesystem detail. */
-export async function persistRedactedReceipt(path: string, payload: unknown): Promise<boolean> {
+/**
+ * Persist an allow-listed receipt without ever writing at a caller-selected
+ * pathname. The supplied path is only an opt-in request: it must name a
+ * currently absent, non-symlink path with non-symlink existing parents. A
+ * rejected request creates no receipt at all. Accepted requests are written
+ * under Account Center's process-owned receipt directory with an opaque,
+ * exclusively-created filename.
+ */
+export async function persistRedactedReceipt(requestedPath: string, payload: unknown): Promise<boolean> {
   try {
-    const receiptPath = resolve(path);
-    await ensureNonSymlinkDirectory(dirname(receiptPath));
+    if (!(await safeReceiptRequest(requestedPath))) return false;
+    const directory = await privateReceiptDirectory();
+    const directoryHandle = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try {
-      const existing = await lstat(receiptPath);
-      if (existing.isSymbolicLink() || !existing.isFile()) return false;
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) return false;
-    }
-  // Receipts cross a persistence boundary.  Redacting arbitrary payloads is
-  // insufficient because route snapshots contain identity-bearing ids and
-  // route order.  Persist a small allow-list projection instead.
-    const handle = await open(receiptPath, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
-    try {
-      if (!(await handle.stat()).isFile()) return false;
-      await handle.writeFile(`${JSON.stringify(persistedReceipt(payload), null, 2)}\n`, { encoding: "utf8" });
-      await handle.chmod(0o600);
+      // Receipts cross a persistence boundary. Redacting arbitrary payloads is
+      // insufficient because route snapshots contain identity-bearing ids and
+      // route order. Persist a small allow-list projection instead.
+      const data = `${JSON.stringify(persistedReceipt(payload), null, 2)}\n`;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const filename = `rcpt_${randomBytes(24).toString("base64url")}.json`;
+        let handle;
+        try {
+          handle = await open(join(directory, filename), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        } catch (error) {
+          if (isErrno(error, "EEXIST")) continue;
+          return false;
+        }
+        try {
+          const stat = await handle.stat();
+          if (!stat.isFile() || stat.nlink !== 1) return false;
+          await handle.writeFile(data, { encoding: "utf8" });
+          await handle.chmod(0o600);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        await directoryHandle.sync();
+        return true;
+      }
+      return false;
     } finally {
-      await handle.close();
+      await directoryHandle.close();
     }
-    return true;
   } catch {
     return false;
   }
+}
+
+async function safeReceiptRequest(path: string): Promise<boolean> {
+  const requested = resolve(path);
+  const parents: string[] = [];
+  for (let current = dirname(requested); ; current = dirname(current)) {
+    parents.push(current);
+    if (current === dirname(current)) break;
+  }
+  for (const parent of parents.reverse()) {
+    try {
+      const stat = await lstat(parent);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
+    } catch (error) {
+      if (isErrno(error, "ENOENT")) break;
+      return false;
+    }
+  }
+  try {
+    // Any existing final entry is unsafe: this deliberately preserves files,
+    // directories, symlinks, and hardlink-like entries without overwriting.
+    await lstat(requested);
+    return false;
+  } catch (error) {
+    return isErrno(error, "ENOENT");
+  }
+}
+
+async function privateReceiptDirectory(): Promise<string> {
+  const root = resolve(process.env.ACCOUNT_CENTER_DATA_DIR ?? join(homedir(), ".account-center"));
+  const directory = join(root, "receipts");
+  await ensureNonSymlinkDirectory(directory);
+  const stat = await lstat(directory);
+  const uid = process.getuid?.();
+  if (!stat.isDirectory() || stat.isSymbolicLink() || uid === undefined || stat.uid !== uid) throw new Error("unsafe_private_receipt_directory");
+  await chmod(directory, 0o700);
+  return directory;
+}
+
+function isErrno(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 async function ensureNonSymlinkDirectory(directory: string): Promise<void> {

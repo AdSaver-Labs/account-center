@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { publicMutationView, renderMutation, runCli } from "./index.js";
+import { blockedCredentialDeleteView, publicMutationView, renderMutation, runCli } from "./index.js";
 
 test("serve accepts an equals-form fixture source on an ephemeral loopback port", async () => {
   const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -775,7 +775,15 @@ test("/auth delete status-adapter failures fail closed with an opaque unproven r
         assert.equal(result.stdout.includes(privateValue), false, privateValue);
       }
     }
-    const receipt = await readFile(receiptPath, "utf8");
+    assert.equal(await lstat(receiptPath).then(() => true, () => false), false, "the caller-selected path is never written");
+    const receiptDir = join(root, "data", "receipts");
+    const names = await readdir(receiptDir);
+    assert.equal(names.length, 2);
+    assert.match(names[0]!, /^rcpt_[A-Za-z0-9_-]{32}\.json$/);
+    const receiptFile = join(receiptDir, names[0]!);
+    assert.equal((await lstat(receiptDir)).mode & 0o777, 0o700);
+    assert.equal((await lstat(receiptFile)).mode & 0o777, 0o600);
+    const receipt = await readFile(receiptFile, "utf8");
     assert.deepEqual(JSON.parse(receipt), {
       schemaVersion: "account-center.persisted-route-receipt.v1",
       action: "account.delete",
@@ -831,6 +839,43 @@ test("/auth delete status failure keeps directory and symlink receipt paths opaq
     else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = priorWorkspace;
     if (priorCli === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
     else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = priorCli;
+  }
+});
+
+test("/auth delete unsafe requested receipt entries are opaque and create no private receipt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-auth-delete-parent-symlink-"));
+  const data = join(root, "data");
+  const safeParent = join(root, "safe-parent");
+  const linkedParent = join(root, "linked-parent");
+  const existing = join(root, "existing.json");
+  await mkdir(safeParent);
+  await symlink(safeParent, linkedParent);
+  await writeFile(existing, "preserve-me", "utf8");
+  const previousDataDir = process.env.ACCOUNT_CENTER_DATA_DIR;
+  const previousWorkspace = process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+  const previousCli = process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+  process.env.ACCOUNT_CENTER_DATA_DIR = data;
+  process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = join(root, "missing-workspace");
+  process.env.ACCOUNT_CENTER_OPENCLAW_CLI = join(root, "missing-cli.py");
+  try {
+    for (const receiptPath of [join(linkedParent, "receipt.json"), existing]) {
+      const result = await runCli(["auth", "/auth", "delete", "private@example.test", "--source", "openclaw", "--receipt-path", receiptPath, "--json"], process.cwd(), {
+        runner: async () => ({ code: 1, stdout: "", stderr: "private adapter diagnostic" })
+      });
+      assert.equal(result.code, 2);
+      assert.deepEqual(JSON.parse(result.stdout), blockedCredentialDeleteView());
+      assert.equal(result.stdout.includes(receiptPath), false);
+    }
+    assert.equal(await readFile(existing, "utf8"), "preserve-me");
+    assert.equal(await lstat(join(linkedParent, "receipt.json")).then(() => true, () => false), false);
+    assert.equal(await lstat(join(data, "receipts")).then(() => true, () => false), false);
+  } finally {
+    if (previousDataDir === undefined) delete process.env.ACCOUNT_CENTER_DATA_DIR;
+    else process.env.ACCOUNT_CENTER_DATA_DIR = previousDataDir;
+    if (previousWorkspace === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE = previousWorkspace;
+    if (previousCli === undefined) delete process.env.ACCOUNT_CENTER_OPENCLAW_CLI;
+    else process.env.ACCOUNT_CENTER_OPENCLAW_CLI = previousCli;
   }
 });
 

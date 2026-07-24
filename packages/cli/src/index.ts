@@ -447,7 +447,7 @@ function blockedRouteView(action: "route.auto" | "route.use" | "route.remove"): 
   return { schemaVersion: "account-center.public-mutation.v1", verificationState: "UNPROVEN", applied: false, dryRun: true, liveRuntimeMutation: false, state: "BLOCKED", receipt: { id: "receipt-redacted", action, dryRun: true, target: "redacted-target" } };
 }
 
-function blockedCredentialDeleteView(): PublicMutationView {
+export function blockedCredentialDeleteView(): PublicMutationView {
   return { schemaVersion: "account-center.public-mutation.v1", verificationState: "UNPROVEN", applied: false, dryRun: true, liveRuntimeMutation: false, state: "BLOCKED", receipt: { id: "receipt-redacted", action: "account.delete", dryRun: true, target: "redacted-target" } };
 }
 
@@ -699,6 +699,7 @@ function renderGuard(payload: PublicGuardView): string {
 }
 
 export function renderMutation(payload: PublicMutationView): string {
+  if (payload.receipt.action === "account.delete") return renderBlockedCredentialDelete(payload);
   const { action, target } = payload.receipt;
   const { applied, dryRun, liveRuntimeMutation } = payload;
   const lines: string[] = [];
@@ -753,6 +754,20 @@ export function renderMutation(payload: PublicMutationView): string {
   lines.push(`Target: ${target}`);
   lines.push(`Result: ${payload.state}`);
   return `${lines.join("\n")}\n`;
+}
+
+/** The sole public renderer for fail-closed native credential deletion. */
+export function renderBlockedCredentialDelete(payload: PublicMutationView = blockedCredentialDeleteView()): string {
+  return [
+    "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.",
+    "Action: account.delete",
+    `Target: ${payload.receipt.target}`,
+    "Result: BLOCKED",
+    "Verification: UNPROVEN",
+    "",
+    "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.",
+    "Exact connected-target confirmation remains required before credential deletion."
+  ].join("\n") + "\n";
 }
 
 function renderAccounts(view: ReturnType<typeof publicAccountsView>): string {
