@@ -77,10 +77,13 @@ The CLI uses `tests/fixtures/status.fixture.json` by default and writes token-fr
 After building, launch the local control panel on an ephemeral **loopback-only** port:
 
 ```bash
-node packages/cli/dist/index.js serve --port 0 --source fixture
+umask 077
+token_file="$(mktemp)"
+TOKEN_FILE="$token_file" node -e 'process.stdin.on("data", value => require("node:fs").writeFileSync(process.env.TOKEN_FILE, value.trim() + "\n", { mode: 0o600 }))'
+node packages/cli/dist/index.js serve --port 0 --source fixture --token-file "$token_file"
 ```
 
-The launcher prints the actual `127.0.0.1` URL and a newly generated bearer token for that one process. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`.
+When prompted by the `node -e` command, paste the launch token and press `Ctrl+D`. The token is read from standard input and written only to an owner-only file; it is never a shell argument or terminal output. The launcher prints the actual `127.0.0.1` URL, but never the token. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`, then remove the token file with `rm -f "$token_file"`.
 
 The initial beta path is limited to protected status, limits, scopes, model catalog, local guided-auth challenge inventory/cancellation, and redacted audit/operation history. Routing, model changes, account deletion, and live guided-auth completion remain visibly blocked or `UNPROVEN` until their supported runtime contracts and proof gates exist.
 

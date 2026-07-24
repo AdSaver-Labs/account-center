@@ -1,15 +1,36 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { lstat, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { blockedCredentialDeleteView, publicMutationView, renderMutation, runCli } from "./index.js";
 
-test("serve accepts an equals-form fixture source on an ephemeral loopback port without rendering its supplied bearer token", async () => {
+async function privateTokenFile(token: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "account-center-launch-token-"));
+  const path = join(root, "token");
+  await writeFile(path, `${token}\n`, { mode: 0o600 });
+  await chmod(path, 0o600);
+  return path;
+}
+
+async function rejectedServe(args: string[]): Promise<{ output: string; errors: string; code: number | null }> {
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--source", "fixture", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  let errors = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => { output += chunk; });
+  child.stderr.on("data", (chunk: string) => { errors += chunk; });
+  const code = await once(child, "exit").then(([exitCode]) => exitCode as number | null);
+  return { output, errors, code };
+}
+
+test("serve accepts the documented fixture token-file invocation without rendering its bearer token", async () => {
   const token = "fixture-adversarial-bearer-token-123456789";
-  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture", "--token", token], { stdio: ["ignore", "pipe", "pipe"] });
+  const tokenFile = await privateTokenFile(token);
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source", "fixture", "--token-file", tokenFile], { stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   let errors = "";
   let exited = false;
@@ -87,21 +108,46 @@ test("serve rejects every explicit empty, missing, or option-like source value w
   }
 });
 
-test("serve requires a caller-supplied launch token instead of generating and rendering a bearer credential", async () => {
-  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture"], { stdio: ["ignore", "pipe", "pipe"] });
-  let output = "";
-  let errors = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => { output += chunk; });
-  child.stderr.on("data", (chunk: string) => { errors += chunk; });
-  const code = await new Promise<number | null>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", resolve);
-  });
-  assert.equal(code, 1);
-  assert.equal(output, "");
-  assert.equal(errors, "A launch token is required.\n");
+test("serve rejects missing, repeated, equals, legacy, and option-shaped token-file inputs without launch", async () => {
+  const tokenFile = await privateTokenFile("fixture-adversarial-bearer-token-123456789");
+  const invalidArgs = [
+    [],
+    ["--token-file"],
+    ["--token-file", "--port", "0"],
+    [`--token-file=${tokenFile}`],
+    ["--token-file", tokenFile, "--token-file", tokenFile],
+    ["--token", "fixture-adversarial-bearer-token-123456789"],
+    ["--token=fixture-adversarial-bearer-token-123456789"]
+  ];
+  for (const args of invalidArgs) {
+    const result = await rejectedServe(args);
+    assert.equal(result.code, 1);
+    assert.equal(result.output, "");
+    assert.equal(result.errors, "Launch token file unavailable.\n");
+    assert.equal(`${result.output}${result.errors}`.includes(tokenFile), false);
+    assert.equal(`${result.output}${result.errors}`.includes("fixture-adversarial-bearer-token-123456789"), false);
+  }
+});
+
+test("serve rejects symlinked, insecure, and empty fixture token files without rendering private values", async () => {
+  const token = "fixture-adversarial-bearer-token-123456789";
+  const secure = await privateTokenFile(token);
+  const root = await mkdtemp(join(tmpdir(), "account-center-unsafe-launch-token-"));
+  const link = join(root, "token-link");
+  const insecure = join(root, "token-insecure");
+  const empty = join(root, "token-empty");
+  await symlink(secure, link);
+  await writeFile(insecure, `${token}\n`, { mode: 0o644 });
+  await chmod(insecure, 0o644);
+  await writeFile(empty, "", { mode: 0o600 });
+  for (const path of [link, insecure, empty]) {
+    const result = await rejectedServe(["--token-file", path]);
+    assert.equal(result.code, 1);
+    assert.equal(result.output, "");
+    assert.equal(result.errors, "Launch token file unavailable.\n");
+    assert.equal(`${result.output}${result.errors}`.includes(path), false);
+    assert.equal(`${result.output}${result.errors}`.includes(token), false);
+  }
 });
 
 test("serve rejects repeated valid source options without launching", async () => {

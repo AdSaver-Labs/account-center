@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -854,7 +855,7 @@ function helpText(): string {
   models list
   doctor
   audit list [--limit 20]
-  serve [--port 4317] [--token <local-token>] [--source fixture|openclaw|generic-command] -- launch the local control panel
+  serve [--port 4317] --token-file <owner-only-file> [--source fixture|openclaw|generic-command] -- launch the local control panel
   auth "/auth ..." -- parse and execute manual /auth chat commands
 
 Manual chat compatibility command is /auth. /account is the product namespace.
@@ -918,11 +919,13 @@ async function serveControlPanel(argv: string[]): Promise<void> {
   // Port zero asks the kernel for an ephemeral loopback port. This makes the
   // local, token-protected beta smoke safe to run without competing for 4317.
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
-  const token = valueAfter(argv, "--token");
-  // The bearer credential belongs to the caller's secret channel. Generating
-  // one here and printing it made the CLI's public startup renderer leak it.
-  if (!token || token.startsWith("--")) {
-    process.stderr.write("A launch token is required.\n");
+  let token: string;
+  try {
+    token = await readLaunchTokenFile(argv);
+  } catch {
+    // Do not render a filesystem error: it can contain a secret pathname or
+    // token-shaped file content. The fixed message fails closed instead.
+    process.stderr.write("Launch token file unavailable.\n");
     process.exitCode = 1;
     return;
   }
@@ -931,4 +934,38 @@ async function serveControlPanel(argv: string[]): Promise<void> {
   process.stdout.write(`Account Center local panel: http://127.0.0.1:${address.port}/\nLaunch token: supplied separately.\nPress Ctrl+C to stop.\n`);
   await new Promise<void>((resolve) => process.once("SIGINT", resolve));
   await app.close();
+}
+
+async function readLaunchTokenFile(argv: string[]): Promise<string> {
+  let path: string | undefined;
+  let count = 0;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--token" || argument?.startsWith("--token=")) throw new Error("legacy token input");
+    if (argument?.startsWith("--token-file=")) throw new Error("equals token file input");
+    if (argument !== "--token-file") continue;
+    count += 1;
+    const candidate = argv[index + 1];
+    if (!candidate || candidate.startsWith("--")) throw new Error("invalid token file input");
+    path = candidate;
+  }
+  if (count !== 1 || !path) throw new Error("missing token file input");
+
+  // lstat gives an explicit symlink rejection, while O_NOFOLLOW protects the
+  // final path component from changing before open. Validation is repeated on
+  // the opened descriptor so a race cannot weaken the file contract.
+  const entry = await lstat(path);
+  if (entry.isSymbolicLink() || !entry.isFile()) throw new Error("unsafe token file");
+  const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const metadata = await handle.stat();
+    const uid = process.getuid?.();
+    if (uid === undefined || !metadata.isFile() || (metadata.mode & 0o077) !== 0 || metadata.uid !== uid) throw new Error("unsafe token file");
+    const content = await handle.readFile({ encoding: "utf8" });
+    const match = /^([^\s]+)\r?\n?$/.exec(content);
+    if (!match) throw new Error("invalid token file content");
+    return match[1]!;
+  } finally {
+    await handle.close();
+  }
 }
