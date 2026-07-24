@@ -3,6 +3,14 @@ import { chmod, lstat, mkdir, open, readFile, rename, rm } from "node:fs/promise
 import { join } from "node:path";
 import type { MutationScopeKind } from "./mutation-contract.js";
 
+// ECMAScript's standard Object.prototype own names on the supported Node runtime.
+// It deliberately has no standard own symbols; any symbol is therefore foreign.
+const SAFE_OBJECT_PROTOTYPE_OWN_NAMES = [
+  "constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty",
+  "__lookupGetter__", "__lookupSetter__", "isPrototypeOf", "propertyIsEnumerable",
+  "toString", "valueOf", "__proto__", "toLocaleString"
+] as const;
+
 export type MutationOutcome = "applied" | "not_applied" | "blocked" | "failed";
 export interface MutationAudit {
   action: string;
@@ -114,6 +122,7 @@ export class MutationRepository {
   }
 
   private async withLock<T>(work: () => Promise<T>): Promise<T> {
+    assertSafeObjectPrototype();
     await mkdir(this.root, { recursive: true, mode: 0o700 }); await chmod(this.root, 0o700); await assertPrivateDirectory(this.root);
     try { await mkdir(this.lockPath, { mode: 0o700 }); } catch (error: unknown) { if (isExists(error)) throw new Error("repository_locked"); throw error; }
     try { return await work(); } finally { await rm(this.lockPath, { recursive: true, force: true }); }
@@ -152,6 +161,11 @@ function validateWarnings(values: string[]): string[] { if (values.length > 32 |
 function equalWarnings(left: string[], right: string[]): boolean { return left.length === right.length && left.every((value, index) => value === right[index]); }
 function isMissing(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT"; }
 function isExists(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "EEXIST"; }
+function assertSafeObjectPrototype(): void {
+  for (const key of Reflect.ownKeys(Object.prototype)) {
+    if (typeof key !== "string" || !SAFE_OBJECT_PROTOTYPE_OWN_NAMES.includes(key as typeof SAFE_OBJECT_PROTOTYPE_OWN_NAMES[number])) throw new Error("repository_corrupt");
+  }
+}
 async function assertPrivateDirectory(path: string): Promise<void> { const info = await lstat(path); if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error("unsafe_repository_directory"); }
 async function assertPrivateFile(path: string): Promise<void> { const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error("unsafe_repository_state"); }
 function isState(value: unknown): value is State { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const candidate = value as Partial<State>; return candidate.schemaVersion === "account-center.mutation-repository.v1" && Array.isArray(candidate.operations) && candidate.operations.every(isOperation); }

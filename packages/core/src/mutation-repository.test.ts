@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile as execFileCallback } from "node:child_process";
 import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { MutationRepository } from "./mutation-repository.js";
+
+const execFile = promisify(execFileCallback);
 
 const key = "s3ZMdvUKp3wnaAq8EKUla9B1";
 const input = {
@@ -65,4 +69,49 @@ test("mutation repository rejects malformed persisted operations before a redact
   await chmod(root, 0o700);
 
   await assert.rejects(() => new MutationRepository(root).list(), /repository_corrupt/);
+});
+
+test("mutation repository rejects Object.prototype pollution added after module import", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-mutations-postimport-"));
+  const prototypeKey = "accountCenterPostImportPollution";
+  const originalDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, prototypeKey);
+
+  Object.defineProperty(Object.prototype, prototypeKey, { configurable: true, value: true });
+  try {
+    await assert.rejects(() => new MutationRepository(root).list(), /repository_corrupt/);
+  } finally {
+    if (originalDescriptor) Object.defineProperty(Object.prototype, prototypeKey, originalDescriptor);
+    else Reflect.deleteProperty(Object.prototype, prototypeKey);
+  }
+  assert.deepEqual(await new MutationRepository(root).list(), []);
+  assert.equal(Object.getOwnPropertyDescriptor(Object.prototype, prototypeKey), originalDescriptor);
+});
+
+test("mutation repository rejects Object.prototype pollution present before module import without touching durable state", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "account-center-mutations-preimport-"));
+  const root = join(parent, "repository");
+  const moduleUrl = new URL("./mutation-repository.js", import.meta.url).href;
+  const prototypeKey = "accountCenterPreImportPollution";
+  const script = `
+    import assert from "node:assert/strict";
+    import { access } from "node:fs/promises";
+    const [moduleUrl, root, prototypeKey] = process.argv.slice(1);
+    Object.defineProperty(Object.prototype, prototypeKey, { configurable: true, value: true });
+    try {
+      const { MutationRepository } = await import(moduleUrl);
+      await assert.rejects(() => new MutationRepository(root).list(), /repository_corrupt/);
+      await assert.rejects(() => access(root));
+    } finally {
+      delete Object.prototype[prototypeKey];
+    }
+    assert.equal(Object.hasOwn(Object.prototype, prototypeKey), false);
+    const { MutationRepository } = await import(moduleUrl);
+    assert.deepEqual(await new MutationRepository(root).list(), []);
+    process.stdout.write("pre-import pollution rejected and restored\\n");
+  `;
+
+  const { stdout, stderr } = await execFile(process.execPath, ["--input-type=module", "--eval", script, moduleUrl, root, prototypeKey]);
+  assert.equal(stderr, "");
+  assert.equal(stdout, "pre-import pollution rejected and restored\n");
+  assert.equal(Object.hasOwn(Object.prototype, prototypeKey), false);
 });
