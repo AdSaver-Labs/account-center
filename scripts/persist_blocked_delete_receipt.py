@@ -16,15 +16,20 @@ def fail() -> int:
     return 1
 
 
-def open_dir_component(parent_fd: int, name: str, create: bool) -> int:
+def open_dir_component(parent_fd: int, name: str, create: bool) -> tuple[int, bool]:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     try:
-        return os.open(name, flags, dir_fd=parent_fd)
+        return os.open(name, flags, dir_fd=parent_fd), False
     except FileNotFoundError:
         if not create:
             raise
-        os.mkdir(name, 0o700, dir_fd=parent_fd)
-        return os.open(name, flags, dir_fd=parent_fd)
+        try:
+            os.mkdir(name, 0o700, dir_fd=parent_fd)
+            created = True
+        except FileExistsError:
+            # Another process may have created it after our no-follow open.
+            created = False
+        return os.open(name, flags, dir_fd=parent_fd), created
 
 
 def private_root(path: str) -> int:
@@ -36,7 +41,14 @@ def private_root(path: str) -> int:
         if not parts or any(part in (".", "..") for part in parts):
             raise ValueError("invalid root")
         for part in parts:
-            next_fd = open_dir_component(fd, part, True)
+            next_fd, created = open_dir_component(fd, part, True)
+            if created:
+                try:
+                    # mkdir is durable only once the containing directory is.
+                    os.fsync(fd)
+                except OSError:
+                    os.close(next_fd)
+                    raise
             os.close(fd)
             fd = next_fd
         info = os.fstat(fd)
@@ -80,10 +92,34 @@ def discard_receipt(receipts_fd: int, name: str, receipt_fd: int | None) -> None
         pass
 
 
+def discard_created_directory(parent_fd: int, name: str, directory_fd: int) -> None:
+    """Remove a receipt directory whose creation could not be made durable."""
+    try:
+        os.close(directory_fd)
+    except OSError:
+        pass
+    try:
+        os.rmdir(name, dir_fd=parent_fd)
+    except OSError:
+        pass
+    try:
+        os.fsync(parent_fd)
+    except OSError:
+        pass
+
+
 def persist(root: str) -> bool:
     root_fd = private_root(root)
     try:
-        receipts_fd = open_dir_component(root_fd, "blocked-delete-receipts", True)
+        receipts_fd, receipts_created = open_dir_component(root_fd, "blocked-delete-receipts", True)
+        if receipts_created:
+            try:
+                # The receipt directory itself must survive a crash before it
+                # can contain a receipt claimed as durable.
+                os.fsync(root_fd)
+            except OSError:
+                discard_created_directory(root_fd, "blocked-delete-receipts", receipts_fd)
+                return False
         try:
             info = os.fstat(receipts_fd)
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:

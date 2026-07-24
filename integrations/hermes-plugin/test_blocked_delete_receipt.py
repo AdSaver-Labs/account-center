@@ -64,7 +64,7 @@ class BlockedDeleteReceiptTests(unittest.TestCase):
             self.assertEqual(json.loads(files[0].read_text())["action"], "account.delete")
 
     def test_write_or_sync_fault_fixture_returns_false_without_partial_receipt_success(self):
-        for fault in ("write", "fsync"):
+        for fault in ("write", "file_fsync"):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
                 root = pathlib.Path(temp) / "data"
                 if fault == "write":
@@ -80,12 +80,67 @@ class BlockedDeleteReceiptTests(unittest.TestCase):
 
                     patched = patch.object(RECEIPT_HELPER.os, "write", side_effect=fail_after_partial)
                 else:
-                    patched = patch.object(RECEIPT_HELPER.os, "fsync", side_effect=OSError("injected sync failure"))
+                    real_fsync = os.fsync
+
+                    def fail_file_sync(fd):
+                        if not os.path.isdir(f"/proc/self/fd/{fd}"):
+                            raise OSError("injected file sync failure")
+                        return real_fsync(fd)
+
+                    patched = patch.object(RECEIPT_HELPER.os, "fsync", side_effect=fail_file_sync)
                 with patched:
                     self.assertFalse(RECEIPT_HELPER.persist(str(root)))
                 directory = root / "blocked-delete-receipts"
                 self.assertTrue(directory.is_dir())
                 self.assertEqual(list(directory.iterdir()), [])
+
+    def test_created_components_are_parent_synced_before_descending(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = pathlib.Path(temp)
+            root = base / "first" / "second"
+            events = []
+            real_mkdir = os.mkdir
+            real_fsync = os.fsync
+
+            def identity(fd):
+                info = os.fstat(fd)
+                return info.st_dev, info.st_ino
+
+            def record_mkdir(name, mode=0o777, *, dir_fd=None):
+                events.append(("mkdir", identity(dir_fd), name))
+                return real_mkdir(name, mode, dir_fd=dir_fd)
+
+            def record_fsync(fd):
+                events.append(("fsync", identity(fd)))
+                return real_fsync(fd)
+
+            with patch.object(RECEIPT_HELPER.os, "mkdir", side_effect=record_mkdir), patch.object(RECEIPT_HELPER.os, "fsync", side_effect=record_fsync):
+                self.assertTrue(RECEIPT_HELPER.persist(str(root)))
+
+            mkdir_events = [event for event in events if event[0] == "mkdir"]
+            self.assertEqual([event[2] for event in mkdir_events[-3:]], ["first", "second", "blocked-delete-receipts"])
+            for index, event in enumerate(events):
+                if event[0] == "mkdir":
+                    self.assertEqual(events[index + 1], ("fsync", event[1]))
+
+    def test_receipt_parent_sync_fault_removes_new_receipt_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp) / "data"
+            root.mkdir(mode=0o700)
+            os.chmod(root, 0o700)
+            root_info = root.stat()
+            root_identity = root_info.st_dev, root_info.st_ino
+            real_fsync = os.fsync
+
+            def fail_receipt_parent_sync(fd):
+                info = os.fstat(fd)
+                if (info.st_dev, info.st_ino) == root_identity:
+                    raise OSError("injected receipt-parent sync failure")
+                return real_fsync(fd)
+
+            with patch.object(RECEIPT_HELPER.os, "fsync", side_effect=fail_receipt_parent_sync):
+                self.assertFalse(RECEIPT_HELPER.persist(str(root)))
+            self.assertFalse((root / "blocked-delete-receipts").exists())
 
 
 def stat_mode(path):
