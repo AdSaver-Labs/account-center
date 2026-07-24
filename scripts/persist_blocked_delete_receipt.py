@@ -16,24 +16,6 @@ def fail() -> int:
     return 1
 
 
-def discard_created_directory(parent_fd: int, name: str) -> None:
-    """Best-effort rollback for a child created by this invocation.
-
-    `name` is always resolved relative to the still-open parent descriptor, so
-    neither cleanup nor its durability barrier follows a pathname outside the
-    component being created.  We only call this after *our* mkdir succeeded;
-    an EEXIST race is owned by the other creator and is never removed here.
-    """
-    try:
-        os.rmdir(name, dir_fd=parent_fd)
-    except OSError:
-        pass
-    try:
-        os.fsync(parent_fd)
-    except OSError:
-        pass
-
-
 def open_dir_component(parent_fd: int, name: str, create: bool) -> int:
     """Open a no-follow directory component, creating a durable one if needed."""
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -50,18 +32,12 @@ def open_dir_component(parent_fd: int, name: str, create: bool) -> int:
             return os.open(name, flags, dir_fd=parent_fd)
 
         # A successful mkdir is not durable until its known parent is synced.
-        # This belongs here, before the first post-mkdir reopen, so callers
-        # cannot lose creation ownership if that reopen fails.
-        try:
-            os.fsync(parent_fd)
-        except OSError:
-            discard_created_directory(parent_fd, name)
-            raise
-        try:
-            return os.open(name, flags, dir_fd=parent_fd)
-        except OSError:
-            discard_created_directory(parent_fd, name)
-            raise
+        # Never roll the name back after mkdir: another same-uid actor can
+        # replace it before either the sync or the reopen. Descriptor-relative
+        # rmdir would then delete that actor's directory. Fail closed instead,
+        # leaving at most an empty private directory as harmless residue.
+        os.fsync(parent_fd)
+        return os.open(name, flags, dir_fd=parent_fd)
 
 
 def private_root(path: str) -> int:
@@ -99,14 +75,15 @@ def write_all(fd: int, data: bytes) -> None:
 
 
 def discard_receipt(receipts_fd: int, name: str, receipt_fd: int | None) -> None:
-    """Best-effort cleanup for a receipt which was never durably successful."""
-    if receipt_fd is not None:
-        try:
-            os.close(receipt_fd)
-        except OSError:
-            pass
+    """Best-effort cleanup while the exclusively-created receipt fd is held."""
+    if receipt_fd is None:
+        return
     try:
         os.unlink(name, dir_fd=receipts_fd)
+    except OSError:
+        pass
+    try:
+        os.close(receipt_fd)
     except OSError:
         pass
     # A failed write/sync must not report success. Try to durably record the
@@ -152,9 +129,9 @@ def persist(root: str) -> bool:
                         raise OSError(errno.EIO, "unsafe receipt file")
                     write_all(receipt_fd, data)
                     os.fsync(receipt_fd)
+                    os.fsync(receipts_fd)
                     os.close(receipt_fd)
                     receipt_fd = None
-                    os.fsync(receipts_fd)
                 except OSError:
                     discard_receipt(receipts_fd, name, receipt_fd)
                     return False

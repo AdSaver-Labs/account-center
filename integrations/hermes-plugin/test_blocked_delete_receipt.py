@@ -123,7 +123,7 @@ class BlockedDeleteReceiptTests(unittest.TestCase):
                 if event[0] == "mkdir":
                     self.assertEqual(events[index + 1], ("fsync", event[1]))
 
-    def test_mkdir_success_then_reopen_failure_syncs_and_removes_known_child(self):
+    def test_mkdir_success_then_reopen_failure_syncs_and_never_removes_replacement(self):
         with tempfile.TemporaryDirectory() as temp:
             parent = pathlib.Path(temp)
             parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
@@ -146,6 +146,10 @@ class BlockedDeleteReceiptTests(unittest.TestCase):
                     opens += 1
                     if opens == 1:
                         raise FileNotFoundError()
+                    # Deterministically model a same-owner replacement after
+                    # our mkdir and parent sync but before the failed reopen.
+                    real_rmdir(name, dir_fd=dir_fd)
+                    real_mkdir(name, 0o700, dir_fd=dir_fd)
                     raise OSError("injected post-mkdir reopen failure")
                 return real_open(name, flags, mode, dir_fd=dir_fd)
 
@@ -153,26 +157,22 @@ class BlockedDeleteReceiptTests(unittest.TestCase):
                 events.append(("mkdir", identity(dir_fd), name))
                 return real_mkdir(name, mode, dir_fd=dir_fd)
 
-            def record_rmdir(name, *, dir_fd=None):
-                events.append(("rmdir", identity(dir_fd), name))
-                return real_rmdir(name, dir_fd=dir_fd)
 
             def record_fsync(fd):
                 events.append(("fsync", identity(fd)))
                 return real_fsync(fd)
 
             try:
-                with patch.object(RECEIPT_HELPER.os, "open", side_effect=fail_reopen), patch.object(RECEIPT_HELPER.os, "mkdir", side_effect=record_mkdir), patch.object(RECEIPT_HELPER.os, "rmdir", side_effect=record_rmdir), patch.object(RECEIPT_HELPER.os, "fsync", side_effect=record_fsync):
+                with patch.object(RECEIPT_HELPER.os, "open", side_effect=fail_reopen), patch.object(RECEIPT_HELPER.os, "mkdir", side_effect=record_mkdir), patch.object(RECEIPT_HELPER.os, "rmdir") as mocked_rmdir, patch.object(RECEIPT_HELPER.os, "fsync", side_effect=record_fsync):
                     with self.assertRaisesRegex(OSError, "post-mkdir reopen failure"):
                         RECEIPT_HELPER.open_dir_component(parent_fd, "new-child", True)
             finally:
                 os.close(parent_fd)
 
-            self.assertFalse((parent / "new-child").exists())
+            self.assertTrue((parent / "new-child").is_dir(), "the same-owner replacement must survive the failed reopen")
+            mocked_rmdir.assert_not_called()
             self.assertEqual(events, [
                 ("mkdir", parent_identity, "new-child"),
-                ("fsync", parent_identity),
-                ("rmdir", parent_identity, "new-child"),
                 ("fsync", parent_identity),
             ])
 
@@ -203,7 +203,7 @@ class BlockedDeleteReceiptTests(unittest.TestCase):
             mocked_fsync.assert_not_called()
             mocked_rmdir.assert_not_called()
 
-    def test_receipt_parent_sync_fault_removes_new_receipt_directory(self):
+    def test_receipt_parent_sync_fault_leaves_new_receipt_directory_without_removal(self):
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp) / "data"
             root.mkdir(mode=0o700)
@@ -218,9 +218,11 @@ class BlockedDeleteReceiptTests(unittest.TestCase):
                     raise OSError("injected receipt-parent sync failure")
                 return real_fsync(fd)
 
-            with patch.object(RECEIPT_HELPER.os, "fsync", side_effect=fail_receipt_parent_sync):
+            with patch.object(RECEIPT_HELPER.os, "fsync", side_effect=fail_receipt_parent_sync) as mocked_fsync, patch.object(RECEIPT_HELPER.os, "rmdir") as mocked_rmdir:
                 self.assertFalse(RECEIPT_HELPER.persist(str(root)))
-            self.assertFalse((root / "blocked-delete-receipts").exists())
+            self.assertTrue((root / "blocked-delete-receipts").is_dir())
+            self.assertGreaterEqual(mocked_fsync.call_count, 1, "the parent sync remains required after mkdir")
+            mocked_rmdir.assert_not_called()
 
 
 def stat_mode(path):
