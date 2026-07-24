@@ -78,12 +78,11 @@ After building, launch the local control panel on an ephemeral **loopback-only**
 
 ```bash
 umask 077
-token_file="$(mktemp)"
-TOKEN_FILE="$token_file" node -e 'process.stdin.on("data", value => require("node:fs").writeFileSync(process.env.TOKEN_FILE, value.trim() + "\n", { mode: 0o600 }))'
+token_file="$(node scripts/create-launch-token-file.mjs)"
 node packages/cli/dist/index.js serve --port 0 --source fixture --token-file "$token_file"
 ```
 
-When prompted by the `node -e` command, paste the launch token and press `Ctrl+D`. The token is read from standard input and written only to an owner-only file; it is never a shell argument or terminal output. The launcher prints the actual `127.0.0.1` URL, but never the token. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`, then remove the token file with `rm -f "$token_file"`.
+The token-creation command actually prompts `Paste the launch token, then press Ctrl+D:` on standard error. Paste the token and press `Ctrl+D`; it accumulates standard input and, only at EOF, atomically creates one owner-only token file. Its standard output is only that file path (captured in `token_file`), never the token. The launcher prints the actual `127.0.0.1` URL, but never the token. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`, then remove the owner-only temporary directory with `rm -rf "$(dirname "$token_file")"`.
 
 The initial beta path is limited to protected status, limits, scopes, model catalog, local guided-auth challenge inventory/cancellation, and redacted audit/operation history. Routing, model changes, account deletion, and live guided-auth completion remain visibly blocked or `UNPROVEN` until their supported runtime contracts and proof gates exist.
 

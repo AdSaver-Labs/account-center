@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -177,6 +177,77 @@ test("serve rejects repeated valid source options without launching", async () =
     assert.equal(code, 1);
     assert.equal(output, "");
     assert.equal(errors, "Unsupported Account Center source.\n");
+  }
+});
+
+test("serve uses a closed fixture-only option grammar and accepts one equals-form port", async () => {
+  const token = "fixture-closed-grammar-token-123456789";
+  const tokenFile = await privateTokenFile(token);
+  const invalidCases: Array<{ args: string[]; error: string }> = [
+    { args: ["--unexpected", "value", "--token-file", tokenFile], error: "Invalid serve arguments.\n" },
+    { args: ["--unexpected=value", "--token-file", tokenFile], error: "Invalid serve arguments.\n" },
+    { args: ["positional", "--token-file", tokenFile], error: "Invalid serve arguments.\n" },
+    { args: ["--port", "0", "--port=0", "--token-file", tokenFile], error: "Invalid --port.\n" },
+    { args: ["--port=0", "--port", "0", "--token-file", tokenFile], error: "Invalid --port.\n" },
+    { args: ["--port=", "--token-file", tokenFile], error: "Invalid --port.\n" },
+    { args: ["--port", "--token-file", tokenFile], error: "Invalid --port.\n" }
+  ];
+  for (const { args, error } of invalidCases) {
+    const result = await rejectedServe(args);
+    assert.equal(result.code, 1);
+    assert.equal(result.output, "");
+    assert.equal(result.errors, error);
+    assert.equal(`${result.output}${result.errors}`.includes(token), false);
+    assert.equal(`${result.output}${result.errors}`.includes(tokenFile), false);
+  }
+
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--source=fixture", "--port=0", "--token-file", tokenFile], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => { output += chunk; });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const deadline = setTimeout(() => reject(new Error("equals-form port did not launch")), 5_000);
+      child.stdout.on("data", () => {
+        if (/Account Center local panel: http:\/\/127\.0\.0\.1:\d+\//.test(output)) {
+          clearTimeout(deadline);
+          resolve();
+        }
+      });
+      child.once("error", reject);
+      child.once("exit", (code) => { clearTimeout(deadline); reject(new Error(`equals-form port exited before launch: ${code}`)); });
+    });
+    assert.equal(output.includes(token), false);
+  } finally {
+    child.kill("SIGINT");
+    await once(child, "exit");
+  }
+});
+
+test("stdin launch-token writer accumulates split fixture chunks and writes one owner-only file at EOF", async () => {
+  const token = "fixture-split-chunk-token-123456789";
+  const child = spawn(process.execPath, [new URL("../../../scripts/create-launch-token-file.mjs", import.meta.url).pathname], { stdio: ["pipe", "pipe", "pipe"] });
+  let output = "";
+  let errors = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => { output += chunk; });
+  child.stderr.on("data", (chunk: string) => { errors += chunk; });
+  child.stdin.write("fixture-split-");
+  child.stdin.write("chunk-token-123456789\n");
+  child.stdin.end();
+  const code = await once(child, "exit").then(([exitCode]) => exitCode as number | null);
+  assert.equal(code, 0);
+  assert.match(errors, /Paste the launch token, then press Ctrl\+D:/);
+  assert.equal(`${output}${errors}`.includes(token), false);
+  const path = output.trim();
+  assert.ok(path);
+  try {
+    assert.equal(await readFile(path, "utf8"), `${token}\n`);
+    assert.equal((await lstat(path)).mode & 0o777, 0o600);
+    assert.equal((await lstat(join(path, ".."))).mode & 0o777, 0o700);
+  } finally {
+    await rm(join(path, ".."), { recursive: true, force: true });
   }
 });
 

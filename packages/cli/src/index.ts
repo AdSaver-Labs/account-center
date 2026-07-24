@@ -906,22 +906,17 @@ export function createPersistentControlPanel(options: { token: string; source: C
 }
 
 async function serveControlPanel(argv: string[]): Promise<void> {
-  let source: CliOptions["source"];
+  let options: { source: CliOptions["source"]; port: number; tokenFile: string };
   try {
-    source = parseSourceOption(argv);
-  } catch {
-    process.stderr.write("Unsupported Account Center source.\n");
+    options = parseServeOptions(argv);
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : "Invalid serve arguments."}\n`);
     process.exitCode = 1;
     return;
   }
-  const portValue = valueAfter(argv, "--port") ?? "4317";
-  const port = Number(portValue);
-  // Port zero asks the kernel for an ephemeral loopback port. This makes the
-  // local, token-protected beta smoke safe to run without competing for 4317.
-  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
   let token: string;
   try {
-    token = await readLaunchTokenFile(argv);
+    token = await readLaunchTokenFile(options.tokenFile);
   } catch {
     // Do not render a filesystem error: it can contain a secret pathname or
     // token-shaped file content. The fixed message fails closed instead.
@@ -929,28 +924,66 @@ async function serveControlPanel(argv: string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const app = createPersistentControlPanel({ token, source });
-  const address = await app.listen(port);
+  const app = createPersistentControlPanel({ token, source: options.source });
+  const address = await app.listen(options.port);
   process.stdout.write(`Account Center local panel: http://127.0.0.1:${address.port}/\nLaunch token: supplied separately.\nPress Ctrl+C to stop.\n`);
   await new Promise<void>((resolve) => process.once("SIGINT", resolve));
   await app.close();
 }
 
-async function readLaunchTokenFile(argv: string[]): Promise<string> {
-  let path: string | undefined;
-  let count = 0;
+function parseServeOptions(argv: string[]): { source: CliOptions["source"]; port: number; tokenFile: string } {
+  let source: CliOptions["source"] | undefined;
+  let port = 4317;
+  let tokenFile: string | undefined;
+  let sourceCount = 0;
+  let portCount = 0;
+  let tokenFileCount = 0;
+
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === "--token" || argument?.startsWith("--token=")) throw new Error("legacy token input");
-    if (argument?.startsWith("--token-file=")) throw new Error("equals token file input");
-    if (argument !== "--token-file") continue;
-    count += 1;
-    const candidate = argv[index + 1];
-    if (!candidate || candidate.startsWith("--")) throw new Error("invalid token file input");
-    path = candidate;
+    if (argument === "--token" || argument?.startsWith("--token=") || argument?.startsWith("--token-file=")) throw new Error("Launch token file unavailable.");
+    if (argument === "--token-file") {
+      tokenFileCount += 1;
+      const candidate = argv[++index];
+      if (!isServeOptionValue(candidate)) throw new Error("Launch token file unavailable.");
+      tokenFile = candidate;
+      continue;
+    }
+    if (argument === "--source" || argument?.startsWith("--source=")) {
+      sourceCount += 1;
+      const candidate = argument === "--source" ? argv[++index] : argument.slice("--source=".length);
+      if (sourceCount !== 1 || !isServeOptionValue(candidate)) throw new Error("Unsupported Account Center source.");
+      try { source = parseRuntimeSource(candidate); } catch { throw new Error("Unsupported Account Center source."); }
+      continue;
+    }
+    if (argument === "--port" || argument?.startsWith("--port=")) {
+      portCount += 1;
+      const candidate = argument === "--port" ? argv[++index] : argument.slice("--port=".length);
+      if (portCount !== 1 || !isServeOptionValue(candidate)) throw new Error("Invalid --port.");
+      if (!/^\d+$/.test(candidate)) throw new Error("Invalid --port.");
+      const parsed = Number(candidate);
+      // Port zero asks the kernel for an ephemeral loopback port. This makes
+      // the local, token-protected beta smoke safe to run without competing.
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535) throw new Error("Invalid --port.");
+      port = parsed;
+      continue;
+    }
+    // The launcher has a deliberately closed grammar: no aliases, unknown
+    // options, or positional operands can be silently ignored.
+    throw new Error("Invalid serve arguments.");
   }
-  if (count !== 1 || !path) throw new Error("missing token file input");
+  if (tokenFileCount !== 1 || !tokenFile) throw new Error("Launch token file unavailable.");
+  if (source === undefined) {
+    try { source = parseRuntimeSource(process.env.ACCOUNT_CENTER_SOURCE); } catch { throw new Error("Unsupported Account Center source."); }
+  }
+  return { source, port, tokenFile };
+}
 
+function isServeOptionValue(value: string | undefined): value is string {
+  return typeof value === "string" && value.length > 0 && !value.startsWith("--");
+}
+
+async function readLaunchTokenFile(path: string): Promise<string> {
   // lstat gives an explicit symlink rejection, while O_NOFOLLOW protects the
   // final path component from changing before open. Validation is repeated on
   // the opened descriptor so a race cannot weaken the file contract.
