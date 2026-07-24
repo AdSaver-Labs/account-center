@@ -36,7 +36,7 @@ The provider must expose a supported, versioned, documented interface. Account C
 
 ### Exact target identity
 
-Every operation must accept an opaque, provider-issued `target` identity with all of these fields bound by the provider:
+Every operation must accept one opaque, provider-issued `CredentialTarget` identity. The **exact target tuple** is, in this order, `(providerId, profileId, agentScope, credentialGeneration)`; all four fields are one indivisible identity and comparison is exact field-for-field equality. It is not a partially specified selector.
 
 ```text
 providerId             // canonical provider namespace, e.g. "openai"
@@ -45,7 +45,7 @@ agentScope             // exact configured OpenClaw agent identity/store scope
 credentialGeneration   // provider-issued version/generation for compare-and-delete safety
 ```
 
-The provider resolves and authorizes this tuple atomically. Account Center may select an identity only from a current provider status response; it must never derive identity from a display name, email, filesystem path, config heuristic, or auth-order position. A missing, stale, ambiguous, inherited, or cross-agent target must fail before prepare.
+Validation constraints are mandatory: each field must be a non-empty provider-issued canonical opaque identifier (not whitespace, a display name, email, filename, filesystem path, or Account Center-derived value); `providerId` and `agentScope` must name one configured provider namespace and one configured agent store; `profileId` must resolve to exactly one saved profile in that scope; and `credentialGeneration` must equal that profile's current generation at prepare time. The provider resolves, authorizes, and validates the complete tuple atomically. Account Center may select a tuple only from a current authoritative provider status response; it must never derive identity from a display name, email, filesystem path, config heuristic, or auth-order position. A missing, stale, ambiguous, inherited, cross-agent, cross-provider, or provider-wide target must fail before prepare, without creating a transaction or changing a store.
 
 ### Transaction interface
 
@@ -60,6 +60,37 @@ type CredentialTarget = {
 };
 
 type OpaqueReceiptHandle = string; // unguessable provider-issued reference; not a path or secret
+
+// The provider rejects empty/non-canonical values and treats these four fields
+// as the exact tuple (providerId, profileId, agentScope, credentialGeneration).
+// A target is valid only when it resolves to one current, direct saved profile.
+
+type CredentialDeletionStatusSelector = {
+  // Both fields are REQUIRED as a paired-consistency selector, never optional.
+  transactionId: string;
+  target: CredentialTarget;
+  // Decimal, non-negative authoritative revision; provider compares numerically.
+  minimumStatusRevision: string;
+};
+
+type ProofFreshness = {
+  authoritativeRead: true; // read directly from the provider, never a cache/export
+  observedAt: string; // provider clock, RFC 3339 instant for this read
+  satisfiesMinimumStatusRevision: true;
+};
+
+type AuthoritativeCredentialDeletionStatus = {
+  // Echoes the required selector. Both must exactly equal the prepared tuple/transaction.
+  transactionId: string;
+  target: CredentialTarget;
+  // Decimal, non-negative provider revision, numerically monotonic for this exact tuple.
+  // A later authoritative mutation/proof for the tuple has a strictly greater revision.
+  statusRevision: string;
+  // The only terminal-state discriminant. null means non-terminal/in-progress.
+  terminalState: "deleted" | "rolled_back" | "recovery_required" | null;
+  proofFreshness: ProofFreshness;
+  receiptHandle: OpaqueReceiptHandle;
+};
 
 type PrepareDeleteRequest = {
   target: CredentialTarget;
@@ -92,23 +123,23 @@ interface ProviderCredentialDeletionV1 {
     receiptHandle: OpaqueReceiptHandle;
     state: "prepared" | "committed" | "rolled_back" | "recovery_required";
   }>;
-  getCredentialDeletionStatus(input: {
-    transactionId?: string;
-    target?: CredentialTarget;
-    minimumStatusRevision?: string;
-  }): Promise<AuthoritativeCredentialDeletionStatus>;
+  getCredentialDeletionStatus(
+    selector: CredentialDeletionStatusSelector
+  ): Promise<AuthoritativeCredentialDeletionStatus>;
 }
 ```
 
+`getCredentialDeletionStatus` has no transaction-only, target-only, default-target, or broad-list form. Its selector is valid only when **both** required values are supplied and they are pairwise consistent: `transactionId` must identify one transaction originally prepared for precisely the supplied full `CredentialTarget`; the supplied tuple must exactly equal that transaction's recorded tuple. Otherwise the provider rejects the request and returns no status proof. `minimumStatusRevision` is required and must be the numeric revision obtained before commit (or the most recently returned authoritative revision during recovery); a response is valid only if its numeric `statusRevision >= minimumStatusRevision`. Account Center must reject a response unless its `transactionId` and every `target` field exactly echo the selector.
+
 Required semantics:
 
-- **Prepare:** validates the exact live target and expected revision, takes a provider-owned rollback-capable backup before any store change, reserves one transaction, and returns an opaque receipt handle. It changes neither routing nor credential availability.
-- **Commit:** is idempotent, affects only the prepared tuple, is atomic from the provider's perspective, and returns only a redacted/opaque handle. It must never expand to all profiles for a provider or initiate login.
-- **Rollback:** is idempotent and restores only the provider-owned prepared backup for that transaction. It must be available until terminal proof is retained under provider policy.
-- **Recover:** is required after transport failure, timeout, restart, or uncertain outcome. It reports a terminal state or `recovery_required`; it must not guess or repeat a destructive write.
-- **Status proof:** returns a fresh, authoritative, provider-read status revision after commit/recovery. It must identify the exact requested tuple as absent/deleted and distinguish it from a merely reordered, hidden, unreadable, inherited, or provider-wide-cleared profile. An old cached Sentinel export, exit status, and generic provider health are not proof.
+- **Prepare:** validates the exact live target and expected revision, takes a provider-owned rollback-capable backup before any store change, reserves one transaction bound permanently to that exact tuple, and returns an opaque receipt handle. It changes neither routing nor credential availability.
+- **Commit:** is idempotent only for the supplied `transactionId` and its original idempotency key, affects only that transaction's prepared tuple, is atomic from the provider's perspective, and returns only a redacted/opaque handle. It must never expand to all profiles for a provider or initiate login. A commit reply alone is not deletion success.
+- **Rollback:** is idempotent only for the supplied transaction/key and restores only the provider-owned prepared backup for that transaction's exact tuple. It must be available until terminal proof is retained under provider policy.
+- **Recover:** is required after transport failure, timeout, restart, or uncertain outcome and is called only with the original transaction/key. It reports a terminal state or `recovery_required`; it must not guess, bind to another tuple, or repeat a destructive write.
+- **Status proof:** `AuthoritativeCredentialDeletionStatus` is the sole proof object. It must be returned from a direct provider read after commit/recovery, carry the exact selector's transaction and full tuple, and carry `proofFreshness.authoritativeRead === true`. Its `statusRevision` is numerically monotonic for that exact tuple, and the provider must not satisfy a `minimumStatusRevision` from a cache, export, or pre-commit observation. `terminalState === "deleted"` means that exact tuple is authoritatively absent/deleted at `observedAt`; it must distinguish that result from a merely reordered, hidden, unreadable, inherited, replaced-generation, or provider-wide-cleared profile. `"rolled_back"` and `"recovery_required"` are terminal non-success outcomes; `null` is not terminal and is never success. An old cached Sentinel export, exit status, and generic provider health are not proof.
 
-Account Center may expose success only when a `commitDelete` result is followed by a newer authoritative `getCredentialDeletionStatus` proof for the same target and transaction. Any missing/expired receipt, stale revision, mismatch, ambiguous result, or transport uncertainty is `UNPROVEN`/`recovery_required`, stops automation, and preserves the opaque handle for operator escalation.
+Account Center may expose deletion success only when (1) its `commitDelete` reply echoes the original transaction, (2) it obtains a subsequent `getCredentialDeletionStatus` using that same transaction and complete exact tuple, (3) the returned proof echoes both exactly, (4) `proofFreshness.authoritativeRead` and `satisfiesMinimumStatusRevision` are true, (5) the numeric `statusRevision` is strictly greater than the pre-commit revision, and (6) `terminalState === "deleted"`. Any missing/expired receipt, stale/non-monotonic revision, tuple or transaction mismatch, non-terminal/ambiguous result, `rolled_back`, `recovery_required`, transport uncertainty, or inability to obtain fresh proof is `UNPROVEN`; it stops automation and preserves the opaque transaction/receipt handle for operator escalation. Recovery may clear `UNPROVEN` only by returning the same transaction-and-tuple-bound fresh proof with terminal state `deleted`; it must otherwise remain `UNPROVEN`/`recovery_required` and must not start a new delete transaction automatically.
 
 ## Filesystem and receipt boundary
 
@@ -163,6 +194,7 @@ git diff --check
 git diff --name-only -- . ':!/.account-center-pipeline/AC-06-INTEGRATION-DISCOVERY-BLOCKER-RESOLUTION.md'
 python3 - <<'PY'
 from pathlib import Path
+import re
 p = Path('.account-center-pipeline/AC-06-INTEGRATION-DISCOVERY-BLOCKER-RESOLUTION.md')
 text = p.read_text(encoding='utf-8')
 required = [
@@ -170,9 +202,25 @@ required = [
     'weekly-only', 'prepareDelete', 'commitDelete', 'rollbackDelete',
     'recoverDelete', 'getCredentialDeletionStatus', 'OpaqueReceiptHandle',
     'No live credential delete, provider apply, provider probe/test',
+    '(providerId, profileId, agentScope, credentialGeneration)',
+    'type CredentialDeletionStatusSelector = {',
+    'Both fields are REQUIRED as a paired-consistency selector, never optional.',
+    'type AuthoritativeCredentialDeletionStatus = {',
+    'terminalState: "deleted" | "rolled_back" | "recovery_required" | null;',
+    'proofFreshness: ProofFreshness;',
+    'numerically monotonic for this exact tuple',
+    'same transaction-and-tuple-bound fresh proof',
 ]
 missing = [term for term in required if term not in text]
 assert not missing, missing
+for field in ('transactionId: string;', 'target: CredentialTarget;',
+              'statusRevision: string;', 'minimumStatusRevision: string;'):
+    assert text.count(field) >= 2, f'missing required binding field: {field}'
+assert not re.search(r'transactionId\?\s*:', text), 'optional status transactionId is forbidden'
+assert not re.search(r'target\?\s*:', text), 'optional status target is forbidden'
+assert re.search(
+    r'getCredentialDeletionStatus\(\s*selector: CredentialDeletionStatusSelector', text
+), 'status method must require the paired selector'
 print('AC-06 artifact static contract check: passed')
 PY
 ```
