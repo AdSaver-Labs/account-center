@@ -7,8 +7,9 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { blockedCredentialDeleteView, publicMutationView, renderMutation, runCli } from "./index.js";
 
-test("serve accepts an equals-form fixture source on an ephemeral loopback port", async () => {
-  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture"], { stdio: ["ignore", "pipe", "pipe"] });
+test("serve accepts an equals-form fixture source on an ephemeral loopback port without rendering its supplied bearer token", async () => {
+  const token = "fixture-adversarial-bearer-token-123456789";
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture", "--token", token], { stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   let errors = "";
   let exited = false;
@@ -21,7 +22,7 @@ test("serve accepts an equals-form fixture source on an ephemeral loopback port"
     await new Promise<void>((resolve, reject) => {
       const deadline = setTimeout(() => reject(new Error(`server launch timed out: ${errors}`)), 5_000);
       child.stdout.on("data", () => {
-        if (/Account Center local panel: http:\/\/127\.0\.0\.1:\d+\//.test(output) && /Launch token: [A-Za-z0-9_-]+/.test(output)) {
+        if (/Account Center local panel: http:\/\/127\.0\.0\.1:\d+\//.test(output)) {
           clearTimeout(deadline);
           resolve();
         }
@@ -29,11 +30,11 @@ test("serve accepts an equals-form fixture source on an ephemeral loopback port"
       child.once("error", reject);
       child.once("exit", (code) => { clearTimeout(deadline); reject(new Error(`server exited before launch: ${code}: ${errors}`)); });
     });
-    const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)\/\nLaunch token: ([A-Za-z0-9_-]+)/);
+    const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
     assert.ok(match);
-    const [, port, token] = match;
+    const [, port] = match;
     assert.notEqual(port, "0");
-    assert.match(token, /^[A-Za-z0-9_-]{32}$/);
+    assert.equal(output.includes(token), false, output);
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/status`)).status, 401);
     const status = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${token}` } });
     assert.equal(status.status, 200);
@@ -84,6 +85,23 @@ test("serve rejects every explicit empty, missing, or option-like source value w
     assert.match(errors, /Unsupported Account Center source\./);
     assert.doesNotMatch(errors, /fixture|127\.0\.0\.1|Launch token/);
   }
+});
+
+test("serve requires a caller-supplied launch token instead of generating and rendering a bearer credential", async () => {
+  const child = spawn(process.execPath, [new URL("./index.js", import.meta.url).pathname, "serve", "--port", "0", "--source=fixture"], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  let errors = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => { output += chunk; });
+  child.stderr.on("data", (chunk: string) => { errors += chunk; });
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  assert.equal(code, 1);
+  assert.equal(output, "");
+  assert.equal(errors, "A launch token is required.\n");
 });
 
 test("serve rejects repeated valid source options without launching", async () => {

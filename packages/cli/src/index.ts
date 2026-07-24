@@ -918,10 +918,17 @@ async function serveControlPanel(argv: string[]): Promise<void> {
   // Port zero asks the kernel for an ephemeral loopback port. This makes the
   // local, token-protected beta smoke safe to run without competing for 4317.
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid --port: ${portValue}`);
-  const token = valueAfter(argv, "--token") ?? randomBytes(24).toString("base64url");
+  const token = valueAfter(argv, "--token");
+  // The bearer credential belongs to the caller's secret channel. Generating
+  // one here and printing it made the CLI's public startup renderer leak it.
+  if (!token || token.startsWith("--")) {
+    process.stderr.write("A launch token is required.\n");
+    process.exitCode = 1;
+    return;
+  }
   const app = createPersistentControlPanel({ token, source });
   const address = await app.listen(port);
-  process.stdout.write(`Account Center local panel: http://127.0.0.1:${address.port}/\nLaunch token: ${token}\nPress Ctrl+C to stop.\n`);
+  process.stdout.write(`Account Center local panel: http://127.0.0.1:${address.port}/\nLaunch token: supplied separately.\nPress Ctrl+C to stop.\n`);
   await new Promise<void>((resolve) => process.once("SIGINT", resolve));
   await app.close();
 }
