@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -b && node scripts/checkpoint.mjs build passed",
     "checkpoint": "node scripts/checkpoint.mjs checkpoint passed",
-    "test": "npm run build && node --test \"packages/*/dist/**/*.test.js\" scripts/account-center-mcp.test.mjs && node scripts/checkpoint.mjs test passed",
+    "test": "npm run build && node --test \"packages/*/dist/**/*.test.js\" \"scripts/*.test.mjs\" && node scripts/checkpoint.mjs test passed",
     "test:a11y": "npm run build && playwright test --config=playwright.a11y.config.mjs",
     "qa": "node scripts/quality-gate.mjs",
     "qa:security": "node scripts/quality-gate.mjs --security",

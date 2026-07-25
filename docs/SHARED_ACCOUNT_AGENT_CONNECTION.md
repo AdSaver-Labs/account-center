@@ -50,6 +50,20 @@ const current = automationCapacityExport(status, previousState);
 persist(current.state); // only after the cron gate accepts this decision
 ```
 
+For Hermes, the supported read-only exporter is:
+
+```bash
+node scripts/export-hermes-automation-capacity.mjs --scope profile:default
+```
+
+It invokes only documented status surfaces (`hermes status --all` and
+`hermes auth status <provider>`), emits the same redacted contract, and never
+writes cron state itself. Hermes does not currently document a structured
+capacity response, so a provider result is accepted only when its status output
+explicitly says that capacity, quota, or usage is available. Auth success alone,
+unrecognized output, command failures, timeouts, oversized output, or an
+unreadable prior-state file fail closed to `blocked`.
+
 The output exposes only `connection-*` references, runtime, scope, capacity
 state, worker action, proof classes, and a transition-only notification. The
 persisted file contains only opaque agent references and last states; it does
