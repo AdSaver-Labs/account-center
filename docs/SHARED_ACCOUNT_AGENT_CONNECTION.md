@@ -38,12 +38,41 @@ The app must provide **Connect an agent** instructions for Hermes and OpenClaw:
 
 ## Automation capacity policy
 
-Scheduled Account Center work has a stateful gate:
+Scheduled Account Center work has a per-agent stateful gate. The source of
+truth is `account-center.automation-capacity-export.v1`; its persistable
+`state` member is `account-center.automation-capacity-state.v1`.
+
+The no-agent cron gate calls the local core export and retains its `state`
+member between runs:
+
+```ts
+const current = automationCapacityExport(status, previousState);
+persist(current.state); // only after the cron gate accepts this decision
+```
+
+The output exposes only `connection-*` references, runtime, scope, capacity
+state, worker action, proof classes, and a transition-only notification. The
+persisted file contains only opaque agent references and last states; it does
+not retain a notification, account/profile identifier, email, credential,
+token, or five-hour window.
+
+An agent is **available** only when all of these are true for the same exact
+runtime/scope: its local connection is verified, a usable mapped account is
+readable/authenticated, runtime evidence is freshly `verified`, and provider
+evidence is freshly `available`. An active credential marker alone is never
+runtime or provider evidence. Absent/invalid evidence blocks and pauses work.
+
+For each agent independently:
 
 - provider capacity first becomes unavailable -> one notification, workers pause;
 - unchanged unavailable -> silent monitoring;
-- authoritative provider recovery -> workers resume and one recovery notification;
+- recovery after verified runtime **and** provider evidence -> workers resume and one recovery notification;
 - scheduler exceptions are local-only and must never bypass the stateful notifier.
+
+The state file must be updated only after the cron gate has accepted the local
+decision. If the existing file is malformed or unreadable, the CLI returns a
+blocked result and emits no notification decision; it does not reset the state
+and risk a duplicate alert.
 
 ## Verification requirements
 

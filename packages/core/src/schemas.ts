@@ -102,6 +102,14 @@ export interface AgentConnection {
   profileIds: string[];
   verifiedProfileIds: string[];
   state: "connected" | "needs-auth" | "unavailable";
+  /**
+   * Fresh, credential-free proof from this exact runtime and its provider.
+   * A connected credential or auth marker alone must never imply capacity.
+   */
+  capacityEvidence?: {
+    runtime: { state: "verified" | "unproven"; observedAt: string };
+    provider: { state: "available" | "blocked" | "unproven"; observedAt: string };
+  };
 }
 
 export interface ReauthChallenge {
