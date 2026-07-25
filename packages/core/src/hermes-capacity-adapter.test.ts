@@ -29,14 +29,15 @@ async function canonicalStatus(): Promise<AccountCenterStatus> {
 
 test("Hermes exporter joins fresh runtime proof to canonical mapped OpenClaw/Sentinel capacity", async () => {
   const status = await canonicalStatus();
+  status.profiles.find((candidate) => candidate.id === "openai:helper-1")!.usage.windows.find((window) => window.name === "weekly")!.remainingPct = 3;
   const adapter = new HermesRuntimeCapacityAdapter({ now, scope: "agent:main", runner: runtimeRunner(), statusReader: async () => status });
   const result = await adapter.export();
   assert.deepEqual(result.agents, [{
     agentRef: "connection-1", runtime: "hermes", scope: "agent:main", state: "blocked", workers: "paused",
     reason: "provider-unavailable", evidence: { runtime: "verified", provider: "blocked" }, notification: "automation-blocked"
-  }], "the canonical five-hour window is authoritative even though Hermes is connected");
+  }], "only the canonical weekly window gates Hermes automation");
 
-  status.profiles.find((candidate) => candidate.id === "openai:helper-1")!.usage.windows.find((window) => window.name === "five-hour")!.remainingPct = 84;
+  status.profiles.find((candidate) => candidate.id === "openai:helper-1")!.usage.windows.find((window) => window.name === "weekly")!.remainingPct = 84;
   const available = await adapter.export(result.state);
   assert.deepEqual(available.agents[0], {
     agentRef: "connection-1", runtime: "hermes", scope: "agent:main", state: "available", workers: "running",

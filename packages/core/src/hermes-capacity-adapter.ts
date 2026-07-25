@@ -125,10 +125,9 @@ function canonicalProviderCapacity(status: AccountCenterStatus, profile: Profile
   if (!profile || !validTimestamp(status.generatedAt) || !validTimestamp(profile.usage.generatedAt)) return "unproven";
   if (Math.abs(Date.parse(status.generatedAt) - Date.parse(profile.usage.generatedAt)) > status.policy.staleAfterSeconds * 1_000) return "unproven";
   if (!profile.usage.readable || profile.usage.auth.state !== "ok" || profile.disabled || profile.usage.health === "error") return "unproven";
-  const fiveHour = remaining(profile, "five-hour");
   const weekly = remaining(profile, "weekly");
-  if (fiveHour === undefined || weekly === undefined) return "unproven";
-  return fiveHour < status.policy.minFiveHourRemainingPct || weekly < status.policy.minWeeklyRemainingPct ? "blocked" : "available";
+  if (weekly === undefined) return "unproven";
+  return weekly < status.policy.minWeeklyRemainingPct ? "blocked" : "available";
 }
 
 function providerObservedAt(status: AccountCenterStatus, connection: AgentConnection): string | undefined {
