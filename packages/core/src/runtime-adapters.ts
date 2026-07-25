@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { verifiesExecutorRouteCapability } from "./command-executor.js";
-import { AccountCenterStatus, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
+import { AccountCenterStatus, AgentConnection, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
 import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
@@ -508,6 +508,7 @@ export async function execFileRunner(command: string, args: string[], options: {
     let stderrBytes = 0;
     let outputLimitExceeded = false;
     let timeoutExceeded = false;
+    agentConnections: agentConnectionsFrom(raw, accounts, provider as Profile["provider"]),
     let terminationRequested = false;
     let settled = false;
     let escalation: NodeJS.Timeout | undefined;
@@ -518,6 +519,29 @@ export async function execFileRunner(command: string, args: string[], options: {
       if (terminationRequested) terminateCommandTree(child, "SIGKILL");
       if (escalation) clearTimeout(escalation);
       resolvePromise({ code, stdout, stderr, outputLimitExceeded, timeoutExceeded });
+/**
+ * Sentinel may include the credential-free Account Center mapping for a local
+ * agent. Keep only an exact, known profile mapping; arbitrary native fields
+ * must not cross into the canonical status contract.
+ */
+function agentConnectionsFrom(raw: unknown, accounts: Array<{ id: string }>, provider: Profile["provider"]): AccountCenterStatus["agentConnections"] {
+  if (!isRecord(raw) || !Array.isArray(raw.agentConnections)) return [];
+  const known = new Set(accounts.map((account) => account.id));
+  return raw.agentConnections.flatMap((value): AgentConnection[] => {
+    if (!isRecord(value) || (value.runtime !== "hermes" && value.runtime !== "openclaw") || typeof value.id !== "string" || !isExactAgentConnectionScope(value.scope) || !Array.isArray(value.profileIds) || !Array.isArray(value.verifiedProfileIds) || !["connected", "needs-auth", "unavailable"].includes(String(value.state))) return [];
+    const profileIds = value.profileIds.filter((id): id is string => typeof id === "string" && known.has(id));
+    const verifiedProfileIds = value.verifiedProfileIds.filter((id): id is string => typeof id === "string" && profileIds.includes(id));
+    // A mapped profile belongs to the canonical provider. This prevents a raw
+    // status blob from smuggling a cross-provider identity into Hermes proof.
+    if (!profileIds.every((id) => id.startsWith(`${provider}:`))) return [];
+    return [{ id: value.id, runtime: value.runtime, scope: value.scope, profileIds, verifiedProfileIds, state: value.state as AgentConnection["state"] }];
+  });
+}
+
+function isExactAgentConnectionScope(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}:[a-z0-9_-]{1,64}$/i.test(value);
+}
+
     };
     const terminate = () => {
       if (settled) return;

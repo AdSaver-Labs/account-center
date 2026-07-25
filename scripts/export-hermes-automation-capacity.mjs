@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { HermesRuntimeCapacityAdapter } from "@account-center/core";
 
-const help = `Usage: node scripts/export-hermes-automation-capacity.mjs [--scope profile:default] [--provider openai] [--hermes-bin hermes] [--previous-state path]\n\nRead-only. Calls only \`hermes status --all\` and \`hermes auth status <provider>\`.\nIt prints the redacted automation-capacity export and never persists state; the cron gate\nmust persist its state only after accepting this decision. Exit 0 means available; 2 blocked.\n`;
+const help = `Usage: node scripts/export-hermes-automation-capacity.mjs [--scope profile:default] [--provider openai] [--hermes-bin hermes] [--previous-state path]\n\nRead-only. Calls \`hermes status --all\` only for Hermes runtime proof and reads the\ncanonical Account Center OpenClaw/Sentinel status for the mapped account's provider capacity.\nIt never derives quota from Hermes login/auth text and never persists state; the cron gate\nmust persist its state only after accepting this decision. Exit 0 means available; 2 blocked.\n`;
 
 export async function runHermesCapacityExport(argv = process.argv.slice(2)) {
   const options = parseOptions(argv);

@@ -109,7 +109,9 @@ function validTimestamp(value: string): boolean {
 }
 
 function freshAt(observedAt: string, status: AccountCenterStatus): boolean {
-  if (!validTimestamp(observedAt) || !validTimestamp(status.generatedAt)) return false;
-  const ageMs = Date.parse(status.generatedAt) - Date.parse(observedAt);
-  return ageMs >= 0 && ageMs <= status.policy.staleAfterSeconds * 1_000;
+  if (!validTimestamp(observedAt) || !validTimestamp(status.generatedAt) || !Number.isFinite(status.policy.staleAfterSeconds) || status.policy.staleAfterSeconds < 0) return false;
+  // The Hermes proof and the canonical status are read independently. Either
+  // can finish first, so freshness is bounded by their absolute observation
+  // distance rather than requiring an artificial ordering.
+  return Math.abs(Date.parse(status.generatedAt) - Date.parse(observedAt)) <= status.policy.staleAfterSeconds * 1_000;
 }

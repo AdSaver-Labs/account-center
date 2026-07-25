@@ -56,13 +56,15 @@ For Hermes, the supported read-only exporter is:
 node scripts/export-hermes-automation-capacity.mjs --scope profile:default
 ```
 
-It invokes only documented status surfaces (`hermes status --all` and
-`hermes auth status <provider>`), emits the same redacted contract, and never
-writes cron state itself. Hermes does not currently document a structured
-capacity response, so a provider result is accepted only when its status output
-explicitly says that capacity, quota, or usage is available. Auth success alone,
-unrecognized output, command failures, timeouts, oversized output, or an
-unreadable prior-state file fail closed to `blocked`.
+It invokes `hermes status --all` only for fresh Hermes runtime-connection proof,
+then reads Account Center's canonical no-secret OpenClaw/Sentinel status for the
+provider capacity of the one mapped shared account. Hermes login/auth output is
+never parsed as quota and cannot make work available. The canonical status must
+contain exactly one `hermes` connection for the supplied scope, in `connected`
+state, with exactly one verified mapped account of the requested provider.
+Unreadable/auth-invalid, rate-limited, stale, malformed, unmatched, or
+ambiguous canonical capacity data, command failures, timeouts, oversized output,
+or an unreadable prior-state file fail closed to `blocked`.
 
 The output exposes only `connection-*` references, runtime, scope, capacity
 state, worker action, proof classes, and a transition-only notification. The
@@ -71,10 +73,12 @@ not retain a notification, account/profile identifier, email, credential,
 token, or five-hour window.
 
 An agent is **available** only when all of these are true for the same exact
-runtime/scope: its local connection is verified, a usable mapped account is
-readable/authenticated, runtime evidence is freshly `verified`, and provider
-evidence is freshly `available`. An active credential marker alone is never
-runtime or provider evidence. Absent/invalid evidence blocks and pauses work.
+runtime/scope and the same exact mapped shared account: its local connection is
+verified, that account is readable/authenticated in canonical OpenClaw/Sentinel
+status, Hermes runtime evidence is freshly `verified`, and the canonical
+provider capacity is freshly `available`. An active credential marker or Hermes
+login status alone is never quota evidence. Absent/invalid evidence blocks and
+pauses work.
 
 For each agent independently:
 
@@ -95,3 +99,5 @@ and risk a duplicate alert.
 - fixture: successful Hermes adapter verification creates a scoped lease without secret output;
 - fixture: availability/routing display is weekly-only across app, Hermes, and OpenClaw;
 - fixture: blocked -> unchanged blocked -> recovery yields exactly one alert, silence, one recovery.
+- exporter: available, rate-limited, unmatched/needs-auth, stale, and malformed
+  mapped-account capacity data all retain the two-proof contract.
