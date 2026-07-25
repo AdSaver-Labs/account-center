@@ -65,6 +65,21 @@ test("normalizes OpenClaw router status into Account Center no-secret status", (
   assert.equal(JSON.stringify(status).includes("refreshToken"), false);
 });
 
+test("canonicalizes Hermes openai-codex pairing aliases to the OpenClaw openai account family", () => {
+  const status = normalizeOpenClawStatus({
+    ...routerStatus,
+    agentConnections: [{
+      id: "hermes-default", runtime: "hermes", scope: "profile:default", state: "connected",
+      profileIds: ["openai-codex:helper-1"], verifiedProfileIds: ["openai-codex:helper-1"]
+    }]
+  });
+  assert.equal(status.providers[0]?.key, "openai");
+  assert.deepEqual(status.agentConnections, [{
+    id: "hermes-default", runtime: "hermes", scope: "profile:default", state: "connected",
+    profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"]
+  }]);
+});
+
 test("OpenClaw adapter reads status through configured CLI with mocked runner", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-"));
   const cli = join(workspace, "oauth_routing_cli.py");

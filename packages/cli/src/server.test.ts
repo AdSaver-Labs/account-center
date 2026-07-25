@@ -120,10 +120,10 @@ test("agent connection inventory is protected, redacted, and weekly-only", async
     assert.equal((await request(address.port, "/api/agent-connections")).status, 401);
     const accepted = await request(address.port, "/api/agent-connections", "test-token");
     assert.equal(accepted.status, 200);
-    const body = await accepted.json() as { inventory: Array<{ runtime: string; state: string; accounts: Array<{ accountRef: string; state: string; weeklyRemainingPct: number | null; lease?: unknown }> }> };
+    const body = await accepted.json() as { inventory: Array<{ runtime: string; state: string; accounts: Array<{ accountRef: string; state: string; pairing: string; weeklyRemainingPct: number | null; lease?: unknown }> }> };
     assert.deepEqual(body.inventory.map((item) => ({ runtime: item.runtime, state: item.state, account: item.accounts[0] })), [
-      { runtime: "openclaw", state: "connected", account: { accountRef: "account-1", state: "usable", weeklyRemainingPct: 68, routeState: "selected", lease: { schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-openclaw-agent-main-account-1", accountRef: "account-1", runtime: "openclaw", scope: "agent:main", state: "verified" } } },
-      { runtime: "hermes", state: "needs-auth", account: { accountRef: "account-1", state: "needs-auth", weeklyRemainingPct: 68, routeState: "not-routed" } }
+      { runtime: "openclaw", state: "connected", account: { accountRef: "account-1", state: "usable", pairing: "paired-verified", weeklyRemainingPct: 68, routeState: "selected", lease: { schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-openclaw-agent-main-account-1", accountRef: "account-1", runtime: "openclaw", scope: "agent:main", state: "verified" } } },
+      { runtime: "hermes", state: "needs-auth", account: { accountRef: "account-1", state: "needs-auth", pairing: "paired-unverified", weeklyRemainingPct: 68, routeState: "not-routed" } }
     ]);
     assert.equal(JSON.stringify(body).match(/helper-|five-hour|token|secret/i), null);
   } finally {

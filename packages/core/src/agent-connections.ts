@@ -23,6 +23,8 @@ export interface AgentConnectionInventory {
     accounts: Array<{
       accountRef: string;
       state: "usable" | "needs-auth" | "unavailable";
+      /** Owner-only redacted pairing evidence; never an inferred login identity. */
+      pairing: "paired-verified" | "paired-unverified" | "unpaired";
       weeklyRemainingPct: number | null;
       routeState: "selected" | "available" | "not-routed";
       lease?: ScopedAccountLeaseContract;
@@ -49,19 +51,23 @@ export function publicAgentConnectionInventoryView(status: AccountCenterStatus):
       onboarding: connection.state === "needs-auth"
         ? { action: "reauth-local-adapter", command: `account-center connect-agent --runtime ${connection.runtime} --scope ${connection.scope} --reauth-local` }
         : { action: "connect-local-adapter", command: `account-center connect-agent --runtime ${connection.runtime} --scope ${connection.scope}` },
-      accounts: connection.profileIds.flatMap((profileId) => {
-        const profile = status.profiles.find((candidate) => candidate.id === profileId);
-        const accountRef = accountRefById.get(profileId);
-        if (!profile || !accountRef) return [];
-        const verified = connection.verifiedProfileIds.includes(profileId);
-        const route = status.routes.find((candidate) => candidate.runtime === connection.runtime && candidate.scope === connection.scope && candidate.order.includes(profileId));
-        const routeState = route?.activeProfileId === profileId ? "selected" : route ? "available" : "not-routed";
+      // A connected agent sees every canonical account in redacted form. Only
+      // its explicit local pairing can make an individual row actionable.
+      accounts: status.profiles.flatMap((profile) => {
+        const accountRef = accountRefById.get(profile.id);
+        if (!accountRef) return [];
+        const paired = connection.profileIds.includes(profile.id);
+        const verified = paired && connection.verifiedProfileIds.includes(profile.id);
+        const route = status.routes.find((candidate) => candidate.runtime === connection.runtime && candidate.scope === connection.scope && candidate.order.includes(profile.id));
+        const routeState = verified && route?.activeProfileId === profile.id ? "selected" : verified && route ? "available" : "not-routed";
         const weeklyRemainingPct = weeklyOnly(profile.usage.windows);
         const usable = connection.state === "connected" && verified && profile.usage.readable && profile.usage.auth.state === "ok";
-        const state = usable ? "usable" : connection.state === "needs-auth" || !verified || profile.usage.auth.state !== "ok" ? "needs-auth" : "unavailable";
+        const pairing = verified ? "paired-verified" as const : paired ? "paired-unverified" as const : "unpaired" as const;
+        const state = usable ? "usable" : paired ? "needs-auth" : "unavailable";
         return [{
           accountRef,
           state,
+          pairing,
           weeklyRemainingPct,
           routeState,
           ...(usable ? { lease: createScopedAccountLease(connection, accountRef) } : {})

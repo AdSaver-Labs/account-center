@@ -2,7 +2,7 @@
 
 ## Product outcome
 
-A user connects accounts to Account Center once. After connecting an agent, the agent can see the **same redacted account inventory**, weekly availability, eligibility, routing state, and recovery guidance.
+A user connects accounts to Account Center once. After connecting an agent, the agent can see the **same redacted canonical account inventory**, weekly availability, pairing state, eligibility, routing state, and recovery guidance.
 
 Account Center is the authority for account identity and allocation decisions. It never exports OAuth tokens, API keys, refresh tokens, cookies, or credential files.
 
@@ -16,15 +16,17 @@ Account Center account record
   -> verified availability/routing result returns to Account Center
 ```
 
-Each agent must be explicitly connected once. An account can be visible to several connected agents, but each agent has an independent scoped lease and runtime verification. A visible account is not falsely presented as usable until that agent's adapter proves it can resolve the corresponding local credential.
+Each agent must be explicitly connected once. Every connected agent sees every canonical account row, but each account must be explicitly paired to that exact runtime and scope and then locally verified before it can be used. An account can be visible to several connected agents, but each agent has an independent scoped lease and runtime verification. A visible account is not falsely presented as usable until that agent's adapter proves it can resolve the corresponding local credential.
+
+`openai-codex` is a declared legacy provider-family alias for canonical `openai`. Thus a Hermes pairing reference such as `openai-codex:account-suffix` is normalized only to `openai:account-suffix`; it never becomes a second account and does not prove that Hermes has that account locally. No aliases beyond this declared provider family are inferred.
 
 ## Canonical redacted contract
 
-`GET /api/agent-connections` returns `account-center.agent-connections.v1`. It contains only opaque `connection-*` and `account-*` references, exact runtime/scope, connection state, weekly capacity, route state, and local onboarding guidance. It contains no email, profile label, provider credential, OAuth artifact, or five-hour availability window.
+`GET /api/agent-connections` is an owner-only, bearer-protected read endpoint returning `account-center.agent-connections.v1`. It contains only opaque `connection-*` and `account-*` references, exact runtime/scope, explicit redacted pairing state (`paired-verified`, `paired-unverified`, or `unpaired`), weekly capacity, route state, and local onboarding guidance. It contains no email, profile label, provider credential, OAuth artifact, or five-hour availability window.
 
 When an adapter resolves a local credential for one exact account, Account Center returns a `account-center.scoped-account-lease.v1` record. A lease is valid only for its listed runtime and scope. It is not transferable to another agent or runtime. `needs-auth` is the required state for an unresolved local credential, even when the same redacted account is usable in a different runtime.
 
-The endpoint is bearer-protected and read-only. It offers a displayed `account-center connect-agent --runtime <hermes|openclaw> --scope <scope>` command as local onboarding guidance; this release does not execute it and does not alter credentials, routing, or services.
+The endpoint is read-only. It offers a displayed `account-center connect-agent --runtime <hermes|openclaw> --scope <scope>` command as local onboarding guidance; the owner must select one opaque account row for an exact pairing and then require local verification. This release does not execute a pairing command and does not alter credentials, routing, services, or schedules.
 
 ## User onboarding in the app
 
@@ -32,9 +34,9 @@ The app must provide **Connect an agent** instructions for Hermes and OpenClaw:
 
 1. Select the runtime and exact agent scope.
 2. Run the displayed local connection command or approve the local adapter request.
-3. Account Center verifies the redacted inventory and shows connected / needs-auth / unavailable state.
+3. Account Center displays all canonical redacted accounts and shows which one is paired and verified for this exact scope. Unpaired rows are inventory-only.
 4. If the agent has no matching local credential, show an exact supported reauthentication action; never advise copying a token between agent stores.
-5. Show the same weekly-only account status and route selection model for every connected agent.
+5. Show the same weekly-only account status and route selection model for every connected agent. A route or lease is never enabled by a login marker, matching email, account suffix, or provider alias alone.
 
 ## Automation capacity policy
 
@@ -61,7 +63,7 @@ then reads Account Center's canonical no-secret OpenClaw/Sentinel status for the
 provider capacity of the one mapped shared account. Hermes login/auth output is
 never parsed as quota and cannot make work available. The canonical status must
 contain exactly one `hermes` connection for the supplied scope, in `connected`
-state, with exactly one verified mapped account of the requested provider.
+state, with exactly one explicitly paired and verified mapped account of the requested canonical provider.
 Unreadable/auth-invalid, rate-limited, stale, malformed, unmatched, or
 ambiguous canonical capacity data, command failures, timeouts, oversized output,
 or an unreadable prior-state file fail closed to `blocked`.
@@ -94,7 +96,8 @@ and risk a duplicate alert.
 
 ## Verification requirements
 
-- fixture: one Account Center account visible through connected Hermes and OpenClaw adapters;
+- fixture: five canonical Account Center accounts visible through a connected Hermes adapter, with only its one explicit pairing leaseable;
+- fixture: Hermes `openai-codex:*` pairing aliases normalize to the canonical OpenClaw `openai:*` family;
 - fixture: Hermes unresolved credential is `needs-auth`, never silently borrowed from OpenClaw;
 - fixture: successful Hermes adapter verification creates a scoped lease without secret output;
 - fixture: availability/routing display is weekly-only across app, Hermes, and OpenClaw;

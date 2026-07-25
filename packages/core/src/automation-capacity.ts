@@ -89,11 +89,14 @@ function evaluateConnection(status: AccountCenterStatus, connection: AgentConnec
       ? connection.capacityEvidence.provider.state
       : "unproven" as const
   };
-  const profileIsUsable = connection.profileIds.some((profileId) => {
+  const verifiedPairedProfiles = connection.profileIds.filter((profileId) => {
     const profile = status.profiles.find((candidate) => candidate.id === profileId);
     return Boolean(profile && connection.verifiedProfileIds.includes(profileId) && profile.usage.readable && profile.usage.auth.state === "ok" && !profile.disabled);
   });
-  if (connection.state === "needs-auth" || !profileIsUsable) return { state: "blocked", reason: "needs-auth", evidence };
+  // Automation cannot pick a credential based on login text, route order, or
+  // a shared account's availability. One exact locally paired verification is
+  // required; zero or multiple candidate accounts fail closed.
+  if (connection.state !== "connected" || verifiedPairedProfiles.length !== 1) return { state: "blocked", reason: "needs-auth", evidence };
   if (evidence.runtime !== "verified") return { state: "blocked", reason: "runtime-unproven", evidence };
   if (evidence.provider === "unproven") return { state: "blocked", reason: "provider-unproven", evidence };
   if (evidence.provider === "blocked") return { state: "blocked", reason: "provider-unavailable", evidence };

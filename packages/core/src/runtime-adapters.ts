@@ -10,6 +10,7 @@ import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
 import { redactJson } from "./redaction.js";
 import { DEFAULT_OPENCLAW_OBSERVED_MODEL_IDS } from "./model-catalog-policy.js";
+import { canonicalProfileId, canonicalProviderFamily } from "./provider-family.js";
 import type { MutationScope } from "./mutation-contract.js";
 
 export type RuntimeSource = "fixture" | "openclaw" | "generic-command";
@@ -413,10 +414,12 @@ export function dryRunReceipt(action: AuditAction, target: string | undefined, s
 
 export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw"): AccountCenterStatus {
   const generatedAt = stringFrom(raw, ["at", "generatedAt", "updatedAt"]) ?? nowIso();
-  const provider = stringFrom(raw, ["provider"]) ?? "openai";
-  const accounts = accountRecords(raw);
-  const order = routeOrder(raw, accounts.map((account) => account.id));
-  const activeProfileId = activeProfile(raw, order) ?? order[0] ?? accounts[0]?.id ?? "unknown";
+  const provider = canonicalProviderFamily(stringFrom(raw, ["provider"]) ?? "openai");
+  const accounts = canonicalAccounts(accountRecords(raw), provider);
+  const knownAccountIds = new Set(accounts.map((account) => account.id));
+  const order = routeOrder(raw, accounts.map((account) => account.id)).map((id) => canonicalProfileId(id, provider)).filter((id) => knownAccountIds.has(id));
+  const selected = activeProfile(raw, order);
+  const activeProfileId = selected && knownAccountIds.has(canonicalProfileId(selected, provider)) ? canonicalProfileId(selected, provider) : order[0] ?? accounts[0]?.id ?? "unknown";
   const routePolicy = isRecord(raw) && isRecord(raw.routePolicy) ? raw.routePolicy : {};
   const profiles: Profile[] = accounts.map((account, index) => ({
     id: account.id,
@@ -478,6 +481,7 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
       staleAfterSeconds: 1800
     },
     leases: [],
+    agentConnections: canonicalAgentConnectionsFrom(raw, accounts, provider),
     reauth: [],
     audit: [createReceipt({ action: "status.export", actor: "openclaw-adapter", dryRun: true, summary: `Loaded OpenClaw no-secret status from ${sourceDetail}` })],
     warnings: [`source=${sourceDetail}`]
@@ -486,6 +490,71 @@ export function normalizeOpenClawStatus(raw: unknown, sourceDetail = "openclaw")
   const publicStatus = redactJson(status) as AccountCenterStatus;
   privateConnectedEmails.set(publicStatus, new Map(accounts.map((account) => [account.id, account.email])));
   return publicStatus;
+}
+
+/**
+ * Sentinel may include the credential-free Account Center mapping for a local
+ * agent. Keep only an exact, known profile mapping; arbitrary native fields
+ * must not cross into the canonical status contract.
+ */
+function agentConnectionsFrom(raw: unknown, accounts: Array<{ id: string }>, provider: Profile["provider"]): AccountCenterStatus["agentConnections"] {
+  if (!isRecord(raw) || !Array.isArray(raw.agentConnections)) return [];
+  const known = new Set(accounts.map((account) => account.id));
+  return raw.agentConnections.flatMap((value): AgentConnection[] => {
+    if (!isRecord(value) || (value.runtime !== "hermes" && value.runtime !== "openclaw") || typeof value.id !== "string" || !isExactAgentConnectionScope(value.scope) || !Array.isArray(value.profileIds) || !Array.isArray(value.verifiedProfileIds) || !["connected", "needs-auth", "unavailable"].includes(String(value.state))) return [];
+    const profileIds = Array.from(new Set(value.profileIds
+      .filter((id): id is string => typeof id === "string")
+      .map((id) => canonicalProfileId(id, provider))
+      .filter((id) => known.has(id))));
+    const verifiedProfileIds = Array.from(new Set(value.verifiedProfileIds
+      .filter((id): id is string => typeof id === "string")
+      .map((id) => canonicalProfileId(id, provider))
+      .filter((id) => profileIds.includes(id))));
+    // A mapped profile belongs to the canonical provider. This prevents a raw
+    // status blob from smuggling a cross-provider identity into Hermes proof.
+    if (!profileIds.every((id) => id.startsWith(`${provider}:`))) return [];
+    return [{ id: value.id, runtime: value.runtime, scope: value.scope, profileIds, verifiedProfileIds, state: value.state as AgentConnection["state"] }];
+  });
+}
+
+/**
+ * Canonical provider-family pairing reader. It is intentionally separate from
+ * the legacy mapping reader while that reader is being integrated, so this
+ * slice has a small, independently testable compatibility seam.
+ */
+function canonicalAgentConnectionsFrom(raw: unknown, accounts: Array<{ id: string }>, provider: Profile["provider"]): AccountCenterStatus["agentConnections"] {
+  if (!isRecord(raw) || !Array.isArray(raw.agentConnections)) return [];
+  const known = new Set(accounts.map((account) => account.id));
+  return raw.agentConnections.flatMap((value): AgentConnection[] => {
+    if (!isRecord(value) || (value.runtime !== "hermes" && value.runtime !== "openclaw") || typeof value.id !== "string" || !isExactAgentConnectionScope(value.scope) || !Array.isArray(value.profileIds) || !Array.isArray(value.verifiedProfileIds) || !["connected", "needs-auth", "unavailable"].includes(String(value.state))) return [];
+    const profileIds = Array.from(new Set(value.profileIds
+      .filter((id): id is string => typeof id === "string")
+      .map((id) => canonicalProfileId(id, provider))
+      .filter((id) => known.has(id))));
+    const verifiedProfileIds = Array.from(new Set(value.verifiedProfileIds
+      .filter((id): id is string => typeof id === "string")
+      .map((id) => canonicalProfileId(id, provider))
+      .filter((id) => profileIds.includes(id))));
+    if (!profileIds.every((id) => id.startsWith(`${provider}:`))) return [];
+    return [{ id: value.id, runtime: value.runtime, scope: value.scope, profileIds, verifiedProfileIds, state: value.state as AgentConnection["state"] }];
+  });
+}
+
+function canonicalAccounts<T extends { id: string }>(accounts: T[], provider: Profile["provider"]): T[] {
+  const seen = new Set<string>();
+  return accounts.flatMap((account) => {
+    const id = canonicalProfileId(account.id, provider);
+    // An alias collision is ambiguous account identity. Do not guess which
+    // credential record wins; omitting both routing identity and pairing proof
+    // fails closed for the collision.
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return [{ ...account, id }];
+  });
+}
+
+function isExactAgentConnectionScope(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}:[a-z0-9_-]{1,64}$/i.test(value);
 }
 
 export async function execFileRunner(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number } = {}): Promise<CommandResult> {

@@ -65,3 +65,21 @@ test("unresolved Hermes needs-auth remains blocked even if an active credential 
     reason: "runtime-unproven", evidence: { runtime: "unproven", provider: "unproven" }
   });
 });
+
+test("automation fails closed when a connected agent has no explicit verified pairing", async () => {
+  const status = await loadFixtureStatus();
+  const hermes = status.agentConnections?.find((connection) => connection.runtime === "hermes");
+  assert.ok(hermes);
+  hermes.state = "connected";
+  hermes.profileIds = [];
+  hermes.verifiedProfileIds = [];
+  hermes.capacityEvidence = {
+    runtime: { state: "verified", observedAt: status.generatedAt },
+    provider: { state: "available", observedAt: status.generatedAt }
+  };
+  const capacity = automationCapacityExport(status).agents.find((agent) => agent.runtime === "hermes");
+  assert.deepEqual(capacity, {
+    agentRef: "connection-2", runtime: "hermes", scope: "agent:main", state: "blocked", workers: "paused",
+    reason: "needs-auth", evidence: { runtime: "verified", provider: "available" }, notification: "automation-blocked"
+  });
+});
