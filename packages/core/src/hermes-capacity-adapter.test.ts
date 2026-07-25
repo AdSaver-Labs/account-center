@@ -25,8 +25,8 @@ test("Hermes capacity adapter exports available only from fresh explicit runtime
   assert.equal(JSON.stringify(result).match(/token|secret|credential|local-capacity-proof/i), null);
 });
 
-test("Hermes capacity adapter blocks a successful auth result without explicit provider capacity proof", async () => {
-  const adapter = new HermesRuntimeCapacityAdapter({ now, runner: runner("Hermes Agent status: healthy", "Authentication: valid") });
+test("Hermes capacity adapter recognizes Hermes logged-in auth but still blocks without explicit provider capacity proof", async () => {
+  const adapter = new HermesRuntimeCapacityAdapter({ now, runner: runner("Hermes Agent status: healthy", "openai-codex: logged in") });
   const result = await adapter.export();
   assert.deepEqual(result.agents[0], {
     agentRef: "connection-1", runtime: "hermes", scope: "profile:default", state: "blocked", workers: "paused",

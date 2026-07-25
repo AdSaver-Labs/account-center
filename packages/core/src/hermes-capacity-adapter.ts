@@ -139,5 +139,5 @@ function providerCapacity(result: CommandResult): HermesCapacityEvidence["provid
 
 function explicitlyAuthenticated(output: string): boolean {
   if (/\b(?:not authenticated|unauthenticated|expired|reauth(?:entication)? required)\b/i.test(output)) return false;
-  return /\b(?:authenticated|credential active|auth(?:entication)?\s*:\s*(?:ok|valid))\b/i.test(output);
+  return /\b(?:authenticated|logged\s+in|signed\s+in|credential active|auth(?:entication)?\s*:\s*(?:ok|valid))\b/i.test(output);
 }
