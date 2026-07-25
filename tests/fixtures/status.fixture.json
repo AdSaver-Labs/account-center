@@ -144,6 +144,10 @@
       "expiresAt": "2026-07-10T00:00:00.000Z"
     }
   ],
+  "agentConnections": [
+    { "id": "connection_openclaw_main", "runtime": "openclaw", "scope": "agent:main", "profileIds": ["openai:helper-1"], "verifiedProfileIds": ["openai:helper-1"], "state": "connected" },
+    { "id": "connection_hermes_main", "runtime": "hermes", "scope": "agent:main", "profileIds": ["openai:helper-1"], "verifiedProfileIds": [], "state": "needs-auth" }
+  ],
   "reauth": [
     {
       "id": "reauth_fixture",

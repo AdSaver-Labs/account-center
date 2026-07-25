@@ -66,7 +66,10 @@ export function publicStatusView(status: AccountCenterStatus): PublicStatusView 
           ...(isoTimestamp(profile.usage.generatedAt) ? { generatedAt: profile.usage.generatedAt } : {}),
           readable: profile.usage.readable === true,
           health: publicHealth(profile.usage.health),
-          windows: profile.usage.windows.map((window) => ({
+          // Shared agent availability is deliberately weekly-only. Short-window
+          // provider data remains internal policy input and is never used as a
+          // cross-agent availability claim.
+          windows: profile.usage.windows.filter((window) => window.name === "weekly").map((window) => ({
             name: publicWindowName(window.name),
             remainingPct: publicPercentage(window.remainingPct),
             ...(isoTimestamp(window.resetsAt) ? { resetsAt: window.resetsAt } : {})
@@ -152,7 +155,7 @@ export function publicLimitsInventoryView(status: AccountCenterStatus, runtime?:
         health: publicHealth(profile.usage.health),
         authState: publicAuthState(profile.usage.auth.state),
         readable: profile.usage.readable === true,
-        windows: profile.usage.windows.map((window) => ({
+        windows: profile.usage.windows.filter((window) => window.name === "weekly").map((window) => ({
           name: publicWindowName(window.name),
           remainingPct: publicPercentage(window.remainingPct),
           ...publicResetAt(window.resetsAt)

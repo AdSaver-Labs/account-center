@@ -91,6 +91,19 @@ export interface Lease {
   expiresAt: string;
 }
 
+/**
+ * A runtime-scoped, credential-free connection declaration. Profile identifiers
+ * remain internal; public views convert them to opaque account references.
+ */
+export interface AgentConnection {
+  id: string;
+  runtime: RuntimeKey;
+  scope: string;
+  profileIds: string[];
+  verifiedProfileIds: string[];
+  state: "connected" | "needs-auth" | "unavailable";
+}
+
 export interface ReauthChallenge {
   id: string;
   provider: ProviderKey;
@@ -125,6 +138,8 @@ export interface AccountCenterStatus {
   routes: RouteState[];
   policy: Policy;
   leases: Lease[];
+  /** Optional while older native adapters are upgraded to this contract. */
+  agentConnections?: AgentConnection[];
   reauth: ReauthChallenge[];
   audit: AuditEvent[];
   warnings: string[];

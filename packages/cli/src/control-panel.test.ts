@@ -137,6 +137,9 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /renderModelsFallbacks\(data.models, unavailable.models\)/);
     assert.match(html, /\/api\/models/);
     assert.match(html, /\/api\/limits/);
+    assert.match(html, /Connect an agent/);
+    assert.match(html, /\/api\/agent-connections/);
+    assert.match(html, /Weekly availability/);
     assert.match(html, /function renderLimits\(limitData, limitsUnavailable\)/);
     assert.match(html, /renderLimits\(data.limits, unavailable.limits\)/);
     assert.match(html, /function selectedRuntimeQuery\(\)/);

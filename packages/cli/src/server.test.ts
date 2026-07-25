@@ -113,6 +113,24 @@ test("local API requires bearer token and returns no-store status", async () => 
   }
 });
 
+test("agent connection inventory is protected, redacted, and weekly-only", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    assert.equal((await request(address.port, "/api/agent-connections")).status, 401);
+    const accepted = await request(address.port, "/api/agent-connections", "test-token");
+    assert.equal(accepted.status, 200);
+    const body = await accepted.json() as { inventory: Array<{ runtime: string; state: string; accounts: Array<{ accountRef: string; state: string; weeklyRemainingPct: number | null; lease?: unknown }> }> };
+    assert.deepEqual(body.inventory.map((item) => ({ runtime: item.runtime, state: item.state, account: item.accounts[0] })), [
+      { runtime: "openclaw", state: "connected", account: { accountRef: "account-1", state: "usable", weeklyRemainingPct: 68, routeState: "selected", lease: { schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-openclaw-agent-main-account-1", accountRef: "account-1", runtime: "openclaw", scope: "agent:main", state: "verified" } } },
+      { runtime: "hermes", state: "needs-auth", account: { accountRef: "account-1", state: "needs-auth", weeklyRemainingPct: 68, routeState: "not-routed" } }
+    ]);
+    assert.equal(JSON.stringify(body).match(/helper-|five-hour|token|secret/i), null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("status API fails closed for a hostile adapter source label without echoing it", async () => {
   const hostileSource = "/srv/private/account-center/adapter --source=production";
   const app = createAccountCenterServer({ token: "test-token", source: hostileSource });
@@ -322,10 +340,7 @@ test("read-only limits inventory is bearer-protected, versioned, and uses redact
       { accountRef: "account-3", provider: "openai", health: "ok", authState: "ok", readable: true },
       { accountRef: "account-4", provider: "openai", health: "error", authState: "reauth-needed", readable: false }
     ]);
-    assert.deepEqual(body.accounts[0]?.windows, [
-      { name: "five-hour", remainingPct: 1 },
-      { name: "weekly", remainingPct: 68 }
-    ]);
+    assert.deepEqual(body.accounts[0]?.windows, [{ name: "weekly", remainingPct: 68 }]);
     assert.equal(JSON.stringify(body).match(/profileId|email|label|token|secret|password/i), null);
   } finally {
     await app.close();
@@ -478,7 +493,7 @@ test("generic-command status cannot establish public mutation scopes for recogni
       if (path === "/api/limits") assert.deepEqual(JSON.parse(serialized), {
         schemaVersion: "account-center.limits.v1",
         generatedAt: "unknown",
-        accounts: [{ accountRef: "account-1", provider: "custom", health: "unknown", authState: "unknown", readable: false, windows: [{ name: "other", remainingPct: null }] }]
+        accounts: [{ accountRef: "account-1", provider: "custom", health: "unknown", authState: "unknown", readable: false, windows: [] }]
       });
       if (path === "/api/models") assert.deepEqual(JSON.parse(serialized).models, []);
       if (path === "/api/scopes") assert.deepEqual(JSON.parse(serialized), {
