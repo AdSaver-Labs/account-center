@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { executeAccountCenterCommand } from "./command-executor.js";
 import { FixtureRuntimeAdapter } from "./runtime-adapters.js";
-import { createMutationReview } from "./mutation-contract.js";
+import { createActiveScopeWarning, createMutationReview } from "./mutation-contract.js";
 import { MutationRepository } from "./mutation-repository.js";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -84,11 +84,21 @@ test("core executor invokes route apply only after exact review confirmation and
   assert.equal(mutations, 0);
   const secret = "test-shared-mutation-secret";
   const review = createMutationReview({ action: "route.use", provider: "openai", runtime: "openclaw", scope: request.scope, target: request.target }, { secret });
+  const warning = createActiveScopeWarning({ action: "route.use", provider: "openai", runtime: "openclaw", scope: request.scope, target: request.target }, { secret });
   const root = await mkdtemp(join(tmpdir(), "account-center-command-executor-"));
-  const result = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, idempotencyKey: "route-apply-idempotency-key-0001" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
+  const missingAcknowledgement = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, idempotencyKey: "route-apply-idempotency-key-0001" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
+  assert.equal((missingAcknowledgement.mutation as unknown as { reason: string }).reason, "active_scope_acknowledgement_required");
+  const forged = createActiveScopeWarning({ action: "route.remove", provider: "openai", runtime: "openclaw", scope: request.scope, target: request.target }, { secret });
+  const forgedResult = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, activeScopeWarning: forged, activeScopeWarningToken: forged.token, idempotencyKey: "route-apply-idempotency-key-forged" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
+  assert.equal((forgedResult.mutation as unknown as { reason: string }).reason, "active_scope_acknowledgement_invalid");
+  const stale = createActiveScopeWarning({ action: "route.use", provider: "openai", runtime: "openclaw", scope: request.scope, target: request.target }, { secret, now: new Date(0), ttlMs: 1 });
+  const staleResult = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, activeScopeWarning: stale, activeScopeWarningToken: stale.token, idempotencyKey: "route-apply-idempotency-key-stale" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
+  assert.equal((staleResult.mutation as unknown as { reason: string }).reason, "active_scope_acknowledgement_expired");
+  assert.equal(mutations, 0, "missing, forged, and stale acknowledgements never reach the adapter");
+  const result = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, activeScopeWarning: warning, activeScopeWarningToken: warning.token, idempotencyKey: "route-apply-idempotency-key-0001" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
   assert.equal(result.code, 0);
   assert.equal(mutations, 1);
-  const replay = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, idempotencyKey: "route-apply-idempotency-key-0001" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
+  const replay = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, activeScopeWarning: warning, activeScopeWarningToken: warning.token, idempotencyKey: "route-apply-idempotency-key-0001" }, { adapter, mutation: { secret, repository: new MutationRepository(root) } });
   assert.equal(replay.mutation?.liveRuntimeMutation, false);
   assert.equal(replay.mutation?.replayed, true);
   assert.equal(replay.mutation?.historicalOutcome, "applied");
@@ -104,6 +114,7 @@ test("idempotency replay preserves an attempted-but-unproven historical outcome 
   const scope = { kind: "agent" as const, id: "main" };
   const target = "openai:helper-2";
   const review = createMutationReview({ action: "route.remove", provider: "openai", runtime: "openclaw", scope, target }, { secret });
+  const warning = createActiveScopeWarning({ action: "route.remove", provider: "openai", runtime: "openclaw", scope, target }, { secret });
   let mutations = 0;
   const adapter = {
     source: "fixture" as const,
@@ -114,7 +125,7 @@ test("idempotency replay preserves an attempted-but-unproven historical outcome 
       return { code: 2, payload: { applied: false, dryRun: false, liveRuntimeMutation: true, verification: { kind: "unproven" }, receipt: { id: "evt_attempt_unproven", action: "route.remove", actor: "test", dryRun: false, createdAt: "2026-07-18T00:00:00.000Z", summary: "private native details", warnings: [] } } };
     }
   };
-  const request = { command: "route.remove" as const, target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, idempotencyKey: "route-unproven-replay-key-0001" };
+  const request = { command: "route.remove" as const, target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, activeScopeWarning: warning, activeScopeWarningToken: warning.token, idempotencyKey: "route-unproven-replay-key-0001" };
   const first = await executeAccountCenterCommand(request, { adapter, mutation: { secret, repository } });
   assert.equal(first.mutation?.liveRuntimeMutation, true);
   const replay = await executeAccountCenterCommand(request, { adapter, mutation: { secret, repository } });
@@ -133,6 +144,7 @@ test("verified route apply persists bounded opaque native and scoped before/afte
   const scope = { kind: "agent" as const, id: "main" };
   const target = "openai:helper-2";
   const review = createMutationReview({ action: "route.use", provider: "openai", runtime: "openclaw", scope, target }, { secret });
+  const warning = createActiveScopeWarning({ action: "route.use", provider: "openai", runtime: "openclaw", scope, target }, { secret });
   const adapter = {
     source: "fixture" as const,
     readStatus: () => new FixtureRuntimeAdapter().readStatus(), doctor: async () => ({}),
@@ -142,7 +154,7 @@ test("verified route apply persists bounded opaque native and scoped before/afte
       proof: { nativeEvent: { action: "route.use", scopeId: "id_aaaaaaaaaaaaaaaaaaaaaaaa", targetId: "id_bbbbbbbbbbbbbbbbbbbbbbbb", status: "verified" }, verification: { scopeId: "id_aaaaaaaaaaaaaaaaaaaaaaaa", before: { status: "observed", activeTargetId: "id_cccccccccccccccccccccccc", orderTargetIds: ["id_cccccccccccccccccccccccc"] }, after: { status: "observed", activeTargetId: "id_bbbbbbbbbbbbbbbbbbbbbbbb", orderTargetIds: ["id_bbbbbbbbbbbbbbbbbbbbbbbb"] } } }
     } })
   };
-  await executeAccountCenterCommand({ command: "route.use", target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, idempotencyKey: "route-proof-idempotency-key-0001" }, { adapter, mutation: { secret, repository } });
+  await executeAccountCenterCommand({ command: "route.use", target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, activeScopeWarning: warning, activeScopeWarningToken: warning.token, idempotencyKey: "route-proof-idempotency-key-0001" }, { adapter, mutation: { secret, repository } });
   const raw = await (await import("node:fs/promises")).readFile(join(root, "mutation-repository.v1.json"), "utf8");
   assert.match(raw, /op_route_proof/);
   assert.match(raw, /nativeEvent/);

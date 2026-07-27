@@ -10,6 +10,7 @@ import {
   AuditStore,
   AuthChallengeStore,
   CommandRunner,
+  decodeActiveScopeWarning,
   decodeConfirmationToken,
   createReceipt,
   createRuntimeAdapter,
@@ -51,6 +52,7 @@ interface CliOptions {
   source: "fixture" | "openclaw" | "generic-command";
   apply: boolean;
   confirm?: string;
+  acknowledgeActiveScope?: string;
   idempotencyKey?: string;
   ensureRoute: boolean;
 }
@@ -152,6 +154,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const scope = parseAgentScope(options.scope);
     if (!scope) return { code: 2, stdout: options.json ? json(blockedRouteView(action)) : renderMutation(blockedRouteView(action)) };
     const review = options.confirm ? decodeConfirmationToken(options.confirm) : undefined;
+    const activeScopeWarning = options.acknowledgeActiveScope ? decodeActiveScopeWarning(options.acknowledgeActiveScope) : undefined;
     const lifecycle = await mutationLifecycle();
     const execution = await executeAccountCenterCommand({
       command: action,
@@ -161,6 +164,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       runtime: options.runtime,
       scope,
       ...(review ? { review, reviewToken: review.token } : {}),
+      ...(activeScopeWarning ? { activeScopeWarning, activeScopeWarningToken: activeScopeWarning.token } : {}),
       ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {})
     }, { adapter, mutation: lifecycle });
     const view = publicMutationView(execution.mutation);
@@ -217,6 +221,7 @@ function parseOptions(argv: string[], cwd: string): CliOptions {
     source: parseSourceOption(argv),
     apply: argv.includes("--apply"),
     confirm: valueAfter(argv, "--confirm"),
+    acknowledgeActiveScope: valueAfter(argv, "--ack-active-scope"),
     idempotencyKey: valueAfter(argv, "--idempotency-key"),
     ensureRoute: argv.includes("--ensure-route")
   };
@@ -348,6 +353,7 @@ type PublicMutationView = {
   historicalVerification?: "VERIFIED" | "UNPROVEN";
   operationId?: string;
   confirmationToken?: string;
+  activeScopeWarning?: { schemaVersion: "account-center.active-scope-warning.v1"; state: "active_openclaw_agent_scope_observed"; expiresAt: string; acknowledgement: string };
 };
 
 function publicAccountsView(status: AccountCenterStatus) {
@@ -446,8 +452,13 @@ export function publicMutationView(payload: unknown): PublicMutationView {
     state: credentialDelete && !ownedDeleteVerified ? "BLOCKED" : report.replayed === true ? (replayedAttemptedUnproven ? "REPLAYED_ATTEMPTED_UNPROVEN" : "REPLAYED") : attemptedUnproven ? "ATTEMPTED_UNPROVEN" : typeof report.reason === "string" ? "BLOCKED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
     receipt: publicReceipt(receipt),
     ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown", historicalLiveRuntimeMutation, historicalVerification, ...(typeof report.operationId === "string" && /^op_[A-Za-z0-9_-]{1,100}$/.test(report.operationId) ? { operationId: report.operationId } : {}) } : {}),
-    ...(typeof report.confirmationToken === "string" ? { confirmationToken: report.confirmationToken } : {})
+    ...(typeof report.confirmationToken === "string" ? { confirmationToken: report.confirmationToken } : {}),
+    ...(isActiveScopeWarning(report.activeScopeWarning) && typeof report.activeScopeWarningToken === "string" ? { activeScopeWarning: { schemaVersion: "account-center.active-scope-warning.v1", state: "active_openclaw_agent_scope_observed", expiresAt: report.activeScopeWarning.expiresAt, acknowledgement: report.activeScopeWarningToken } } : {})
   };
+}
+
+function isActiveScopeWarning(value: unknown): value is { schemaVersion: "account-center.active-scope-warning.v1"; state: "active_openclaw_agent_scope_observed"; expiresAt: string } {
+  return isReport(value) && value.schemaVersion === "account-center.active-scope-warning.v1" && value.state === "active_openclaw_agent_scope_observed" && typeof value.expiresAt === "string";
 }
 
 function parseAgentScope(value: string): MutationScope | undefined {

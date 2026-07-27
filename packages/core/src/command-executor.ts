@@ -2,7 +2,7 @@ import { AccountCenterStatus, AuditAction, AuditEvent, RuntimeKey } from "./sche
 import { createReceipt, guardStatus, nextEligible } from "./policy.js";
 import type { RuntimeAdapter } from "./runtime-adapters.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { createMutationReview, MutationReview, MutationScope, verifyMutationApply } from "./mutation-contract.js";
+import { ActiveScopeWarning, createActiveScopeWarning, createMutationReview, MutationReview, MutationScope, verifyActiveScopeWarning, verifyMutationApply } from "./mutation-contract.js";
 import { MutationEvidence, MutationReceipt, MutationRepository, RouteScopeEvidence } from "./mutation-repository.js";
 const routeCapabilitySecret = randomBytes(32);
 const routeCapabilityBrand = Symbol("account-center.executor-route-capability");
@@ -41,6 +41,8 @@ export interface CommandRequest {
   scope?: MutationScope;
   review?: MutationReview;
   reviewToken?: string;
+  activeScopeWarning?: ActiveScopeWarning;
+  activeScopeWarningToken?: string;
   idempotencyKey?: string;
 }
 
@@ -81,9 +83,10 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   if (["route.auto", "route.use", "route.remove"].includes(action) && request.scope && !isObservedExactAgentScope(status, request.scope, provider, runtime)) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "observed_agent_scope_required") };
   if (requiresProtectedLifecycle(action) && request.apply !== true && deps.mutation && request.scope && target) {
     const review = createMutationReview({ action, provider, runtime, scope: request.scope, target }, { secret: deps.mutation.secret });
+    const activeScopeWarning = isRouteAction(action) && provider === "openai" && runtime === "openclaw" ? createActiveScopeWarning({ action, provider, runtime, scope: request.scope, target }, { secret: deps.mutation.secret }) : undefined;
     const preview = await deps.adapter.mutate({ action, target, apply: false, provider, runtime, scope: request.scope });
     const payload = asMutation(preview.payload, action, target)!;
-    return { code: preview.code, kind: "mutation", mutation: { ...payload, review, confirmationToken: encodeReview(review) } };
+    return { code: preview.code, kind: "mutation", mutation: { ...payload, review, confirmationToken: encodeReview(review), ...(activeScopeWarning ? { activeScopeWarning, activeScopeWarningToken: encodeActiveScopeWarning(activeScopeWarning) } : {}) } };
   }
   const authorization = await protectedAuthorization(request, action, target, provider, runtime, deps.mutation);
   if (authorization.kind === "blocked") return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, authorization.reason) };
@@ -111,6 +114,11 @@ async function protectedAuthorization(request: CommandRequest, action: AuditActi
   if (request.apply !== true || !requiresProtectedLifecycle(action)) return { kind: "none" };
   if (!lifecycle || !request.scope || !request.review || !request.reviewToken || !request.idempotencyKey || !target) return { kind: "blocked", reason: "protected_apply_requires_confirmed_shared_mutation" };
   if (isRouteAction(action) && (request.scope.kind !== "agent" || !/^[a-z][a-z0-9_-]{0,63}$/.test(request.scope.id) || request.scope.id === "all")) return { kind: "blocked", reason: "explicit_agent_scope_required" };
+  if (isRouteAction(action)) {
+    if (!request.activeScopeWarning || !request.activeScopeWarningToken) return { kind: "blocked", reason: "active_scope_acknowledgement_required" };
+    const warning = verifyActiveScopeWarning({ action, provider, runtime, scope: request.scope, target, warning: request.activeScopeWarning, warningToken: request.activeScopeWarningToken }, { secret: lifecycle.secret });
+    if (warning !== "confirmed") return { kind: "blocked", reason: warning };
+  }
   const verified = verifyMutationApply({ action, provider, runtime, scope: request.scope, target, review: request.review, reviewToken: request.reviewToken }, { secret: lifecycle.secret });
   if (verified.kind !== "confirmed") return { kind: "blocked", reason: verified.reason };
   const claim = await lifecycle.repository.claim({ idempotencyKey: request.idempotencyKey, requestDigest: verified.requestDigest, audit: { action, provider, runtime, scopeKind: request.scope.kind, scopeIdDigest: digest(request.scope.id), targetDigest: digest(target) } });
@@ -154,6 +162,11 @@ function encodeReview(review: MutationReview): string { return `${Buffer.from(JS
 export function decodeConfirmationToken(token: string): MutationReview | undefined {
   const [body, signature, ...rest] = token.split("."); if (!body || !signature || rest.length) return undefined;
   try { const review = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as MutationReview; return review.token === signature ? review : undefined; } catch { return undefined; }
+}
+function encodeActiveScopeWarning(warning: ActiveScopeWarning): string { return `${Buffer.from(JSON.stringify(warning)).toString("base64url")}.${warning.token}`; }
+export function decodeActiveScopeWarning(token: string): ActiveScopeWarning | undefined {
+  const [body, signature, ...rest] = token.split("."); if (!body || !signature || rest.length) return undefined;
+  try { const warning = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as ActiveScopeWarning; return warning.token === signature ? warning : undefined; } catch { return undefined; }
 }
 function redactedEvidence(payload: NonNullable<CommandExecution["mutation"]>): MutationEvidence {
   const verification = isVerifiedApplied(payload) ? "verified" as const : "unproven" as const;

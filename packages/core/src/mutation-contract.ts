@@ -29,6 +29,15 @@ export interface MutationReview {
   token: string;
 }
 
+/** Identity-free, signed acknowledgement for an observed OpenClaw agent scope. */
+export interface ActiveScopeWarning {
+  schemaVersion: "account-center.active-scope-warning.v1";
+  state: "active_openclaw_agent_scope_observed";
+  issuedAt: string;
+  expiresAt: string;
+  token: string;
+}
+
 export type MutationReviewVerification =
   | { kind: "confirmed"; requestDigest: string }
   | { kind: "blocked"; reason: "review_expired" | "review_binding_mismatch" | "review_token_invalid" };
@@ -54,6 +63,22 @@ export function verifyMutationApply(input: MutationReviewInput & { review: Mutat
     return { kind: "blocked", reason: "review_binding_mismatch" };
   }
   return { kind: "confirmed", requestDigest: input.review.requestDigest };
+}
+
+export function createActiveScopeWarning(input: MutationReviewInput, options: { secret: string; now?: Date; ttlMs?: number }): ActiveScopeWarning {
+  const now = options.now ?? new Date(); const ttlMs = options.ttlMs ?? 5 * 60_000;
+  if (!Number.isInteger(ttlMs) || ttlMs < 1) throw new Error("ttlMs must be a positive integer");
+  const issuedAt = now.toISOString(); const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
+  const unsigned = { schemaVersion: "account-center.active-scope-warning.v1" as const, state: "active_openclaw_agent_scope_observed" as const, issuedAt, expiresAt, binding: mutationBinding(input) };
+  return { schemaVersion: unsigned.schemaVersion, state: unsigned.state, issuedAt, expiresAt, token: sign(unsigned, options.secret) };
+}
+
+export function verifyActiveScopeWarning(input: MutationReviewInput & { warning: ActiveScopeWarning; warningToken: string }, options: { secret: string; now?: Date }): "confirmed" | "active_scope_acknowledgement_invalid" | "active_scope_acknowledgement_expired" {
+  const { warning } = input;
+  if (warning.schemaVersion !== "account-center.active-scope-warning.v1" || warning.state !== "active_openclaw_agent_scope_observed") return "active_scope_acknowledgement_invalid";
+  if (Date.parse(warning.expiresAt) <= (options.now ?? new Date()).getTime()) return "active_scope_acknowledgement_expired";
+  const unsigned = { schemaVersion: warning.schemaVersion, state: warning.state, issuedAt: warning.issuedAt, expiresAt: warning.expiresAt, binding: mutationBinding(input) };
+  return input.warningToken && sameToken(warning.token, input.warningToken) && sameToken(input.warningToken, sign(unsigned, options.secret)) ? "confirmed" : "active_scope_acknowledgement_invalid";
 }
 
 export class IdempotencyRegistry {

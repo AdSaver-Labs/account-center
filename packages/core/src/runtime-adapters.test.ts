@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
 import { executeAccountCenterCommand } from "./command-executor.js";
-import { createMutationReview } from "./mutation-contract.js";
+import { createActiveScopeWarning, createMutationReview } from "./mutation-contract.js";
 import { MutationRepository } from "./mutation-repository.js";
 
 const routerStatus = {
@@ -33,7 +33,8 @@ async function capabilityRoute(adapter: OpenClawRuntimeAdapter, action: "route.a
   const scope = { kind: "agent" as const, id: agent };
   const secret = "test-shared-mutation-secret";
   const review = createMutationReview({ action, target, provider: "openai", runtime: "openclaw", scope }, { secret });
-  return executeAccountCenterCommand({ command: action, target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, idempotencyKey: "routeapplycapabilitykey0001" }, { adapter, mutation: { secret, repository: new MutationRepository(await mkdtemp(join(tmpdir(), "account-center-capability-"))) } });
+  const warning = createActiveScopeWarning({ action, target, provider: "openai", runtime: "openclaw", scope }, { secret });
+  return executeAccountCenterCommand({ command: action, target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, activeScopeWarning: warning, activeScopeWarningToken: warning.token, idempotencyKey: "routeapplycapabilitykey0001" }, { adapter, mutation: { secret, repository: new MutationRepository(await mkdtemp(join(tmpdir(), "account-center-capability-"))) } });
 }
 
 function routedStatus(activeProfileId: string, order: string[], agent = "main") {

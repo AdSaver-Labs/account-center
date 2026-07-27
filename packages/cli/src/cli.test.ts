@@ -803,9 +803,12 @@ test("public route preview requires an exact agent scope and returns an exact co
   assert.equal(preview.code, 0);
   const payload = JSON.parse(preview.stdout);
   assert.equal(typeof payload.confirmationToken, "string");
+  assert.deepEqual(Object.keys(payload.activeScopeWarning).sort(), ["acknowledgement", "expiresAt", "schemaVersion", "state"]);
+  assert.equal(payload.activeScopeWarning.state, "active_openclaw_agent_scope_observed");
+  assert.doesNotMatch(JSON.stringify(payload.activeScopeWarning), /main|helper-2|openai/);
   assert.notEqual(payload.confirmationToken, "[REDACTED]");
   assert.equal(payload.liveRuntimeMutation, false);
-  const confirmed = await runCli(["routes", "use", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", payload.confirmationToken, "--idempotency-key", "route-preview-confirm-regression-001", "--json"]);
+  const confirmed = await runCli(["routes", "use", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", payload.confirmationToken, "--ack-active-scope", payload.activeScopeWarning.acknowledgement, "--idempotency-key", "route-preview-confirm-regression-001", "--json"]);
   assert.notEqual(JSON.parse(confirmed.stdout).state, "BLOCKED", "the exact public preview token must be accepted by --confirm");
 });
 
@@ -843,13 +846,14 @@ test("public /auth remove is preview-first and exact confirmation cannot authori
     assert.equal(planned.applied, false);
     assert.equal(planned.receipt.action, "route.remove");
     assert.equal(typeof planned.confirmationToken, "string");
+    assert.equal(planned.activeScopeWarning.state, "active_openclaw_agent_scope_observed");
 
-    const confirmed = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
+    const confirmed = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--ack-active-scope", planned.activeScopeWarning.acknowledgement, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
     assert.equal(JSON.parse(confirmed.stdout).liveRuntimeMutation, false, "fixture confirmation never performs a live apply");
-    const replay = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
+    const replay = await runCli(["auth", "/auth", "remove", "openai:helper-2", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--ack-active-scope", planned.activeScopeWarning.acknowledgement, "--idempotency-key", "auth-remove-preview-confirm-001", "--json"]);
     assert.equal(JSON.parse(replay.stdout).state, "REPLAYED", "an exact public confirmation is idempotent");
 
-    const changedTarget = await runCli(["auth", "/auth", "remove", "openai:helper-1", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--idempotency-key", "auth-remove-preview-confirm-002", "--json"]);
+    const changedTarget = await runCli(["auth", "/auth", "remove", "openai:helper-1", "--scope", "agent:main", "--apply", "--confirm", planned.confirmationToken, "--ack-active-scope", planned.activeScopeWarning.acknowledgement, "--idempotency-key", "auth-remove-preview-confirm-002", "--json"]);
     assert.equal(JSON.parse(changedTarget.stdout).state, "BLOCKED", "a confirmation token cannot authorize a different route target");
   } finally {
     if (previousDataDir === undefined) delete process.env.ACCOUNT_CENTER_DATA_DIR;
