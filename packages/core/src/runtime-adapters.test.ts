@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { access, lstat, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
+import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OWNED_OPENCLAW_DELETE_SCRIPT, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
 import { executeAccountCenterCommand } from "./command-executor.js";
 import { createActiveScopeWarning, createMutationReview } from "./mutation-contract.js";
 import { MutationRepository } from "./mutation-repository.js";
@@ -315,11 +315,9 @@ test("OpenClaw read-after-write mismatch never reports applied", async () => {
 test("OpenClaw account delete uses the owned exact-account transaction and exposes one opaque receipt contract", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-"));
   const cli = join(workspace, "oauth_routing_cli.py");
-  const deleteScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py");
   await mkdir(join(workspace, "3-Resources", "codex-account-ops", "scripts"), { recursive: true });
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
   await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
-  await writeFile(deleteScript, "#!/usr/bin/env python3\n", "utf8");
   const calls: Array<{ command: string; args: string[] }> = [];
   const runner: CommandRunner = async (command, args) => {
     calls.push({ command, args });
@@ -334,7 +332,7 @@ test("OpenClaw account delete uses the owned exact-account transaction and expos
     runtime: "openclaw"
   });
   assert.equal(result.code, 0);
-  assert.deepEqual(calls, [{ command: "python3", args: [deleteScript, "openai:helper-2", "--apply"] }]);
+  assert.deepEqual(calls, [{ command: "python3", args: [OWNED_OPENCLAW_DELETE_SCRIPT, "openai:helper-2", "--apply"] }]);
   const payload = result.payload as { applied: boolean; liveRuntimeMutation: boolean; receipt: { warnings: string[]; target?: string }; nativeReceipt: unknown };
   assert.equal(payload.applied, true);
   assert.equal(payload.liveRuntimeMutation, true);
@@ -359,9 +357,7 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
   await mkdir(join(workspace, "3-Resources", "codex-account-ops"), { recursive: true });
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
   await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(emailStatus), "utf8");
-  const deleteScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py");
   await mkdir(join(workspace, "3-Resources", "codex-account-ops", "scripts"), { recursive: true });
-  await writeFile(deleteScript, "#!/usr/bin/env python3\n", "utf8");
   const calls: string[][] = [];
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner: async (_command, args) => {
     calls.push(args);
@@ -371,13 +367,11 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
   assert.doesNotMatch(JSON.stringify(publicStatus), /connected\.member@example\.test/i);
   const result = await adapter.mutate({ action: "account.delete", target: ` \t${email.toLowerCase()}\n`, apply: true, provider: "openai", runtime: "openclaw" });
   assert.equal(result.code, 0);
-  assert.deepEqual(calls, [[deleteScript, "openai:helper-2", "--apply"]]);
+  assert.deepEqual(calls, [[OWNED_OPENCLAW_DELETE_SCRIPT, "openai:helper-2", "--apply"]]);
 });
 
 test("OpenClaw account delete fails closed when the owned transaction receipt is malformed, mismatched, or unverified", async () => {
   const workspace = await openClawWorkspace();
-  const deleteScript = join(workspace.root, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py");
-  await writeFile(deleteScript, "#!/usr/bin/env python3\n", "utf8");
   for (const stdout of [
     "not-json",
     JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "0123456789abcdef", backup: true, verified: true }),

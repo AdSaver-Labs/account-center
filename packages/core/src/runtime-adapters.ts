@@ -34,6 +34,8 @@ const GENERIC_COMMAND_FAILURE = "Generic command status is unavailable or unprov
 // Keep connected emails only in this module-scoped, non-serializable sidecar so
 // account.delete can make its exact identity decision without publishing them.
 const privateConnectedEmails = new WeakMap<AccountCenterStatus, Map<string, string>>();
+/** The one owned credential-delete implementation; destructive overrides are forbidden. */
+export const OWNED_OPENCLAW_DELETE_SCRIPT = "/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py";
 
 export interface RuntimeMutationInput {
   action: AuditAction;
@@ -63,8 +65,6 @@ export interface OpenClawAdapterConfig {
   workspace?: string;
   cli?: string;
   agentDir?: string;
-  /** Owned exact-account transaction used by Dexter's live /auth delete. */
-  deleteScript?: string;
   runner?: CommandRunner;
 }
 
@@ -113,7 +113,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     this.workspace = resolve(config.workspace ?? process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE ?? join(homedir(), ".openclaw", "workspace"));
     this.cli = resolve(config.cli ?? process.env.ACCOUNT_CENTER_OPENCLAW_CLI ?? join(this.workspace, "ops", "scripts", "oauth_routing_cli.py"));
     this.agentDir = resolve(config.agentDir ?? process.env.ACCOUNT_CENTER_OPENCLAW_AGENT_DIR ?? join(dirname(this.workspace), "agents", "main", "agent"));
-    this.deleteScript = resolve(config.deleteScript ?? process.env.ACCOUNT_CENTER_OPENCLAW_DELETE_SCRIPT ?? join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py"));
+    this.deleteScript = OWNED_OPENCLAW_DELETE_SCRIPT;
     this.runner = config.runner ?? execFileRunner;
   }
 

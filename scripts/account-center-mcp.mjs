@@ -20,6 +20,13 @@ const DELETE_UNPROVEN_TEXT =
   'Verification: UNPROVEN\n\n' +
   'Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n' +
   'Exact connected-target confirmation remains required before credential deletion.\n';
+const DELETE_APPLIED_TEXT =
+  'APPLIED — owned exact-account credential delete completed.\n' +
+  'Action: account.delete\n' +
+  'Result: APPLIED\n' +
+  'Verification: VERIFIED\n' +
+  'Receipt: opaque-owned-delete\n';
+const CANONICAL_DELETE_OUTPUTS = new Set([DELETE_UNPROVEN_TEXT, DELETE_APPLIED_TEXT]);
 const INVALID_REQUEST_TEXT = 'Invalid Account Center MCP request.';
 const MUTATION_BLOCKED_TEXT =
   'Blocked potentially mutating Account Center command in Codex MCP.\n\n' +
@@ -151,8 +158,10 @@ async function runAuth(command) {
   // the CLI. Passing it through unchanged keeps CLI/Hermes/MCP byte-for-byte
   // aligned instead of letting transport-specific generic redaction rewrite it.
   if (deleteRequest) {
-    const text = proc.stdout === DELETE_UNPROVEN_TEXT ? proc.stdout : DELETE_UNPROVEN_TEXT;
-    return { isError: Boolean(proc.error || proc.signal || proc.status !== 0), content: [{ type: 'text', text }] };
+    const text = !proc.error && !proc.signal && proc.status === 0 && CANONICAL_DELETE_OUTPUTS.has(proc.stdout)
+      ? proc.stdout
+      : DELETE_UNPROVEN_TEXT;
+    return { isError: text !== DELETE_APPLIED_TEXT, content: [{ type: 'text', text }] };
   }
   if (proc.error || proc.signal || proc.status !== 0) return opaqueFailure(false);
   const text = redact(proc.stdout || 'Account Center returned no output.').slice(0, MAX_OUTPUT);

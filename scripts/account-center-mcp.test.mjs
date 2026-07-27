@@ -39,6 +39,12 @@ const DELETE_UNPROVEN_TEXT =
   "Verification: UNPROVEN\n\n" +
   "Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n" +
   'Exact connected-target confirmation remains required before credential deletion.\n';
+const DELETE_APPLIED_TEXT =
+  "APPLIED — owned exact-account credential delete completed.\n" +
+  "Action: account.delete\n" +
+  "Result: APPLIED\n" +
+  "Verification: VERIFIED\n" +
+  "Receipt: opaque-owned-delete\n";
 
 test("MCP initializes and lists tools before ignored CLI build artifacts exist", () => {
   const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-clean-"));
@@ -96,6 +102,40 @@ test("Dexter ordinary parsed delete has canonical parity without mutation author
   });
   assert.equal(response.result.isError, true);
   assert.equal(response.result.content[0].text, DELETE_UNPROVEN_TEXT);
+});
+
+test("MCP forwards only the two canonical opaque delete contracts from the shared Dexter wrapper", () => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-delete-contract-"));
+  const fixtureScripts = resolve(fixtureRoot, "scripts");
+  const fixtureBridge = resolve(fixtureScripts, "account-center-mcp.mjs");
+  mkdirSync(resolve(fixtureRoot, "packages/cli/dist"), { recursive: true });
+  mkdirSync(fixtureScripts, { recursive: true });
+  copyFileSync(bridge, fixtureBridge);
+  writeFileSync(resolve(fixtureRoot, "package.json"), '{"type":"module"}\n');
+  writeFileSync(resolve(fixtureRoot, "packages/cli/dist/auth-bridge.js"), 'export function inspectAuthCommand() { return { invocation: ["accounts", "delete", "opaque", "--apply"], mutationCapable: true, explicitlyDryRun: false }; }\n');
+  writeFileSync(resolve(fixtureScripts, "chatops.mjs"), 'process.stdout.write(process.env.FIXTURE_DELETE_OUTPUT || "");\n');
+  try {
+    for (const [output, expected, isError] of [
+      [DELETE_APPLIED_TEXT, DELETE_APPLIED_TEXT, false],
+      [DELETE_UNPROVEN_TEXT, DELETE_UNPROVEN_TEXT, true],
+      [`${DELETE_APPLIED_TEXT}private@example.test\n`, DELETE_UNPROVEN_TEXT, true],
+    ]) {
+      const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "account_center_auth", arguments: { command: "/auth delete opaque --apply" } } };
+      const result = spawnSync(process.execPath, [fixtureBridge], {
+        cwd: fixtureRoot,
+        input: `${JSON.stringify(request)}\n`,
+        encoding: "utf8",
+        env: { ...process.env, ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS: "1", FIXTURE_DELETE_OUTPUT: output },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const response = JSON.parse(result.stdout.trim());
+      assert.equal(response.result.isError, isError);
+      assert.equal(response.result.content[0].text, expected);
+      assert.equal(JSON.stringify(response).includes("private@example.test"), false);
+    }
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 for (const { name, command, privateValues } of [
