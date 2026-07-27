@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "account-center.pipeline-state.v1",
+  "activeCheckpoint": "AC-07",
+  "state": "READY_FOR_RELEASE_GATE",
+  "updatedAt": "2026-07-27T16:00:00.000Z",
+  "candidate": "main",
+  "blockerResolutionPlan": {
+    "kind": "account-delete-shared-executor-r2",
+    "boundedSteps": [
+      "Route Account Center account.delete preview and apply through the existing signed review, idempotency, durable receipt lifecycle without invoking a native delete in tests.",
+      "Keep the owned OpenClaw exact-target adapter as the only native delete launcher and validate its opaque verified receipt before public rendering.",
+      "Align CLI, /auth, and MCP fixture paths; verify Sentinel /auth bytes and Hermes/Dexter weekly-only files remain unchanged before review and QA."
+    ],
+    "liveDeletionTestsForbidden": true,
+    "preserveWeeklyOnlyPolicy": true,
+    "preserveSentinelAuthFormat": true
+  },
+  "review": {
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
+    "evidence": [
+      "AC-07 r2: Account Center account.delete uses the signed review/idempotency/durable-redacted lifecycle and the owned OpenClaw exact-account adapter.",
+      "Fixture-only tests verified no adapter invocation before confirmation, opaque verified completion, and replay without another invocation.",
+      "npm test (236), npm run qa, and npm run qa:security passed; no live deletion was run."
+    ]
+  }
+}

@@ -167,9 +167,16 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
   if (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) {
-    if (subcommand === "delete" && options.apply) {
-      const view = blockedCredentialDeleteView();
-      return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
+    if (subcommand === "delete") {
+      const review = options.confirm ? decodeConfirmationToken(options.confirm) : undefined;
+      const execution = await executeAccountCenterCommand({
+        command: "account.delete", target, apply: options.apply, provider: options.provider, runtime: options.runtime,
+        scope: { kind: "default", id: "default" },
+        ...(review ? { review, reviewToken: review.token } : {}),
+        ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {})
+      }, { adapter, mutation: await mutationLifecycle() });
+      const view = publicMutationView(execution.mutation);
+      return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
     }
     const mutation = await adapter.mutate({
       action: accountAction(subcommand),

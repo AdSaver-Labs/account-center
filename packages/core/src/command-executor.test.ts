@@ -118,3 +118,38 @@ test("verified route apply persists bounded opaque native and scoped before/afte
   assert.match(raw, /id_aaaaaaaaaaaaaaaaaaaaaaaa/);
   assert.doesNotMatch(raw, /helper-2|stdout|stderr|token|@|\//);
 });
+
+test("account delete requires the shared review/idempotency lifecycle and persists only opaque verified evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-delete-executor-"));
+  const repository = new MutationRepository(root);
+  const secret = "test-shared-mutation-secret";
+  const scope = { kind: "default" as const, id: "default" };
+  const target = "connected@example.test";
+  let calls = 0;
+  const adapter = {
+    source: "fixture" as const,
+    readStatus: () => new FixtureRuntimeAdapter().readStatus(),
+    doctor: async () => ({}),
+    mutate: async (input: { apply: boolean }) => {
+      calls += 1;
+      return { code: 0, payload: input.apply
+        ? { applied: true, dryRun: false, liveRuntimeMutation: true, verification: { kind: "verified" }, nativeReceipt: { action: "account.delete", state: "DELETED", receipt: "opaque-owned-delete" }, receipt: { id: "evt_owned_delete", action: "account.delete", actor: "test", dryRun: false, createdAt: "2026-07-27T00:00:00.000Z", summary: "opaque verified delete", warnings: ["opaque_native_receipt"] } }
+        : { applied: false, dryRun: true, liveRuntimeMutation: false, receipt: { id: "evt_delete_preview", action: "account.delete", actor: "test", dryRun: true, createdAt: "2026-07-27T00:00:00.000Z", summary: "preview", warnings: ["no_live_mutation"] } }
+      };
+    }
+  };
+  const request = { command: "account.delete" as const, target, apply: true, provider: "openai", runtime: "openclaw", scope };
+  const blocked = await executeAccountCenterCommand(request, { adapter, mutation: { secret, repository } });
+  assert.equal(blocked.code, 2);
+  assert.equal(calls, 0, "no native adapter call occurs before signed review confirmation");
+  const review = createMutationReview({ action: "account.delete", provider: "openai", runtime: "openclaw", scope, target }, { secret });
+  const applied = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, idempotencyKey: "owned-delete-idempotency-key-0001" }, { adapter, mutation: { secret, repository } });
+  assert.equal(applied.code, 0);
+  assert.equal(calls, 1);
+  assert.deepEqual((applied.mutation as unknown as { nativeReceipt: unknown }).nativeReceipt, { action: "account.delete", state: "DELETED", receipt: "opaque-owned-delete" });
+  const replay = await executeAccountCenterCommand({ ...request, review, reviewToken: review.token, idempotencyKey: "owned-delete-idempotency-key-0001" }, { adapter, mutation: { secret, repository } });
+  assert.equal(calls, 1, "replay must not invoke the native adapter");
+  assert.equal(replay.mutation?.replayed, true);
+  const persisted = await (await import("node:fs/promises")).readFile(join(root, "mutation-repository.v1.json"), "utf8");
+  assert.doesNotMatch(persisted, /connected@example\.test|opaque-owned-delete/);
+});

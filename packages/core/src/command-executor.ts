@@ -60,20 +60,24 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   if (request.command === "guard") return { code: guardStatus(status, provider, runtime, request.model).ok ? 0 : 2, kind: "guard", guard: guardStatus(status, provider, runtime, request.model) };
 
   const action: AuditAction = request.command as AuditAction;
-  const target = resolveRouteTarget(status, action, request.target ?? (action === "route.auto" ? nextEligible(status, provider, runtime, request.model)?.profile.id : undefined), provider, runtime);
+  const requestedTarget = request.target ?? (action === "route.auto" ? nextEligible(status, provider, runtime, request.model)?.profile.id : undefined);
+  // Deletion target identity is resolved privately by the owned OpenClaw
+  // adapter, which can match a connected canonical id or email. The executor
+  // only rejects empty/option-shaped operands before signing the review.
+  const target = action === "account.delete" ? safeDeleteTarget(requestedTarget) : resolveRouteTarget(status, action, requestedTarget, provider, runtime);
   if (["route.auto", "route.use", "route.remove"].includes(action) && !target) return { code: 2, kind: "mutation", mutation: blockedMutation(action, request.target, "canonical_route_target_required") };
   if (["route.auto", "route.use", "route.remove"].includes(action) && (provider !== "openai" || runtime !== "openclaw")) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "openclaw_route_provider_runtime_required") };
   // The agent scope is an observed routing fact, not merely a well-formed
   // string. Validate it before creating a review or calling an adapter so a
   // stale public scope cannot acquire a capability through a preview.
   if (["route.auto", "route.use", "route.remove"].includes(action) && request.scope && !isObservedExactAgentScope(status, request.scope, provider, runtime)) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "observed_agent_scope_required") };
-  if (["route.auto", "route.use", "route.remove"].includes(action) && request.apply !== true && deps.mutation && request.scope && target) {
+  if (requiresProtectedLifecycle(action) && request.apply !== true && deps.mutation && request.scope && target) {
     const review = createMutationReview({ action, provider, runtime, scope: request.scope, target }, { secret: deps.mutation.secret });
     const preview = await deps.adapter.mutate({ action, target, apply: false, provider, runtime, scope: request.scope });
     const payload = asMutation(preview.payload, action, target)!;
     return { code: preview.code, kind: "mutation", mutation: { ...payload, review, confirmationToken: encodeReview(review) } };
   }
-  const authorization = await routeAuthorization(request, action, target, provider, runtime, deps.mutation);
+  const authorization = await protectedAuthorization(request, action, target, provider, runtime, deps.mutation);
   if (authorization.kind === "blocked") return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, authorization.reason) };
   if (authorization.kind === "replay") return { code: authorization.receipt.outcome === "applied" ? 0 : 2, kind: "mutation", mutation: replayMutation(action, target, authorization.receipt) };
   const result = await deps.adapter.mutate({
@@ -82,7 +86,7 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
     apply: request.apply === true,
     provider,
     runtime,
-    ...(authorization.kind === "confirmed" ? { routeCapability: mintRouteCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
+    ...(authorization.kind === "confirmed" && isRouteAction(action) ? { routeCapability: mintRouteCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
   });
   const payload = asMutation(result.payload, action, target);
   if (authorization.kind === "confirmed") {
@@ -95,15 +99,19 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
 
 type RouteAuthorization = { kind: "none" } | { kind: "confirmed"; operationId: string } | { kind: "blocked"; reason: string } | { kind: "replay"; receipt: MutationReceipt };
 
-async function routeAuthorization(request: CommandRequest, action: AuditAction, target: string | undefined, provider: string, runtime: string, lifecycle: { secret: string; repository: MutationRepository } | undefined): Promise<RouteAuthorization> {
-  if (request.apply !== true || !["route.auto", "route.use", "route.remove"].includes(action)) return { kind: "none" };
-  if (!lifecycle || !request.scope || !request.review || !request.reviewToken || !request.idempotencyKey || !target) return { kind: "blocked", reason: "route_apply_requires_confirmed_shared_mutation" };
-  if (request.scope.kind !== "agent" || !/^[a-z][a-z0-9_-]{0,63}$/.test(request.scope.id) || request.scope.id === "all") return { kind: "blocked", reason: "explicit_agent_scope_required" };
+async function protectedAuthorization(request: CommandRequest, action: AuditAction, target: string | undefined, provider: string, runtime: string, lifecycle: { secret: string; repository: MutationRepository } | undefined): Promise<RouteAuthorization> {
+  if (request.apply !== true || !requiresProtectedLifecycle(action)) return { kind: "none" };
+  if (!lifecycle || !request.scope || !request.review || !request.reviewToken || !request.idempotencyKey || !target) return { kind: "blocked", reason: "protected_apply_requires_confirmed_shared_mutation" };
+  if (isRouteAction(action) && (request.scope.kind !== "agent" || !/^[a-z][a-z0-9_-]{0,63}$/.test(request.scope.id) || request.scope.id === "all")) return { kind: "blocked", reason: "explicit_agent_scope_required" };
   const verified = verifyMutationApply({ action, provider, runtime, scope: request.scope, target, review: request.review, reviewToken: request.reviewToken }, { secret: lifecycle.secret });
   if (verified.kind !== "confirmed") return { kind: "blocked", reason: verified.reason };
   const claim = await lifecycle.repository.claim({ idempotencyKey: request.idempotencyKey, requestDigest: verified.requestDigest, audit: { action, provider, runtime, scopeKind: request.scope.kind, scopeIdDigest: digest(request.scope.id), targetDigest: digest(target) } });
   return claim.kind === "execute" ? { kind: "confirmed", operationId: claim.operationId } : claim.kind === "replay" ? { kind: "replay", receipt: claim.receipt } : { kind: "blocked", reason: claim.reason };
 }
+
+function isRouteAction(action: AuditAction): action is "route.auto" | "route.use" | "route.remove" { return ["route.auto", "route.use", "route.remove"].includes(action); }
+function requiresProtectedLifecycle(action: AuditAction): boolean { return isRouteAction(action) || action === "account.delete"; }
+function safeDeleteTarget(value: string | undefined): string | undefined { return value && value.trim() && !value.trimStart().startsWith("-") ? value : undefined; }
 
 function blockedMutation(action: AuditAction, target: string | undefined, reason: string): NonNullable<CommandExecution["mutation"]> {
   return { applied: false, dryRun: true, liveRuntimeMutation: false, receipt: createReceipt({ action, dryRun: true, target, summary: "Route apply was blocked before the runtime adapter because the protected mutation lifecycle was not confirmed.", warnings: [reason] }), reason };

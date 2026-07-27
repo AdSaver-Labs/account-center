@@ -550,8 +550,8 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       id: "account.delete",
       mode: "mutation",
       state: "blocked",
-      reason: "no_stable_native_exact_profile_delete_api",
-      requires: ["bearer_token", "canonical_target", "stable_native_exact_profile_delete_api", "atomic_transaction", "post_delete_authoritative_proof"]
+      reason: "account_center_cli_review_confirmation_required",
+      requires: ["bearer_token", "exact_connected_target", "owned_exact_account_transaction", "explicit_confirmation", "idempotency_key", "verified_opaque_receipt"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "guided_auth"), {
       id: "guided_auth",
