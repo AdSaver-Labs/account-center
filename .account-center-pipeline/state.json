@@ -2,14 +2,14 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-02",
   "state": "READY_FOR_RELEASE_GATE",
-  "updatedAt": "2026-07-27T21:46:03Z",
+  "updatedAt": "2026-07-27T22:19:59Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "hermes-owned-delete-receipt-parity-r1",
+    "kind": "qa-browser-crash-isolation-r2",
     "boundedSteps": [
-      "Replace Hermes stale delete fallback wording with Account Center canonical fail-closed owned-transaction wording.",
-      "Allow-list only the Account Center verified opaque owned-delete receipt alongside the bounded UNPROVEN contract; reject all augmented or private native output.",
-      "Add subprocess fixture coverage for verified receipt forwarding and hostile-output fail-closed behavior, then run focused and full fixture-only QA without a live deletion."
+      "Run the single failed fixture-only Chromium case with Playwright tracing and inspect its teardown/crash evidence without touching a live runtime.",
+      "If reproducible, make the minimum deterministic fixture-lifecycle correction and add regression coverage; otherwise retry the isolated case and full browser suite to distinguish transient browser failure from product behavior.",
+      "Re-run full fixture-only test and security QA gates, then re-review the opaque owned-delete boundary, normal Sentinel /auth format, and Hermes/Dexter weekly-only policy."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -20,11 +20,11 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Hermes now accepts only the canonical Account Center owned-delete verified opaque receipt or its bounded UNPROVEN counterpart; all augmented native output fails closed.",
-      "Added fixture-only Hermes subprocess tests for verified opaque receipt forwarding and hostile-output rejection; no live deletion was invoked.",
-      "Focused Hermes tests passed (15 total including receipt filesystem fixtures); the owned local delete script passed Python compilation only.",
-      "npm test passed 237 fixture-only tests; npm run qa:security passed typecheck/build, 15 Chromium/axe tests, secret scan, and high-severity dependency audit.",
-      "Diff review confirmed normal Sentinel /auth rendering and Hermes/Dexter weekly-only capacity behavior remain covered and unchanged."
+      "Owned exact-account delete remains bound to the local Dexter transaction; Account Center exports only the allow-listed opaque verified receipt and Hermes accepts only the exact applied/UNPROVEN public contracts.",
+      "Focused Hermes fixture suite passed 15 tests; Python compilation of the owned delete script passed. No live credential deletion was run.",
+      "npm test passed 237 fixture-only tests.",
+      "The isolated previously crashed Chromium case passed; rerun npm run qa:security passed typecheck/build, 237 fixture tests, all 15 Chromium/axe tests, secret scan (117 tracked files), and high-severity audit (0 vulnerabilities).",
+      "Diff review found Sentinel /auth status rendering and Hermes/Dexter weekly-only capacity coverage intact."
     ]
   }
 }
