@@ -46,6 +46,32 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
         self.assertNotIn("person@example.test", result)
         self.assertNotIn("sk-secret", result)
 
+    def test_owned_delete_success_passes_only_the_verified_opaque_receipt_contract(self):
+        plugin = load_plugin_module()
+        with patch.object(plugin, "_account_center_root", return_value=Path("/fixture/account-center")), patch.object(
+            plugin.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=0, stdout=plugin._DELETE_APPLIED_TEXT, stderr="private@example.test /private/receipt.json"),
+        ):
+            result = plugin._run_auth("delete person@example.test --apply")
+        self.assertEqual(result, plugin._DELETE_APPLIED_TEXT)
+        self.assertIn("Receipt: opaque-owned-delete", result)
+        self.assertNotIn("person@example.test", result)
+        self.assertNotIn("private/receipt", result)
+
+    def test_delete_stdout_outside_the_two_opaque_contracts_fails_closed(self):
+        plugin = load_plugin_module()
+        hostile_stdout = plugin._DELETE_APPLIED_TEXT + "target=person@example.test backup=/private/receipt.json\n"
+        with patch.object(plugin, "_account_center_root", return_value=Path("/fixture/account-center")), patch.object(
+            plugin.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=0, stdout=hostile_stdout, stderr=""),
+        ):
+            result = plugin._run_auth("delete person@example.test --apply")
+        self.assertEqual(result, plugin._DELETE_UNPROVEN_TEXT)
+        self.assertNotIn("person@example.test", result)
+        self.assertNotIn("private/receipt", result)
+
     def test_successful_chatops_stdout_redacts_email_real_token_and_all_path_forms(self):
         plugin = load_plugin_module()
         hostile_stdout = (

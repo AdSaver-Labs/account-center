@@ -38,9 +38,17 @@ _DELETE_UNPROVEN_TEXT = (
     "Target: redacted-target\n"
     "Result: BLOCKED\n"
     "Verification: UNPROVEN\n\n"
-    "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n"
+    "Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n"
     "Exact connected-target confirmation remains required before credential deletion.\n"
 )
+_DELETE_APPLIED_TEXT = (
+    "APPLIED — owned exact-account credential delete completed.\n"
+    "Action: account.delete\n"
+    "Result: APPLIED\n"
+    "Verification: VERIFIED\n"
+    "Receipt: opaque-owned-delete\n"
+)
+_CANONICAL_DELETE_OUTPUTS = frozenset({_DELETE_UNPROVEN_TEXT, _DELETE_APPLIED_TEXT})
 
 
 def _cfg_get(path: str, default: Any = None) -> Any:
@@ -138,8 +146,11 @@ def _run_auth(raw_args: str) -> str:
         return _DELETE_UNPROVEN_TEXT if delete_request else _AUTH_UNPROVEN_TEXT
     if delete_request:
         # The CLI owns this fixed public result. Do not apply bridge redaction
-        # that could change its canonical wording; reject non-canonical stdout.
-        return output if output == _DELETE_UNPROVEN_TEXT else _DELETE_UNPROVEN_TEXT
+        # that could change its canonical wording.  Account Center and Hermes
+        # share exactly two allow-listed outcomes: fail-closed UNPROVEN or the
+        # owned transaction's verified opaque receipt.  Nothing from the
+        # native script itself crosses this bridge.
+        return output if output in _CANONICAL_DELETE_OUTPUTS else _DELETE_UNPROVEN_TEXT
     return _redact_output(output or "Account Center returned no output.")[:3900]
 
 
