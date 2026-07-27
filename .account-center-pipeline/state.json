@@ -2,14 +2,14 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-01",
   "state": "READY_FOR_RELEASE_GATE",
-  "updatedAt": "2026-07-27T17:20:00.000Z",
+  "updatedAt": "2026-07-27T20:01:51Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "scope-evidence-boundary-r2",
+    "kind": "scope-evidence-boundary-r3",
     "boundedSteps": [
-      "Map all mutation entry points to the shared runtime/scope validator and identify any syntactic-only scope acceptance.",
-      "Add fixture-only adversarial tests for forged, stale, cross-runtime, widened, and malformed scope DTOs; assert no adapter mutation.",
-      "Retain AC-06 owned-delete opaque receipt boundary and prove Sentinel /auth and Hermes/Dexter weekly-only invariants with focused regression checks before full QA."
+      "Preserve the reviewed AC-06 owned-delete opaque receipt boundary and fixture-only coverage.",
+      "Keep normal Sentinel /auth format and Hermes/Dexter weekly-only eligibility behavior unchanged.",
+      "Record deterministic fixture teardown remediation before selecting the next release gate."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -25,7 +25,13 @@
       "SC-01 r2 plan recorded under exclusive state lock; fixture-only execution pending.",
       "SC-01 r2: explicit protected contexts fail closed before adapter invocation; delete is bound to openai/openclaw default scope.",
       "Focused fixture suite passed 130 tests; full qa:security passed 237 tests, 15 browser/a11y tests, secret scan, and high-severity audit.",
-      "No live delete was invoked; owned codex-auth-delete.py was compiled only."
+      "No live delete was invoked; owned codex-auth-delete.py was compiled only.",
+      "SC-01 revalidated on main: npm test passed 237 fixture-only tests; npm run qa:security passed TypeScript/build, 15 Chromium/axe tests, secret scan, and high-severity audit. Owned codex-auth-delete.py was compiled only; no live delete was invoked.",
+      "SC-01 release-gate revalidation: npm run qa:security passed 237 fixture-only tests, TypeScript/build, 15 Chromium/axe tests, secret scan, and high-severity audit; owned codex-auth-delete.py compiled only. No live delete was invoked.",
+      "SC-01-R3 planned under exclusive coordinator lock after qa:security exposed a fixture-only Chromium teardown ENOTEMPTY; candidate preserved and no live delete was invoked.",
+      "SC-01-R3 spec review: fixture teardown retry is bounded to the Chromium fixture temp root and does not alter any Account Center runtime adapter, receipt contract, Sentinel status, or capacity policy.",
+      "SC-01-R3 quality review: focused affected browser test passed 8 consecutive fixture-only repetitions; only bounded Node rm retry options changed; git diff --check passed.",
+      "SC-01-R3 QA: npm run qa:security passed 237 tests, TypeScript/build, all 15 Chromium/axe tests, secret scan, and high-severity dependency audit; owned codex-auth-delete.py compiled only. No live delete was invoked."
     ]
   }
 }

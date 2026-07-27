@@ -48,7 +48,10 @@ const gate = test.extend({
       // before closing its server so teardown cannot consume the test timeout.
       await page.goto("about:blank");
       await app.close();
-      await rm(root, { recursive: true, force: true });
+      // Closing a loopback server does not make already-dispatched browser
+      // requests disappear synchronously. Bound the fixture-only cleanup retry
+      // so an in-flight store write cannot race recursive temp-dir removal.
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   }
 });
