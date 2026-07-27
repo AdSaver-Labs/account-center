@@ -18,7 +18,7 @@ const DELETE_UNPROVEN_TEXT =
   'Target: redacted-target\n' +
   'Result: BLOCKED\n' +
   'Verification: UNPROVEN\n\n' +
-  'Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n' +
+  'Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n' +
   'Exact connected-target confirmation remains required before credential deletion.\n';
 const INVALID_REQUEST_TEXT = 'Invalid Account Center MCP request.';
 const MUTATION_BLOCKED_TEXT =
@@ -44,7 +44,7 @@ const tools = [
   {
     name: 'account_center_auth',
     description:
-      'Run Account Center /auth commands for status, routing, account add/reauth/remove/use/delete, and recovery flows. All paths use the canonical account contract. Credential delete fails closed unless a documented native transaction provides exact targeting, backup/rollback, redacted receipt, and fresh proof.',
+      'Run Account Center /auth commands for status, routing, account add/reauth/remove/use/delete, and recovery flows. All paths use the canonical account contract. Credential delete uses the owned exact-account transaction and fails closed unless its opaque backup/rollback receipt verifies.',
     inputSchema: {
       type: 'object',
       properties: {

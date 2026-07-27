@@ -64,11 +64,11 @@ test("/auth add and reauth reject malformed, conflicting, or repeated guided-aut
   }
 });
 
-test("/auth help reports credential delete as blocked/UNPROVEN until a native transactional adapter exists", () => {
+test("/auth help reports the owned credential-delete transaction and its fail-closed receipt boundary", () => {
   const help = renderAuthHelp();
   assert.match(help, /^\/auth commands/m);
-  assert.match(help, /BLOCKED\/UNPROVEN until a documented native transactional delete adapter exists/);
-  assert.match(help, /live delete is currently BLOCKED\/UNPROVEN and fails closed without a store change/);
+  assert.match(help, /owned exact-account delete; requires verified opaque receipt/);
+  assert.match(help, /owned exact-account transaction, which requires an exact connected target/);
   assert.doesNotMatch(help, /and \/auth delete <target> request live apply when valid/);
   assert.doesNotMatch(help, /\/oauth/);
 });

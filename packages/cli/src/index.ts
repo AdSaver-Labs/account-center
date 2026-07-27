@@ -285,6 +285,7 @@ async function maybeWriteStatus(status: unknown, options: CliOptions): Promise<v
   await writeFile(options.statusPath, `${json(status)}\n`, "utf8");
 }
 
+
 function routeAction(subcommand?: string): "route.auto" | "route.use" | "route.remove" {
   if (subcommand === "use") return "route.use";
   if (subcommand === "remove") return "route.remove";
@@ -420,17 +421,22 @@ export function publicMutationView(payload: unknown): PublicMutationView {
   const dryRun = report.dryRun === true || receipt.dryRun === true;
   const liveRuntimeMutation = report.liveRuntimeMutation === true;
   const verificationState = isReport(report.verification) && report.verification.kind === "verified" ? "VERIFIED" as const : "UNPROVEN" as const;
+  const nativeReceipt = isReport(report.nativeReceipt) ? report.nativeReceipt : {};
+  // Credential-delete success has one deliberately tiny cross-package proof
+  // shape. A generic "verified" flag, a local receipt, or any unrecognized
+  // native output never upgrades a delete result.
+  const ownedDeleteVerified = credentialDelete && applied && !dryRun && liveRuntimeMutation && verificationState === "VERIFIED" && nativeReceipt.action === "account.delete" && nativeReceipt.state === "DELETED" && nativeReceipt.receipt === "opaque-owned-delete";
   const historicalLiveRuntimeMutation = report.historicalLiveRuntimeMutation === true;
   const historicalVerification = report.historicalVerification === "verified" ? "VERIFIED" as const : "UNPROVEN" as const;
   const attemptedUnproven = liveRuntimeMutation && (!applied || verificationState === "UNPROVEN");
   const replayedAttemptedUnproven = report.replayed === true && historicalLiveRuntimeMutation && historicalVerification === "UNPROVEN";
   return {
     schemaVersion: "account-center.public-mutation.v1",
-    verificationState: credentialDelete ? "UNPROVEN" : verificationState,
-    applied: credentialDelete ? false : applied,
-    dryRun: credentialDelete ? true : dryRun,
-    liveRuntimeMutation: credentialDelete ? false : liveRuntimeMutation,
-    state: credentialDelete ? "BLOCKED" : report.replayed === true ? (replayedAttemptedUnproven ? "REPLAYED_ATTEMPTED_UNPROVEN" : "REPLAYED") : attemptedUnproven ? "ATTEMPTED_UNPROVEN" : typeof report.reason === "string" ? "BLOCKED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
+    verificationState: credentialDelete && !ownedDeleteVerified ? "UNPROVEN" : verificationState,
+    applied: credentialDelete && !ownedDeleteVerified ? false : applied,
+    dryRun: credentialDelete && !ownedDeleteVerified ? true : dryRun,
+    liveRuntimeMutation: credentialDelete && !ownedDeleteVerified ? false : liveRuntimeMutation,
+    state: credentialDelete && !ownedDeleteVerified ? "BLOCKED" : report.replayed === true ? (replayedAttemptedUnproven ? "REPLAYED_ATTEMPTED_UNPROVEN" : "REPLAYED") : attemptedUnproven ? "ATTEMPTED_UNPROVEN" : typeof report.reason === "string" ? "BLOCKED" : applied && liveRuntimeMutation ? "APPLIED" : dryRun ? "DRY_RUN" : "BLOCKED",
     receipt: publicReceipt(receipt),
     ...(report.replayed === true ? { replayed: true as const, historicalOutcome: typeof report.historicalOutcome === "string" ? report.historicalOutcome : "unknown", historicalLiveRuntimeMutation, historicalVerification, ...(typeof report.operationId === "string" && /^op_[A-Za-z0-9_-]{1,100}$/.test(report.operationId) ? { operationId: report.operationId } : {}) } : {}),
     ...(typeof report.confirmationToken === "string" ? { confirmationToken: report.confirmationToken } : {})
@@ -592,8 +598,8 @@ function renderCodexLimits(status: AccountCenterStatus, options: CliOptions): st
   lines.push("• /auth add <email> — record a local guided-auth initiation for a new account; it does not start device-code/OAuth login, store credentials, or activate routing");
   lines.push("• /auth reauth <email> — record a local guided-auth initiation for an existing account; it does not reauthenticate or change credentials or routing");
   lines.push("• /auth remove <email> — remove from routing without deleting credentials");
-  lines.push("• /auth delete <email> — BLOCKED/UNPROVEN: live credential deletion is unavailable until a documented native transactional delete adapter exists");
-  lines.push("• /auth delete <email> --dry-run — preview only; no deletion (live delete remains blocked/UNPROVEN)");
+  lines.push("• /auth delete <email> — exact-account deletion uses the owned backup/rollback transaction after explicit apply approval");
+  lines.push("• /auth delete <email> --dry-run — preview only; no deletion");
   lines.push("• Fallback CLI only if Telegram commands are unavailable: node 3-Resources/codex-account-ops/scripts/codex-device-auth-telegram.mjs start --email <email>");
   lines.push("");
   for (const profile of orderCodexProfiles(status.profiles)) {
@@ -706,7 +712,7 @@ function renderGuard(payload: PublicGuardView): string {
 }
 
 export function renderMutation(payload: PublicMutationView): string {
-  if (payload.receipt.action === "account.delete") return renderBlockedCredentialDelete(payload);
+  if (payload.receipt.action === "account.delete") return renderCredentialDelete(payload);
   const { action, target } = payload.receipt;
   const { applied, dryRun, liveRuntimeMutation } = payload;
   const lines: string[] = [];
@@ -737,18 +743,18 @@ export function renderMutation(payload: PublicMutationView): string {
     lines.push(`Verification: ${payload.verificationState}`);
     if (action === "account.delete") {
       lines.push("");
-      lines.push("Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.");
+      lines.push("Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.");
       lines.push("Exact connected-target confirmation remains required before credential deletion.");
     } else if (action === "route.remove") {
       lines.push("");
       lines.push("This is routing removal only. It does not delete credentials.");
-      lines.push("Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.");
+      lines.push("Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.");
     }
     return `${lines.join("\n")}\n`;
   }
 
   if (action === "account.delete") {
-    lines.push("BLOCKED/UNPROVEN — credential deletion is unavailable because no documented native transactional delete adapter is available.");
+    lines.push("UNPROVEN — the owned exact-account transaction did not produce verified evidence.");
     lines.push("No Sentinel/OpenClaw credential store was changed.");
     lines.push(`Action: ${action}`);
     lines.push(`Target: ${target}`);
@@ -763,8 +769,17 @@ export function renderMutation(payload: PublicMutationView): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** The sole public renderer for fail-closed native credential deletion. */
-export function renderBlockedCredentialDelete(payload: PublicMutationView = blockedCredentialDeleteView()): string {
+/** The sole public renderer for the opaque owned credential-delete contract. */
+export function renderCredentialDelete(payload: PublicMutationView = blockedCredentialDeleteView()): string {
+  if (payload.applied === true && payload.liveRuntimeMutation === true && payload.verificationState === "VERIFIED") {
+    return [
+      "APPLIED — owned exact-account credential delete completed.",
+      "Action: account.delete",
+      "Result: APPLIED",
+      "Verification: VERIFIED",
+      "Receipt: opaque-owned-delete"
+    ].join("\n") + "\n";
+  }
   return [
     "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.",
     "Action: account.delete",
@@ -772,7 +787,7 @@ export function renderBlockedCredentialDelete(payload: PublicMutationView = bloc
     "Result: BLOCKED",
     "Verification: UNPROVEN",
     "",
-    "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.",
+    "Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.",
     "Exact connected-target confirmation remains required before credential deletion."
   ].join("\n") + "\n";
 }
@@ -841,7 +856,7 @@ function helpText(): string {
   providers probe [--provider openai|all] [--json]
   accounts disable <profile> [--apply] -- dry-run unless apply is supported and explicit
   accounts enable <profile> [--apply] -- dry-run unless apply is supported and explicit
-  accounts delete <email-or-profile> [--dry-run] -- BLOCKED/UNPROVEN; no documented native transactional delete adapter is available
+  accounts delete <email-or-profile> [--dry-run|--apply] -- owned exact-account transaction; apply requires verified opaque receipt
   routes next
   routes auto --scope agent:<id> -- preview returns a confirmation token
   routes use <canonical-profile-id> --scope agent:<id> -- preview returns a confirmation token

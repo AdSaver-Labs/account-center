@@ -311,21 +311,18 @@ test("OpenClaw read-after-write mismatch never reports applied", async () => {
   assert.equal((result.mutation as unknown as { reason: string }).reason, "route_read_after_write_mismatch");
 });
 
-test("OpenClaw account delete remains blocked until atomic transaction support exists", async () => {
+test("OpenClaw account delete uses the owned exact-account transaction and exposes one opaque receipt contract", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-"));
-  const agentDir = join(workspace, "..", "agents", "main", "agent");
   const cli = join(workspace, "oauth_routing_cli.py");
-  await mkdir(join(workspace, "3-Resources", "codex-account-ops", "state"), { recursive: true });
-  await mkdir(agentDir, { recursive: true });
+  const deleteScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py");
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops", "scripts"), { recursive: true });
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
   await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
-  await writeFile(join(workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"), JSON.stringify({ route: "before" }), "utf8");
-  await writeFile(join(agentDir, "openclaw-agent.sqlite"), "sqlite placeholder", "utf8");
+  await writeFile(deleteScript, "#!/usr/bin/env python3\n", "utf8");
   const calls: Array<{ command: string; args: string[] }> = [];
   const runner: CommandRunner = async (command, args) => {
     calls.push({ command, args });
-    if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
-    throw new Error("credential deletion helper must not run before atomic transaction support exists");
+    return { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", agents: ["fixture"], backup: true, verified: true }), stderr: "private@example.test /private/store.sqlite" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
   const result = await adapter.mutate({
@@ -335,15 +332,19 @@ test("OpenClaw account delete remains blocked until atomic transaction support e
     provider: "openai",
     runtime: "openclaw"
   });
-  assert.equal(result.code, 2);
-  assert.equal(calls.length, 0, "fail-closed destructive delete must not invoke any external helper");
-  const payload = result.payload as { applied: boolean; liveRuntimeMutation: boolean; receipt: { warnings: string[] } };
-  assert.equal(payload.applied, false);
-  assert.equal(payload.liveRuntimeMutation, false);
-  assert.ok(payload.receipt.warnings.includes("atomic_delete_transaction_not_implemented"));
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls, [{ command: "python3", args: [deleteScript, "openai:helper-2", "--apply"] }]);
+  const payload = result.payload as { applied: boolean; liveRuntimeMutation: boolean; receipt: { warnings: string[]; target?: string }; nativeReceipt: unknown };
+  assert.equal(payload.applied, true);
+  assert.equal(payload.liveRuntimeMutation, true);
+  assert.equal(payload.receipt.target, undefined);
+  assert.ok(payload.receipt.warnings.includes("opaque_native_receipt"));
+  assert.deepEqual(payload.nativeReceipt, { action: "account.delete", state: "DELETED", receipt: "opaque-owned-delete" });
+  assert.equal(JSON.stringify(payload).includes("private@example.test"), false);
+  assert.equal(JSON.stringify(payload).includes("676ca2b8db45302e"), false);
 });
 
-test("OpenClaw account delete privately resolves a case- and whitespace-normalized connected email before failing closed", async () => {
+test("OpenClaw account delete privately resolves a case- and whitespace-normalized connected email before the owned transaction", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-email-"));
   const cli = join(workspace, "oauth_routing_cli.py");
   const email = "Connected.Member@Example.Test";
@@ -357,20 +358,39 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
   await mkdir(join(workspace, "3-Resources", "codex-account-ops"), { recursive: true });
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
   await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(emailStatus), "utf8");
-  let runnerCalls = 0;
-  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner: async () => {
-    runnerCalls += 1;
-    throw new Error("credential delete must not invoke an undocumented runtime helper");
+  const deleteScript = join(workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py");
+  await mkdir(join(workspace, "3-Resources", "codex-account-ops", "scripts"), { recursive: true });
+  await writeFile(deleteScript, "#!/usr/bin/env python3\n", "utf8");
+  const calls: string[][] = [];
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner: async (_command, args) => {
+    calls.push(args);
+    return { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: true }), stderr: "" };
   } });
   const publicStatus = await adapter.readStatus();
   assert.doesNotMatch(JSON.stringify(publicStatus), /connected\.member@example\.test/i);
   const result = await adapter.mutate({ action: "account.delete", target: ` \t${email.toLowerCase()}\n`, apply: true, provider: "openai", runtime: "openclaw" });
-  assert.equal(result.code, 2);
-  assert.equal(runnerCalls, 0);
-  assert.equal((result.payload as { reason: string }).reason, "atomic_delete_transaction_not_implemented");
-  const payload = result.payload as { receipt: { warnings: string[] } };
-  assert.ok(payload.receipt.warnings.includes("atomic_delete_transaction_not_implemented"));
-  assert.ok(payload.receipt.warnings.includes("no_live_mutation"));
+  assert.equal(result.code, 0);
+  assert.deepEqual(calls, [[deleteScript, "openai:helper-2", "--apply"]]);
+});
+
+test("OpenClaw account delete fails closed when the owned transaction receipt is malformed, mismatched, or unverified", async () => {
+  const workspace = await openClawWorkspace();
+  const deleteScript = join(workspace.root, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py");
+  await writeFile(deleteScript, "#!/usr/bin/env python3\n", "utf8");
+  for (const stdout of [
+    "not-json",
+    JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "0123456789abcdef", backup: true, verified: true }),
+    JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: false })
+  ]) {
+    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout, stderr: "secret@example.test" }) });
+    const result = await adapter.mutate({ action: "account.delete", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw" });
+    assert.equal(result.code, 2);
+    const payload = result.payload as { applied: boolean; verification: { kind: string }; reason: string };
+    assert.equal(payload.applied, false);
+    assert.equal(payload.verification.kind, "unproven");
+    assert.equal(payload.reason, "owned_delete_transaction_unproven");
+    assert.equal(JSON.stringify(payload).includes("secret@example.test"), false);
+  }
 });
 
 test("OpenClaw account delete blocks profile labels rather than treating them as canonical identities", async () => {

@@ -37,7 +37,7 @@ const DELETE_UNPROVEN_TEXT =
   "Target: redacted-target\n" +
   "Result: BLOCKED\n" +
   "Verification: UNPROVEN\n\n" +
-  "Credential deletion is currently BLOCKED/UNPROVEN; no documented native transactional delete adapter is available.\n" +
+  "Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n" +
   'Exact connected-target confirmation remains required before credential deletion.\n';
 
 test("MCP initializes and lists tools before ignored CLI build artifacts exist", () => {
@@ -67,7 +67,7 @@ test("MCP describes delete as the canonical fail-closed transaction contract", (
   const response = callRequest(request);
   const auth = response.result.tools.find((tool) => tool.name === "account_center_auth");
   assert.match(auth.description, /canonical account contract/);
-  assert.match(auth.description, /fails closed unless a documented native transaction/);
+  assert.match(auth.description, /uses the owned exact-account transaction/);
   assert.doesNotMatch(auth.description, /direct JSON|SQLite/i);
 });
 

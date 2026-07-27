@@ -904,7 +904,7 @@ test("/auth delete status-adapter failures fail closed with an opaque unproven r
         });
       } else {
         assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
-        assert.match(result.stdout, /BLOCKED\/UNPROVEN/);
+        assert.match(result.stdout, /Credential deletion is UNPROVEN/);
       }
       for (const privateValue of [hostile, cli, "/srv/private/account-center/adapter.ts:42", "person@example.test", "sk-hostile-token-value-123456789", "Error:"]) {
         assert.equal(result.stdout.includes(privateValue), false, privateValue);
@@ -994,12 +994,12 @@ test("/auth delete unsafe requested receipt entries are opaque and create no pri
   }
 });
 
-test("credential delete apply and renderer both fail closed without a native transaction contract", async () => {
+test("credential delete apply and renderer accept only the owned opaque transaction contract", async () => {
   const result = await runCli(["auth", "/auth", "delete", "helper-1", "--apply"]);
   assert.equal(result.code, 2);
   assert.match(result.stdout, /^DRY RUN — no account was deleted/m);
   assert.match(result.stdout, /Result: BLOCKED/);
-  assert.match(result.stdout, /BLOCKED\/UNPROVEN/);
+  assert.match(result.stdout, /Credential deletion is UNPROVEN/);
   assert.doesNotMatch(result.stdout, /DELETED|credentials were removed|--apply/);
 
   const impossibleSuccess = publicMutationView({
@@ -1012,8 +1012,20 @@ test("credential delete apply and renderer both fail closed without a native tra
   assert.equal(impossibleSuccess.state, "BLOCKED");
   assert.equal(impossibleSuccess.applied, false);
   assert.equal(impossibleSuccess.liveRuntimeMutation, false);
-  assert.match(renderMutation(impossibleSuccess), /BLOCKED\/UNPROVEN/);
+  assert.match(renderMutation(impossibleSuccess), /Credential deletion is UNPROVEN/);
   assert.doesNotMatch(renderMutation(impossibleSuccess), /DELETED|credentials were removed/);
+
+  const ownedSuccess = publicMutationView({
+    applied: true,
+    dryRun: false,
+    liveRuntimeMutation: true,
+    verification: { kind: "verified" },
+    nativeReceipt: { action: "account.delete", state: "DELETED", receipt: "opaque-owned-delete" },
+    receipt: { id: "evt_delete", action: "account.delete", dryRun: false, target: "private@example.test" }
+  });
+  assert.equal(ownedSuccess.state, "APPLIED");
+  assert.equal(ownedSuccess.verificationState, "VERIFIED");
+  assert.equal(renderMutation(ownedSuccess), "APPLIED — owned exact-account credential delete completed.\nAction: account.delete\nResult: APPLIED\nVerification: VERIFIED\nReceipt: opaque-owned-delete\n");
 });
 
 test("models list reports fixture model policy", async () => {
@@ -1029,8 +1041,7 @@ test("help promotes /auth compatibility as the manual chat command", async () =>
   const result = await runCli(["help"]);
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Manual chat compatibility command is \/auth/);
-  assert.match(result.stdout, /accounts delete <email-or-profile> \[--dry-run\] -- BLOCKED\/UNPROVEN/);
-  assert.doesNotMatch(result.stdout, /accounts delete <email-or-profile> \[--apply\]/);
+  assert.match(result.stdout, /accounts delete <email-or-profile> \[--dry-run\|--apply\] -- owned exact-account transaction/);
   assert.doesNotMatch(result.stdout, /\/oauth/);
 });
 

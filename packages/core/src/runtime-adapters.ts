@@ -63,6 +63,8 @@ export interface OpenClawAdapterConfig {
   workspace?: string;
   cli?: string;
   agentDir?: string;
+  /** Owned exact-account transaction used by Dexter's live /auth delete. */
+  deleteScript?: string;
   runner?: CommandRunner;
 }
 
@@ -104,12 +106,14 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   private readonly workspace: string;
   private readonly cli: string;
   private readonly agentDir: string;
+  private readonly deleteScript: string;
   private readonly runner: CommandRunner;
 
   constructor(config: OpenClawAdapterConfig = {}) {
     this.workspace = resolve(config.workspace ?? process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE ?? join(homedir(), ".openclaw", "workspace"));
     this.cli = resolve(config.cli ?? process.env.ACCOUNT_CENTER_OPENCLAW_CLI ?? join(this.workspace, "ops", "scripts", "oauth_routing_cli.py"));
     this.agentDir = resolve(config.agentDir ?? process.env.ACCOUNT_CENTER_OPENCLAW_AGENT_DIR ?? join(dirname(this.workspace), "agents", "main", "agent"));
+    this.deleteScript = resolve(config.deleteScript ?? process.env.ACCOUNT_CENTER_OPENCLAW_DELETE_SCRIPT ?? join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-delete.py"));
     this.runner = config.runner ?? execFileRunner;
   }
 
@@ -262,26 +266,52 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       return { code: 2, payload };
     }
     const target = resolution.profile.id;
-    // OpenClaw/Sentinel exposes no documented native exact-profile credential
-    // transaction. Direct JSON/SQLite edits and private internals are unsafe,
-    // so fail closed rather than risk a partial credential deletion.
+    // This is deliberately the same owned transaction Dexter uses. It owns
+    // backups, SQLite/JSON atomicity, rollback, and its private receipt. AC
+    // accepts only a narrow opaque result, never paths, store snapshots, or
+    // native diagnostics.
+    if (!(await exists(this.deleteScript))) return this.deleteFailure(requestedTarget, status, "owned_delete_transaction_missing");
+    let native: CommandResult;
+    try {
+      native = await this.runner("python3", [this.deleteScript, target, "--apply"], { cwd: this.workspace, timeoutMs: 60_000, maxOutputBytes: 64 * 1024 });
+    } catch {
+      return this.deleteFailure(requestedTarget, status, "owned_delete_transaction_unproven");
+    }
+    const nativeReceipt = parseOwnedDeleteReceipt(native.stdout, target);
+    if (native.code !== 0 || native.timeoutExceeded || native.outputLimitExceeded || !nativeReceipt || nativeReceipt.state !== "DELETED" || !nativeReceipt.backup || !nativeReceipt.verified) {
+      return this.deleteFailure(requestedTarget, status, "owned_delete_transaction_unproven");
+    }
     const receipt = createReceipt({
       action: "account.delete",
-      dryRun: true,
-      target: requestedTarget,
-      summary: "Credential deletion is temporarily unavailable until Account Center's atomic transaction and recovery verification are implemented; no live mutation was attempted.",
+      dryRun: false,
+      summary: "Owned exact-account credential delete completed with verified backup transaction evidence.",
       before: routeBefore(status),
-      warnings: ["atomic_delete_transaction_not_implemented", "no_live_mutation", "exact_match_verified", "sessions_prompts_memory_bootstrap_untouched"]
+      warnings: ["owned_native_delete_transaction", "opaque_native_receipt", "verified_backup_and_rollback"]
     });
-    const payload = {
-      applied: false,
-      dryRun: true,
-      liveRuntimeMutation: false,
-      receipt,
-      reason: "atomic_delete_transaction_not_implemented",
-      resolvedTarget: redactProfileArg(target)
+    return {
+      code: 0,
+      payload: {
+        applied: true,
+        dryRun: false,
+        liveRuntimeMutation: true,
+        receipt,
+        verification: { kind: "verified" },
+        // Only this opaque, allow-listed native contract crosses the adapter
+        // boundary. The target digest is intentionally not retained or shown.
+        nativeReceipt: { action: nativeReceipt.action, state: nativeReceipt.state, receipt: "opaque-owned-delete" }
+      }
     };
-    return { code: 2, payload };
+  }
+
+  private deleteFailure(requestedTarget: string, status: AccountCenterStatus, reason: string): RuntimeMutationResult {
+    const receipt = createReceipt({
+      action: "account.delete",
+      dryRun: false,
+      summary: "Owned exact-account credential delete did not produce verified transaction evidence.",
+      before: routeBefore(status),
+      warnings: [reason, "recovery_required", "opaque_native_receipt"]
+    });
+    return { code: 2, payload: { applied: false, dryRun: false, liveRuntimeMutation: true, receipt, reason, verification: { kind: "unproven" } } };
   }
 
   private async tryRefreshSentinelStatus(): Promise<unknown | undefined> {
@@ -577,7 +607,6 @@ export async function execFileRunner(command: string, args: string[], options: {
     let stderrBytes = 0;
     let outputLimitExceeded = false;
     let timeoutExceeded = false;
-    agentConnections: agentConnectionsFrom(raw, accounts, provider as Profile["provider"]),
     let terminationRequested = false;
     let settled = false;
     let escalation: NodeJS.Timeout | undefined;
@@ -588,29 +617,6 @@ export async function execFileRunner(command: string, args: string[], options: {
       if (terminationRequested) terminateCommandTree(child, "SIGKILL");
       if (escalation) clearTimeout(escalation);
       resolvePromise({ code, stdout, stderr, outputLimitExceeded, timeoutExceeded });
-/**
- * Sentinel may include the credential-free Account Center mapping for a local
- * agent. Keep only an exact, known profile mapping; arbitrary native fields
- * must not cross into the canonical status contract.
- */
-function agentConnectionsFrom(raw: unknown, accounts: Array<{ id: string }>, provider: Profile["provider"]): AccountCenterStatus["agentConnections"] {
-  if (!isRecord(raw) || !Array.isArray(raw.agentConnections)) return [];
-  const known = new Set(accounts.map((account) => account.id));
-  return raw.agentConnections.flatMap((value): AgentConnection[] => {
-    if (!isRecord(value) || (value.runtime !== "hermes" && value.runtime !== "openclaw") || typeof value.id !== "string" || !isExactAgentConnectionScope(value.scope) || !Array.isArray(value.profileIds) || !Array.isArray(value.verifiedProfileIds) || !["connected", "needs-auth", "unavailable"].includes(String(value.state))) return [];
-    const profileIds = value.profileIds.filter((id): id is string => typeof id === "string" && known.has(id));
-    const verifiedProfileIds = value.verifiedProfileIds.filter((id): id is string => typeof id === "string" && profileIds.includes(id));
-    // A mapped profile belongs to the canonical provider. This prevents a raw
-    // status blob from smuggling a cross-provider identity into Hermes proof.
-    if (!profileIds.every((id) => id.startsWith(`${provider}:`))) return [];
-    return [{ id: value.id, runtime: value.runtime, scope: value.scope, profileIds, verifiedProfileIds, state: value.state as AgentConnection["state"] }];
-  });
-}
-
-function isExactAgentConnectionScope(value: unknown): value is string {
-  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}:[a-z0-9_-]{1,64}$/i.test(value);
-}
-
     };
     const terminate = () => {
       if (settled) return;
@@ -788,6 +794,26 @@ function nativeEventProof(event: Record<string, unknown> | undefined, action: Au
 
 function redactProfileArg(value: string): string {
   return value.replace(/([^:@\s]{2})[^:@\s]*(@[^:\s]+)/g, "$1[REDACTED]$2");
+}
+
+type OwnedDeleteReceipt = { action: "account.delete"; state: "DELETED"; backup: true; verified: true };
+
+/**
+ * The owned Python transaction may evolve its private receipt. This is the
+ * sole public adapter contract: a completed exact delete with a fixed-size
+ * opaque target correlation value. Nothing received here is returned.
+ */
+function parseOwnedDeleteReceipt(stdout: string, target: string): OwnedDeleteReceipt | undefined {
+  try {
+    const value = JSON.parse(stdout) as unknown;
+    if (!isRecord(value) || value.action !== "account.delete" || value.state !== "DELETED" || value.backup !== true || value.verified !== true) return undefined;
+    const expectedTargetDigest = createHash("sha256").update(target).digest("hex").slice(0, 16);
+    return value.targetDigest === expectedTargetDigest
+      ? { action: "account.delete", state: "DELETED", backup: true, verified: true }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function accountRecords(raw: unknown): Array<{

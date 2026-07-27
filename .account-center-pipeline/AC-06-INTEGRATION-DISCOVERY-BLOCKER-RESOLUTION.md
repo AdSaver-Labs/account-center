@@ -1,4 +1,6 @@
-# AC-06 Integration Discovery Blocker Resolution
+# AC-06 Integration Discovery Blocker Resolution — Superseded
+
+> **Superseded 2026-07-25.** This discovery artifact assessed only upstream public OpenClaw CLI capability. It is not a current AC-06 blocker: the owned exact-account transaction at `3-Resources/codex-account-ops/scripts/codex-auth-delete.py` exists locally and is used by Dexter `/auth delete`. The active bounded implementation plan is `.account-center-pipeline/state.json` and `AC-06.md`; its fixture-only adapter integration must preserve Sentinel `/auth` formatting and weekly-only policy. This historical document must not be read as authorization for live deletion tests.
 
 **Status:** bounded design/evidence artifact; credential deletion remains blocked.
 

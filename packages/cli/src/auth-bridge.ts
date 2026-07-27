@@ -53,10 +53,9 @@ export function parseAuthCommand(input: string | string[]): string[] {
       // observed agent scope in the shared executor.
       return ["routes", "remove", ...withPreviewByDefault(rest)];
     case "delete":
-      // Credential deletion has no documented native transactional contract.
-      // Keep the manual command on the non-mutating path even when callers
-      // omit flags; an explicitly supplied --apply is still rejected by the
-      // CLI's fail-closed delete boundary.
+      // Credential deletion previews by default. An explicit --apply reaches
+      // the owned exact-account transaction and still fails closed unless its
+      // opaque backup/verification receipt validates.
       return ["accounts", "delete", ...withPreviewByDefault(rest)];
     case "disable":
       return ["accounts", "disable", ...rest];
@@ -108,8 +107,8 @@ export function renderAuthHelp(): string {
   /auth auto [--dry-run]
   /auth use <profile> [--dry-run]
   /auth remove <profile> [--dry-run]
-  /auth delete <email-or-profile> -- BLOCKED/UNPROVEN until a documented native transactional delete adapter exists
-  /auth delete <email-or-profile> --dry-run -- preview only; no deletion (live delete remains blocked/UNPROVEN)
+  /auth delete <email-or-profile> --dry-run -- preview only; no deletion
+  /auth delete <email-or-profile> --apply -- owned exact-account delete; requires verified opaque receipt
   /auth disable <profile> [--apply]
   /auth enable <profile> [--apply]
   /auth models
@@ -118,7 +117,7 @@ export function renderAuthHelp(): string {
   /auth doctor [--source openclaw]
   /auth audit [--limit 20]
 
-Manual /auth commands use recovery/operator defaults: /auth auto and /auth use <target> request live apply when valid; add --dry-run to preview. /auth remove <target> always starts with a routing-only preview, then requires an exact review confirmation, idempotency key, and one explicit agent scope for apply. Delete is credential deletion, but live delete is currently BLOCKED/UNPROVEN and fails closed without a store change. A documented native transactional delete adapter must provide an exact connected target match, owner-only runtime-local backup, native atomic rollback, durable redacted receipt, and fresh authoritative verification before live delete can be enabled. Remove never deletes credentials. Other mutation-shaped lower-level commands remain dry-run unless --apply is explicit and supported.
+Manual /auth commands use recovery/operator defaults: /auth auto and /auth use <target> request live apply when valid; add --dry-run to preview. /auth remove <target> always starts with a routing-only preview, then requires an exact review confirmation, idempotency key, and one explicit agent scope for apply. Delete is credential deletion: only explicit --apply reaches the owned exact-account transaction, which requires an exact connected target, owner-only backup/rollback, and verified opaque receipt; every other outcome is UNPROVEN. Remove never deletes credentials. Other mutation-shaped lower-level commands remain dry-run unless --apply is explicit and supported.
 `;
 }
 
