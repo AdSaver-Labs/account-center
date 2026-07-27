@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-02",
-  "state": "READY_FOR_RELEASE_GATE",
-  "updatedAt": "2026-07-27T22:19:59Z",
+  "activeCheckpoint": "AC-06",
+  "state": "MERGED",
+  "updatedAt": "2026-07-27T23:29:19Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "qa-browser-crash-isolation-r2",
+    "kind": "owned-delete-contract-hardening-r3",
     "boundedSteps": [
-      "Run the single failed fixture-only Chromium case with Playwright tracing and inspect its teardown/crash evidence without touching a live runtime.",
-      "If reproducible, make the minimum deterministic fixture-lifecycle correction and add regression coverage; otherwise retry the isolated case and full browser suite to distinguish transient browser failure from product behavior.",
-      "Re-run full fixture-only test and security QA gates, then re-review the opaque owned-delete boundary, normal Sentinel /auth format, and Hermes/Dexter weekly-only policy."
+      "Pin Account Center credential-delete execution to the exact locally owned Dexter transaction and remove all destructive-script override paths.",
+      "Carry only the fixed opaque verified/unproven delete receipts across Account Center, ChatOps/Dexter, MCP, and Hermes; reject every altered or private native output.",
+      "Exercise mocked fixture-only adapter and MCP transport cases, then run full tests and security QA while reviewing Sentinel /auth bytes and Hermes/Dexter weekly-only policy."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -20,11 +20,19 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Owned exact-account delete remains bound to the local Dexter transaction; Account Center exports only the allow-listed opaque verified receipt and Hermes accepts only the exact applied/UNPROVEN public contracts.",
-      "Focused Hermes fixture suite passed 15 tests; Python compilation of the owned delete script passed. No live credential deletion was run.",
-      "npm test passed 237 fixture-only tests.",
-      "The isolated previously crashed Chromium case passed; rerun npm run qa:security passed typecheck/build, 237 fixture tests, all 15 Chromium/axe tests, secret scan (117 tracked files), and high-severity audit (0 vulnerabilities).",
-      "Diff review found Sentinel /auth status rendering and Hermes/Dexter weekly-only capacity coverage intact."
+      "Account Center account.delete is now pinned to /home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py; config and environment delete-script overrides are removed.",
+      "The adapter validates private native digest/backup/verification evidence and exports only the opaque-owned-delete contract; fixture runners exercised exact identity, malformed, mismatched, and unverified receipt paths without running a live delete.",
+      "MCP now accepts only the same byte-exact verified or UNPROVEN opaque delete texts used by Hermes and Dexter ChatOps; fixture transport tests reject appended private text.",
+      "Python compilation of the owned transaction passed. npm test passed 238 fixture-only tests; Hermes Python suites passed 15 tests; npm run qa:security passed typecheck/build, 15 Chromium/axe checks, secret scan (117 tracked files), and high-severity audit (0 vulnerabilities).",
+      "Diff review passed: only Account Center adapter/transport/test files and the ignored pipeline state changed; normal Sentinel /auth rendering and Hermes/Dexter weekly-only capacity policy were not changed. No live credential deletion was run.",
+      "AC-06 merged as 4e31ad4 (fix(auth): pin owned delete receipt contract) and pushed to origin/main after the passing fixture-only QA/security gates."
     ]
+  },
+  "merge": {
+    "commit": "4e31ad4",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": true,
+    "scope": "AC-06 owned exact-account delete receipt contract"
   }
 }
