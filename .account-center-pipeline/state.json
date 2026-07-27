@@ -1,27 +1,31 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-01",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-27T16:45:42.000Z",
+  "state": "READY_FOR_RELEASE_GATE",
+  "updatedAt": "2026-07-27T17:20:00.000Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "explicit-runtime-scope-contract-r1",
+    "kind": "scope-evidence-boundary-r2",
     "boundedSteps": [
-      "Inventory command, API, MCP, and UI runtime/scope boundaries against authoritative observed evidence.",
-      "Add fixture-only fail-closed coverage for absent, invented, cross-runtime, widened, and malformed scopes without any native mutation.",
-      "Keep the owned exact-account delete contract, Sentinel /auth format, and Hermes/Dexter weekly-only behavior unchanged through review and QA."
+      "Map all mutation entry points to the shared runtime/scope validator and identify any syntactic-only scope acceptance.",
+      "Add fixture-only adversarial tests for forged, stale, cross-runtime, widened, and malformed scope DTOs; assert no adapter mutation.",
+      "Retain AC-06 owned-delete opaque receipt boundary and prove Sentinel /auth and Hermes/Dexter weekly-only invariants with focused regression checks before full QA."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
     "preserveSentinelAuthFormat": true
   },
   "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qa": "pending",
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
     "evidence": [
       "AC-07 merged and pushed at 0d001c9 after full test, QA, security, and browser/a11y proof.",
-      "SC-01 planned; no live operation has been run."
+      "SC-01 planned; no live operation has been run.",
+      "SC-01 r2 plan recorded under exclusive state lock; fixture-only execution pending.",
+      "SC-01 r2: explicit protected contexts fail closed before adapter invocation; delete is bound to openai/openclaw default scope.",
+      "Focused fixture suite passed 130 tests; full qa:security passed 237 tests, 15 browser/a11y tests, secret scan, and high-severity audit.",
+      "No live delete was invoked; owned codex-auth-delete.py was compiled only."
     ]
   }
 }

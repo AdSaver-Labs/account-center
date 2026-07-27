@@ -67,6 +67,14 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   const target = action === "account.delete" ? safeDeleteTarget(requestedTarget) : resolveRouteTarget(status, action, requestedTarget, provider, runtime);
   if (["route.auto", "route.use", "route.remove"].includes(action) && !target) return { code: 2, kind: "mutation", mutation: blockedMutation(action, request.target, "canonical_route_target_required") };
   if (["route.auto", "route.use", "route.remove"].includes(action) && (provider !== "openai" || runtime !== "openclaw")) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "openclaw_route_provider_runtime_required") };
+  // Every protected operation has an explicit bounded context before it can
+  // reach a runtime adapter.  A default scope is the only supported delete
+  // scope because the owned transaction's exact connected-target resolution
+  // is global to its local OpenClaw credential store; routes instead require
+  // fresh observed agent evidence below.
+  if (action === "account.delete" && (provider !== "openai" || runtime !== "openclaw")) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "owned_delete_provider_runtime_required") };
+  if (action === "account.delete" && !isDefaultScope(request.scope)) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "explicit_default_scope_required") };
+  if (isRouteAction(action) && !request.scope) return { code: 2, kind: "mutation", mutation: blockedMutation(action, target, "observed_agent_scope_required") };
   // The agent scope is an observed routing fact, not merely a well-formed
   // string. Validate it before creating a review or calling an adapter so a
   // stale public scope cannot acquire a capability through a preview.
@@ -137,6 +145,7 @@ function resolveRouteTarget(status: AccountCenterStatus, action: AuditAction, re
 }
 
 function isExactAgentScope(scope: MutationScope): boolean { return scope.kind === "agent" && /^[a-z][a-z0-9_-]{0,63}$/.test(scope.id) && scope.id !== "all"; }
+function isDefaultScope(scope: MutationScope | undefined): boolean { return scope?.kind === "default" && scope.id === "default"; }
 function isObservedExactAgentScope(status: AccountCenterStatus, scope: MutationScope, provider: string, runtime: string): boolean {
   return isExactAgentScope(scope) && status.routes.some((route) => route.provider === provider && route.runtime === runtime && route.scope === `agent:${scope.id}`);
 }

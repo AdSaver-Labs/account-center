@@ -15,12 +15,43 @@ test("core executor returns status without a UI or CLI renderer", async () => {
   assert.equal(result.status?.schemaVersion, "account-center.status.v1");
 });
 
-test("core executor plans routing by default and returns a receipt", async () => {
-  const result = await executeAccountCenterCommand({ command: "route.auto", provider: "openai", runtime: "openclaw" }, { adapter: new FixtureRuntimeAdapter() });
-  assert.equal(result.code, 0);
+test("core executor refuses an implicit route scope before adapter invocation", async () => {
+  let mutations = 0;
+  const adapter = {
+    source: "fixture" as const,
+    readStatus: () => new FixtureRuntimeAdapter().readStatus(),
+    doctor: async () => ({}),
+    mutate: async () => { mutations += 1; throw new Error("adapter must not run"); }
+  };
+  const result = await executeAccountCenterCommand({ command: "route.auto", provider: "openai", runtime: "openclaw" }, { adapter });
+  assert.equal(result.code, 2);
   assert.equal(result.kind, "mutation");
   assert.equal(result.mutation?.applied, false);
-  assert.equal(result.mutation?.receipt.action, "route.auto");
+  assert.equal(mutations, 0);
+  assert.equal((result.mutation as { reason?: string } | undefined)?.reason, "observed_agent_scope_required");
+});
+
+test("fixture-only protected context checks reject widened, malformed, and cross-runtime scopes before adapter mutation", async () => {
+  let mutations = 0;
+  const adapter = {
+    source: "fixture" as const,
+    readStatus: () => new FixtureRuntimeAdapter().readStatus(),
+    doctor: async () => ({}),
+    mutate: async () => { mutations += 1; throw new Error("adapter must not run"); }
+  };
+  const cases: Array<Parameters<typeof executeAccountCenterCommand>[0]> = [
+    { command: "route.use", target: "openai:helper-2", provider: "openai", runtime: "openclaw", scope: { kind: "all", id: "all" } },
+    { command: "route.use", target: "openai:helper-2", provider: "openai", runtime: "hermes", scope: { kind: "agent", id: "main" } },
+    { command: "route.use", target: "openai:helper-2", provider: "openai", runtime: "openclaw", scope: { kind: "agent", id: "main/other" } },
+    { command: "account.delete", target: "connected@example.test", provider: "openai", runtime: "hermes", scope: { kind: "default", id: "default" } },
+    { command: "account.delete", target: "connected@example.test", provider: "openai", runtime: "openclaw", scope: { kind: "all", id: "all" } }
+  ];
+  for (const request of cases) {
+    const result = await executeAccountCenterCommand(request, { adapter });
+    assert.equal(result.code, 2);
+    assert.equal(result.mutation?.applied, false);
+  }
+  assert.equal(mutations, 0, "fixture adversarial contexts never reach a runtime adapter");
 });
 
 test("route preview rejects a syntactically valid but unobserved agent scope before review minting or adapter invocation", async () => {
