@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-02",
-  "state": "READY_TO_MERGE",
-  "updatedAt": "2026-07-28T07:05:00Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-28T07:10:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "active-openclaw-scope-warning-r1",
@@ -27,10 +27,10 @@
     ]
   },
   "merge": {
-    "commit": "85231fc",
+    "commit": "afe02b9",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": true,
-    "scope": "SC-01 explicit runtime/scope completion; shared executor closure"
+    "pushed": false,
+    "scope": "SC-02 active OpenClaw scope acknowledgement fixture contract"
   }
 }
