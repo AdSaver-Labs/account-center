@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
   "state": "MERGED",
-  "updatedAt": "2026-07-28T17:36:31Z",
+  "updatedAt": "2026-07-28T17:36:40Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "shared-mutation-executor-ac07-release-validation",
@@ -30,7 +30,7 @@
     "qaCommit": "4cd6244bdac8080d511918b16df47fae03a15cc7",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "AC-07 shared protected mutation executor release gate"
   }
 }
