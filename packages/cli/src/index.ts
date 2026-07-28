@@ -114,7 +114,12 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     const guarded = guardStatus(status, options.provider, options.runtime, options.model);
     const receipt = createReceipt({ action: "guard.check", dryRun: true, summary: guarded.reason, target: guarded.next });
     const ensured = options.ensureRoute && guarded.ok
-      ? (await adapter.mutate({ action: "route.auto", target: guarded.next, apply: options.apply, provider: options.provider, runtime: options.runtime })).payload
+      // An automatic guard route still needs the shared exact-scope boundary.
+      ? (await executeAccountCenterCommand({
+        command: "route.auto", target: guarded.next, apply: options.apply,
+        provider: options.provider, runtime: options.runtime,
+        ...(parseAgentScope(options.scope) ? { scope: parseAgentScope(options.scope)! } : {})
+      }, { adapter, mutation: await mutationLifecycle() })).mutation
       : undefined;
     const payload = publicGuardView(status, guarded, receipt, ensured);
     return { code: guarded.ok ? 0 : 2, stdout: options.json ? json(payload) : renderGuard(payload) };
@@ -182,26 +187,20 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       const view = publicMutationView(execution.mutation);
       return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
     }
-    const mutation = await adapter.mutate({
-      action: accountAction(subcommand),
-      target,
-      apply: options.apply,
-      provider: options.provider,
-      runtime: options.runtime
-    });
-    const view = publicMutationView(mutation.payload);
-    return { code: mutation.code, stdout: options.json ? json(view) : renderMutation(view) };
+    const execution = await executeAccountCenterCommand({
+      command: accountAction(subcommand), target, apply: options.apply,
+      provider: options.provider, runtime: options.runtime
+    }, { adapter });
+    const view = publicMutationView(execution.mutation);
+    return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
   if (command === "models" && ["disable", "enable"].includes(subcommand ?? "")) {
-    const mutation = await adapter.mutate({
-      action: modelAction(subcommand),
-      target,
-      apply: options.apply,
-      provider: options.provider,
-      runtime: options.runtime
-    });
-    const view = publicMutationView(mutation.payload);
-    return { code: mutation.code, stdout: options.json ? json(view) : renderMutation(view) };
+    const execution = await executeAccountCenterCommand({
+      command: modelAction(subcommand), target, apply: options.apply,
+      provider: options.provider, runtime: options.runtime
+    }, { adapter });
+    const view = publicMutationView(execution.mutation);
+    return { code: execution.code, stdout: options.json ? json(view) : renderMutation(view) };
   }
   return { code: 1, stdout: "", stderr: `Unknown command. Run account-center help.\n` };
 }
@@ -304,13 +303,13 @@ function routeAction(subcommand?: string): "route.auto" | "route.use" | "route.r
   return "route.auto";
 }
 
-function accountAction(subcommand?: string): AuditAction {
+function accountAction(subcommand?: string): "account.enable" | "account.disable" | "account.delete" {
   if (subcommand === "enable") return "account.enable";
   if (subcommand === "delete") return "account.delete";
   return "account.disable";
 }
 
-function modelAction(subcommand?: string): AuditAction {
+function modelAction(subcommand?: string): "model.enable" | "model.disable" {
   return subcommand === "enable" ? "model.enable" : "model.disable";
 }
 

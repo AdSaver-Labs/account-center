@@ -765,8 +765,8 @@ test("hostile OpenClaw inventory fixtures cannot cross the public CLI boundary",
   }
 });
 
-test("guard --ensure-route plans automatic route switch without apply", async () => {
-  const result = await runCli(["guard", "--ensure-route", "--json"]);
+test("guard --ensure-route plans automatic route switch only for an explicit observed agent scope", async () => {
+  const result = await runCli(["guard", "--ensure-route", "--scope", "agent:main", "--json"]);
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.ok, true);
@@ -775,7 +775,7 @@ test("guard --ensure-route plans automatic route switch without apply", async ()
   assert.equal(parsed.ensured.receipt.action, "route.auto");
 });
 
-test("dry-run route and account commands produce non-mutating receipts", async () => {
+test("dry-run route, unavailable account, and unavailable model commands produce non-mutating receipts", async () => {
   for (const argv of [
     ["routes", "auto", "--scope", "agent:main"],
     ["routes", "use", "openai:helper-2", "--scope", "agent:main"],
@@ -787,7 +787,8 @@ test("dry-run route and account commands produce non-mutating receipts", async (
     ["models", "enable", "openai/gpt-5.3-codex"]
   ]) {
     const result = await runCli([...argv, "--json"]);
-    assert.equal(result.code, 0, argv.join(" "));
+    const unavailable = argv[0] === "models" || (argv[0] === "accounts" && argv[1] !== "delete");
+    assert.equal(result.code, unavailable ? 2 : 0, argv.join(" "));
     const parsed = JSON.parse(result.stdout);
     assert.equal(parsed.dryRun, true);
     assert.equal(parsed.applied, false);

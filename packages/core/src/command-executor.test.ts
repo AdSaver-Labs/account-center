@@ -54,6 +54,22 @@ test("fixture-only protected context checks reject widened, malformed, and cross
   assert.equal(mutations, 0, "fixture adversarial contexts never reach a runtime adapter");
 });
 
+test("unowned account and model mutation vocabulary is unavailable at the shared executor before adapter invocation", async () => {
+  let mutations = 0;
+  const adapter = {
+    source: "fixture" as const,
+    readStatus: () => new FixtureRuntimeAdapter().readStatus(),
+    doctor: async () => ({}),
+    mutate: async () => { mutations += 1; throw new Error("adapter must not run"); }
+  };
+  for (const command of ["account.enable", "account.disable", "model.enable", "model.disable"] as const) {
+    const result = await executeAccountCenterCommand({ command, target: "fixture-target", apply: true, provider: "openai", runtime: "openclaw" }, { adapter });
+    assert.equal(result.code, 2);
+    assert.equal((result.mutation as { reason?: string } | undefined)?.reason, "mutation_action_unavailable");
+  }
+  assert.equal(mutations, 0);
+});
+
 test("route preview rejects a syntactically valid but unobserved agent scope before review minting or adapter invocation", async () => {
   let mutations = 0;
   const adapter = {

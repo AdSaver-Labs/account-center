@@ -62,6 +62,12 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
   if (request.command === "guard") return { code: guardStatus(status, provider, runtime, request.model).ok ? 0 : 2, kind: "guard", guard: guardStatus(status, provider, runtime, request.model) };
 
   const action: AuditAction = request.command as AuditAction;
+  // These names remain available for inventory compatibility, but no
+  // authoritative runtime adapter owns their mutation semantics. Fail closed
+  // at the shared boundary rather than letting an implicit context reach one.
+  if (isUnavailableMutationAction(action)) {
+    return { code: 2, kind: "mutation", mutation: blockedMutation(action, request.target, "mutation_action_unavailable") };
+  }
   const requestedTarget = request.target ?? (action === "route.auto" ? nextEligible(status, provider, runtime, request.model)?.profile.id : undefined);
   // Deletion target identity is resolved privately by the owned OpenClaw
   // adapter, which can match a connected canonical id or email. The executor
@@ -126,6 +132,7 @@ async function protectedAuthorization(request: CommandRequest, action: AuditActi
 }
 
 function isRouteAction(action: AuditAction): action is "route.auto" | "route.use" | "route.remove" { return ["route.auto", "route.use", "route.remove"].includes(action); }
+function isUnavailableMutationAction(action: AuditAction): action is "account.enable" | "account.disable" | "model.enable" | "model.disable" { return ["account.enable", "account.disable", "model.enable", "model.disable"].includes(action); }
 function requiresProtectedLifecycle(action: AuditAction): boolean { return isRouteAction(action) || action === "account.delete"; }
 function safeDeleteTarget(value: string | undefined): string | undefined { return value && value.trim() && !value.trimStart().startsWith("-") ? value : undefined; }
 
