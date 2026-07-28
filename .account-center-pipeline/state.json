@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-01",
-  "state": "READY_FOR_RELEASE_GATE",
-  "updatedAt": "2026-07-28T00:00:00Z",
+  "activeCheckpoint": "SC-02",
+  "state": "READY_TO_MERGE",
+  "updatedAt": "2026-07-28T07:05:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "explicit-runtime-scope-contract-r1",
+    "kind": "active-openclaw-scope-warning-r1",
     "boundedSteps": [
-      "Inventory public account/model mutation entry points and identify implicit runtime or scope defaults.",
-      "Reject absent, widened, malformed, and cross-runtime scopes at the shared boundary before adapter invocation using fixture-only tests.",
-      "Preserve the owned AC-06 delete adapter, fixed opaque receipts, detailed Sentinel /auth format, and Hermes/Dexter weekly-only policy; complete independent review and QA before merge."
+      "Bind each route preview acknowledgement to the observed exact agent scope, action, provider, runtime, and target.",
+      "Reject absent, tampered, expired, cross-target, and cross-scope acknowledgements before adapter/native invocation using fixtures only.",
+      "Retain the owned AC-06 delete transaction and fixed opaque receipt contract, Sentinel /auth format, and Hermes/Dexter weekly-only policy; require review and fixture-only QA before merge."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -20,10 +20,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "SC-01 closed the remaining public mutation bypasses: supported route/delete actions use the shared executor, while unowned account/model enable/disable actions fail closed before adapter invocation.",
-      "Fixture coverage verifies absent/widened/malformed/cross-runtime scope rejection, exact observed scope for guard --ensure-route, the owned AC-06 opaque receipt boundary, Sentinel /auth rendering, and Hermes/Dexter weekly-only behavior.",
-      "npm test passed 239 fixture/mock tests; Hermes plugin Python tests passed 16/16; npm run qa:security passed typecheck/build, 15 Chromium/axe tests, secret scan of 117 tracked files, and npm audit with 0 high vulnerabilities.",
-      "No live credential deletion, route mutation, provider request, session change, or service operation was performed."
+      "Read-only spec review: signed acknowledgement binds action, provider, runtime, exact agent scope, and target; the shared executor verifies it before adapter invocation.",
+      "Read-only quality review: the narrow fixture test adds target/scope/runtime/tamper/expiry cases without expanding the public receipt or native adapter contracts.",
+      "QA: npm run qa:security passed (240 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan of 118 tracked files, npm audit 0 high vulnerabilities); Hermes plugin Python tests passed 16/16.",
+      "AC-06 retained the owned codex-auth-delete.py transaction and fixed opaque receipt; Sentinel /auth and Hermes/Dexter weekly-only fixtures remained green. No live mutation was performed."
     ]
   },
   "merge": {

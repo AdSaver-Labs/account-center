@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { IdempotencyRegistry, createMutationReview, verifyMutationApply } from "./index.js";
+import { IdempotencyRegistry, createActiveScopeWarning, createMutationReview, verifyActiveScopeWarning, verifyMutationApply } from "./index.js";
 
 const secret = "test-only-mutation-contract-secret";
 const input = {
@@ -36,4 +36,16 @@ test("review token expires and idempotency keys reject mismatched reuse", () => 
   assert.deepEqual(registry.claim("key-12345678", review.requestDigest), { kind: "new" });
   assert.deepEqual(registry.claim("key-12345678", review.requestDigest), { kind: "replay" });
   assert.deepEqual(registry.claim("key-12345678", "different-digest"), { kind: "blocked", reason: "idempotency_key_reused_with_different_request" });
+});
+
+test("active OpenClaw scope acknowledgement is opaque and bound to the exact action, runtime, scope, and target", () => {
+  const warning = createActiveScopeWarning(input, { secret, now: new Date("2026-07-14T12:00:00.000Z"), ttlMs: 60_000 });
+  assert.equal(warning.state, "active_openclaw_agent_scope_observed");
+  assert.equal(JSON.stringify(warning).includes("helper-2"), false);
+  assert.equal(verifyActiveScopeWarning({ ...input, warning, warningToken: warning.token }, { secret, now: new Date("2026-07-14T12:00:30.000Z") }), "confirmed");
+  assert.equal(verifyActiveScopeWarning({ ...input, target: "openai:helper-1", warning, warningToken: warning.token }, { secret, now: new Date("2026-07-14T12:00:30.000Z") }), "active_scope_acknowledgement_invalid");
+  assert.equal(verifyActiveScopeWarning({ ...input, scope: { kind: "agent", id: "other" }, warning, warningToken: warning.token }, { secret, now: new Date("2026-07-14T12:00:30.000Z") }), "active_scope_acknowledgement_invalid");
+  assert.equal(verifyActiveScopeWarning({ ...input, runtime: "hermes", warning, warningToken: warning.token }, { secret, now: new Date("2026-07-14T12:00:30.000Z") }), "active_scope_acknowledgement_invalid");
+  assert.equal(verifyActiveScopeWarning({ ...input, warning, warningToken: `${warning.token}x` }, { secret, now: new Date("2026-07-14T12:00:30.000Z") }), "active_scope_acknowledgement_invalid");
+  assert.equal(verifyActiveScopeWarning({ ...input, warning, warningToken: warning.token }, { secret, now: new Date("2026-07-14T12:01:01.000Z") }), "active_scope_acknowledgement_expired");
 });
