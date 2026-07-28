@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
-  "state": "READY_FOR_RELEASE_GATE",
-  "updatedAt": "2026-07-28T22:04:07Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-28T22:37:55Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "sc03-model-evidence-scope-separation-r3",
@@ -28,5 +28,11 @@
       "git diff --check: passed; reviewed policy boundary remains weekly-only and existing Sentinel /auth, Dexter, and owned opaque receipt code are unchanged."
     ]
   },
-  "merge": null
+  "merge": {
+    "commit": "28fc4edf0ca1e338005b15928a4371a76a4e9f7e",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": false,
+    "scope": "SC-03 model truth release gate; fixture-only validation preserves Sentinel /auth, owned exact-account delete receipt contract, and Hermes/Dexter weekly-only policy"
+  }
 }
