@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
-  "state": "READY_FOR_RELEASE_GATE",
-  "updatedAt": "2026-07-28T18:47:36Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-28T19:22:02Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "owned-delete-opaque-contract-fixtures-r2",
@@ -31,5 +31,11 @@
       "git diff --check: passed"
     ]
   },
-  "merge": null
+  "merge": {
+    "commit": "678f3b4fd8897bcb88c28a2dd762835e29496508",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": true,
+    "scope": "AC-06 owned exact-account delete transaction, opaque receipt contract, and fixture-only Hermes/Dexter parity release gate"
+  }
 }
