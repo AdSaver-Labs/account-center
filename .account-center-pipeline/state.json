@@ -1,7 +1,7 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-01",
-  "state": "PLANNED",
+  "state": "READY_FOR_RELEASE_GATE",
   "updatedAt": "2026-07-28T00:00:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
@@ -16,20 +16,21 @@
     "preserveSentinelAuthFormat": true
   },
   "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qa": "pending",
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
     "evidence": [
-      "AC-06 owned-delete receipt hardening merged as 6c680f4 after independent review PASS, npm test 238/238, Hermes Python 16/16, and qa:security PASS (typecheck/build, 15 a11y, secret scan 117, audit 0).",
-      "No live credential deletion was performed; new coverage uses mocked native results and an Account Center fixture-only Hermes -> ChatOps dry run.",
-      "SC-01 plan is local at .account-center-pipeline/SC-01.md; implementation has not started."
+      "SC-01 closed the remaining public mutation bypasses: supported route/delete actions use the shared executor, while unowned account/model enable/disable actions fail closed before adapter invocation.",
+      "Fixture coverage verifies absent/widened/malformed/cross-runtime scope rejection, exact observed scope for guard --ensure-route, the owned AC-06 opaque receipt boundary, Sentinel /auth rendering, and Hermes/Dexter weekly-only behavior.",
+      "npm test passed 239 fixture/mock tests; Hermes plugin Python tests passed 16/16; npm run qa:security passed typecheck/build, 15 Chromium/axe tests, secret scan of 117 tracked files, and npm audit with 0 high vulnerabilities.",
+      "No live credential deletion, route mutation, provider request, session change, or service operation was performed."
     ]
   },
   "merge": {
-    "commit": "6c680f4",
+    "commit": "85231fc",
     "branch": "main",
     "remote": "origin/main",
     "pushed": true,
-    "scope": "AC-06 owned delete receipt hardening; SC-01 planned"
+    "scope": "SC-01 explicit runtime/scope completion; shared executor closure"
   }
 }
