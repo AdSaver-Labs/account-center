@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-02",
-  "state": "MERGED",
-  "updatedAt": "2026-07-28T07:12:00Z",
+  "activeCheckpoint": "SC-01-R3",
+  "state": "REVIEWED",
+  "updatedAt": "2026-07-28T11:14:06Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "active-openclaw-scope-warning-r1",
+    "kind": "fixture-teardown-lifecycle-r3",
     "boundedSteps": [
-      "Bind each route preview acknowledgement to the observed exact agent scope, action, provider, runtime, and target.",
-      "Reject absent, tampered, expired, cross-target, and cross-scope acknowledgements before adapter/native invocation using fixtures only.",
-      "Retain the owned AC-06 delete transaction and fixed opaque receipt contract, Sentinel /auth format, and Hermes/Dexter weekly-only policy; require review and fixture-only QA before merge."
+      "Run only the two runtime-context browser fixtures against their mkdtemp-owned loopback server and determine whether teardown leaves a fixture directory.",
+      "If reproduction shows residual fixture activity, close browser-origin activity before server close and assert the fixture root is absent after its bounded cleanup; do not alter runtime adapters, the owned transaction, public receipts, or /auth grammar.",
+      "Run the complete fixture-only browser/a11y suite, then full security QA and a compile-only check of the owned script; independently review filesystem safety and preserved Sentinel plus Hermes/Dexter weekly-only invariants before release-gate completion."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -20,17 +20,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Read-only spec review: signed acknowledgement binds action, provider, runtime, exact agent scope, and target; the shared executor verifies it before adapter invocation.",
-      "Read-only quality review: the narrow fixture test adds target/scope/runtime/tamper/expiry cases without expanding the public receipt or native adapter contracts.",
-      "QA: npm run qa:security passed (240 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan of 118 tracked files, npm audit 0 high vulnerabilities); Hermes plugin Python tests passed 16/16.",
-      "AC-06 retained the owned codex-auth-delete.py transaction and fixed opaque receipt; Sentinel /auth and Hermes/Dexter weekly-only fixtures remained green. No live mutation was performed."
+      "Fixture lifecycle review: mkdtemp-owned loopback origin is left before server close and bounded recursive cleanup is confined to its fixture root.",
+      "Quality proof: both runtime-context detail fixtures passed independently; the complete 15-test browser/a11y run created no fixture root.",
+      "QA: npm run qa:security passed (240 fixture/mock tests, typecheck/build, 15 Chromium/axe fixture tests, secret scan 118 tracked files, npm audit 0 high vulnerabilities); owned codex-auth-delete.py compile-only check passed.",
+      "Invariant review: no changes to the owned delete transaction/opaque receipt, Sentinel /auth rendering, or Hermes/Dexter weekly-only policy; no live mutation performed."
     ]
-  },
-  "merge": {
-    "commit": "afe02b9",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "SC-02 active OpenClaw scope acknowledgement fixture contract"
   }
 }
