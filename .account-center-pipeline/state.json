@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-04",
-  "state": "REVIEW",
-  "updatedAt": "2026-07-28T23:40:00Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-28T23:42:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "sc04-honest-state-taxonomy-r1",
@@ -28,10 +28,10 @@
     ]
   },
   "merge": {
-    "commit": "69ea5698e3cd72e2711fab6945a70ed81b5aeec6",
+    "commit": "09a28a6",
     "branch": "main",
     "remote": "origin/main",
     "pushed": true,
-    "scope": "SC-03 owned-delete fixture-isolation release gate; preserved Sentinel /auth, Dexter opaque receipt parity, owned transaction path, and Hermes/Dexter weekly-only policy"
+    "scope": "SC-04 honest state taxonomy; static protected state vocabulary, fixture coverage, and UI rendering; owned delete, Sentinel /auth, Dexter command, and weekly-only policy preserved"
   }
 }
