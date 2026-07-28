@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06-R4",
-  "state": "REVIEWED",
-  "updatedAt": "2026-07-28T12:20:21Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-28T12:20:37Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "owned-delete-contract-r4-verification",
@@ -25,5 +25,12 @@
       "QA: npm run qa:security passed 240 tests, typecheck/build, 15 browser/axe fixtures, secret scan of 118 tracked files, and npm audit with zero high vulnerabilities. The owned Python transaction passed an in-memory compile-only check.",
       "Invariant review: only pipeline state changed; the owned transaction, Sentinel /auth format, working Dexter command, and Hermes/Dexter weekly-only policy remain untouched. No live deletion or runtime mutation was performed."
     ]
+  },
+  "merge": {
+    "commit": "fd83b7058f57e6f8b284c491d4737d1f04b119d0",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": true,
+    "scope": "AC-06-R4 owned transaction opaque receipt fixture verification release gate"
   }
 }
