@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-28T19:55:33Z",
+  "state": "READY_FOR_RELEASE_GATE",
+  "updatedAt": "2026-07-28T22:04:07Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "ignored-pipeline-state-durable-activation-r2",
+    "kind": "sc03-model-evidence-scope-separation-r3",
     "boundedSteps": [
-      "Keep main as the candidate and retain the SC-03 no-touch safety invariants while correcting only pipeline-state tracking.",
-      "Force-add the intentionally ignored but repository-tracked pipeline state file, then verify its staged content and whitespace before commit.",
-      "Push the activation record and verify the remote-tracking branch contains the exact commit; do not alter model, auth, Sentinel, Hermes, Dexter, or runtime files."
+      "Keep main as the candidate; preserve the Sentinel /auth format, the working Dexter command, the owned delete helper, and the Hermes/Dexter weekly-only boundary.",
+      "Keep the public model catalog read-only and fail closed: catalog eligibility remains distinct from requested policy, effective runtime selection, fallback evidence, and verification; unreported scoped evidence stays unproven.",
+      "Use only fixture and browser QA evidence, compile-check the owned helper without executing it, and release only after deterministic review, security, and accessibility gates pass."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -18,10 +18,15 @@
     "preserveOpaqueNativeDeleteReceiptContract": true
   },
   "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qa": "pending",
-    "evidence": []
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
+    "evidence": [
+      "SC-03 contract review: protected model catalog keeps eligibility distinct from requested policy, effective runtime model, fallback chain, and verification; absent scoped selection evidence remains UNPROVEN.",
+      "npm run qa:security: passed \u2014 build/typecheck, 241 fixture tests (including owned-delete and Hermes/Dexter parity), 15 Playwright/axe tests, tracked-file secret scan, and npm audit (0 high vulnerabilities).",
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile owned delete helper: passed; no native delete transaction was invoked.",
+      "git diff --check: passed; reviewed policy boundary remains weekly-only and existing Sentinel /auth, Dexter, and owned opaque receipt code are unchanged."
+    ]
   },
   "merge": null
 }
