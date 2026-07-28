@@ -13,7 +13,9 @@ test("auth command contract documents remove preview/confirmation and safety dis
   assert.match(contract, /preview first; exact confirmed apply/);
   assert.match(contract, /delete\*\* means credential deletion/);
   assert.match(contract, /Direct JSON\/SQLite edits and private runtime internals are not supported/);
-  assert.match(contract, /documented native OpenClaw\/Sentinel transaction/);
+  assert.match(contract, /owned runtime-local transaction/);
+  assert.match(contract, /opaque receipt `opaque-owned-delete`/);
+  assert.match(contract, /explicitly given `--apply`/);
   assert.match(contract, /Hermes \/ Jack/);
   assert.match(contract, /Codex is chat\/session\/default oriented/);
 });

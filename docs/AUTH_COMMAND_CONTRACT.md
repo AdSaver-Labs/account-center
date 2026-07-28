@@ -26,7 +26,7 @@ The manual/chat compatibility command is:
 | `/auth auto` | route mutation | live apply | `--dry-run` | eligible target, runtime lock, receipt, proof |
 | `/auth use <target>` | route mutation | live apply | `--dry-run` | exact connected target, runtime lock, receipt, proof |
 | `/auth remove <target>` | route mutation | preview first; exact confirmed apply | default | exact connected route target, one explicit agent scope, routing-only, receipt, proof |
-| `/auth delete <target>` | credential mutation | live apply when a documented native transaction exists; otherwise blocked | `--dry-run` | exact connected credential target, owner-only runtime-local backup, atomic rollback, redacted receipt, fresh authoritative proof |
+| `/auth delete <target>` | credential mutation | preview by default; only explicit `--apply` may invoke the owned native transaction | implied `--dry-run` | exact connected credential target, owner-only runtime-local backup, atomic rollback, one opaque redacted receipt, fresh authoritative proof |
 | `/auth add <email>` | guided auth | create local guided challenge | n/a | explicit observed runtime/default scope, valid email, mode-specific idempotency, no raw tokens |
 | `/auth reauth <email>` | guided auth | create local guided challenge | n/a | explicit observed runtime/default scope, valid email, mode-specific idempotency, no raw tokens |
 | `/auth reauth status [id]` | read | read-only | n/a | no secrets |
@@ -44,7 +44,7 @@ The manual/chat compatibility command is:
 ## Terminology
 
 - **remove** means remove from routing only. It does not delete credentials.
-- **delete** means credential deletion. It requires an exact connected-target match and, before any store change, an owner-only runtime-local backup, native atomic rollback, durable redacted receipt, and fresh authoritative proof. Direct JSON/SQLite edits and private runtime internals are not supported; absent a documented native OpenClaw/Sentinel transaction, the result is blocked/`UNPROVEN`, never success.
+- **delete** means credential deletion. `/auth delete <target>` is always a preview unless explicitly given `--apply`. Apply requires an exact connected-target match and, before any store change, the owned runtime-local transaction with backup, native atomic rollback, and fresh authoritative proof. Its only public completion proof is the target-free opaque receipt `opaque-owned-delete`; native stderr, target digest, paths, and store data never cross the adapter boundary. Direct JSON/SQLite edits and private runtime internals are not supported; Account Center uses neither direct store mutation nor an alternate delete helper. Absent verified evidence from the owned transaction, the result is blocked/`UNPROVEN`, never success.
 - **add** creates a durable local guided-auth challenge for a new account. It does not add credentials or route an account in this build.
 - **reauth** creates a durable local guided-auth challenge for an existing/broken/expired account. It does not refresh credentials in this build.
 - **model use** means change a runtime/scope model selection, not account credentials.

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, lstat, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERIC_COMMAND_STATUS_BYTES, OWNED_OPENCLAW_DELETE_SCRIPT, OpenClawRuntimeAdapter, normalizeOpenClawStatus } from "./runtime-adapters.js";
@@ -28,6 +28,10 @@ const routerStatus = {
   },
   effectiveAuthOrder: ["openai:helper-1", "openai:helper-2"]
 };
+
+async function ownedDeleteFixture(name: string): Promise<string> {
+  return readFile(join(process.cwd(), "tests", "fixtures", "owned-delete", name), "utf8");
+}
 
 async function capabilityRoute(adapter: OpenClawRuntimeAdapter, action: "route.auto" | "route.use" | "route.remove", target: string, agent: string) {
   const scope = { kind: "agent" as const, id: agent };
@@ -319,9 +323,10 @@ test("OpenClaw account delete uses the owned exact-account transaction and expos
   await writeFile(cli, "#!/usr/bin/env python3\n", "utf8");
   await writeFile(join(workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(routerStatus), "utf8");
   const calls: Array<{ command: string; args: string[] }> = [];
+  const verified = await ownedDeleteFixture("verified.json");
   const runner: CommandRunner = async (command, args) => {
     calls.push({ command, args });
-    return { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", agents: ["fixture"], backup: true, verified: true }), stderr: "private@example.test /private/store.sqlite" };
+    return { code: 0, stdout: verified, stderr: "private@example.test /private/store.sqlite" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
   const result = await adapter.mutate({
@@ -372,11 +377,11 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
 
 test("OpenClaw account delete fails closed for every unproven owned transaction result", async () => {
   const workspace = await openClawWorkspace();
-  const verifiedFixture = JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: true });
+  const verifiedFixture = await ownedDeleteFixture("verified.json");
   for (const native of [
-    { name: "malformed receipt", result: { code: 0, stdout: "not-json", stderr: "secret@example.test" } },
-    { name: "mismatched receipt", result: { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "0123456789abcdef", backup: true, verified: true }), stderr: "secret@example.test" } },
-    { name: "unverified receipt", result: { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: false }), stderr: "secret@example.test" } },
+    { name: "malformed receipt", result: { code: 0, stdout: await ownedDeleteFixture("malformed.txt"), stderr: "secret@example.test" } },
+    { name: "mismatched receipt", result: { code: 0, stdout: await ownedDeleteFixture("mismatched-digest.json"), stderr: "secret@example.test" } },
+    { name: "unverified receipt", result: { code: 0, stdout: await ownedDeleteFixture("unverified.json"), stderr: "secret@example.test" } },
     { name: "nonzero native exit", result: { code: 1, stdout: verifiedFixture, stderr: "secret@example.test" } },
     { name: "native timeout", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", timeoutExceeded: true } },
     { name: "native output limit", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", outputLimitExceeded: true } }

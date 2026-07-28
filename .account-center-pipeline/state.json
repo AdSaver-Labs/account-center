@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-03",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-28T18:00:00Z",
+  "activeCheckpoint": "AC-06",
+  "state": "READY_FOR_RELEASE_GATE",
+  "updatedAt": "2026-07-28T18:47:36Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "model-policy-truth-sc03-fixture-first",
+    "kind": "owned-delete-opaque-contract-fixtures-r2",
     "boundedSteps": [
-      "Map every model-evidence producer and consumer before changing a contract; preserve the current main candidate and no-touch runtime boundaries.",
-      "Prove in fixtures that catalog, requested/effective selection, fallback, eligibility, and verification cannot be conflated or borrowed across runtime/scope.",
-      "Run deterministic review, security, and browser QA before any merge; compile-check only the owned delete helper and never invoke live deletion."
+      "Bind Account Center only to the existing owned exact-account helper; preserve main and no-touch Sentinel/Hermes capacity boundaries.",
+      "Use checked-in native-result fixtures to prove digest-bound verified completion alone becomes the fixed target-free opaque receipt and all other results fail closed.",
+      "Prove shared Hermes/Dexter ChatOps transport parity with a fake CLI fixture, then complete build, review, security, QA, and a compile-only helper check without a live deletion."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -18,10 +18,18 @@
     "preserveOpaqueNativeDeleteReceiptContract": true
   },
   "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qa": "pending",
-    "evidence": []
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
+    "evidence": [
+      "npm run build: passed",
+      "focused owned-delete adapter and Hermes/Dexter/MCP fixture tests: 58 passed",
+      "npm test: 241 passed",
+      "npm run qa: passed, including 15 accessibility tests",
+      "npm run qa:security: passed; tracked-file secret scan passed and npm audit found 0 high vulnerabilities",
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile owned delete helper: passed",
+      "git diff --check: passed"
+    ]
   },
   "merge": null
 }

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -102,6 +102,33 @@ test("Dexter ordinary parsed delete has canonical parity without mutation author
   });
   assert.equal(response.result.isError, true);
   assert.equal(response.result.content[0].text, DELETE_UNPROVEN_TEXT);
+});
+
+test("Hermes and Dexter share the fixture-only ChatOps delete transport and exact opaque receipt", () => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-hermes-delete-contract-"));
+  const fixtureScripts = resolve(fixtureRoot, "scripts");
+  const fixtureChatops = resolve(fixtureScripts, "chatops.mjs");
+  const invoked = resolve(fixtureRoot, "invoked.json");
+  mkdirSync(resolve(fixtureRoot, "packages/cli/dist"), { recursive: true });
+  mkdirSync(fixtureScripts, { recursive: true });
+  copyFileSync(chatops, fixtureChatops);
+  writeFileSync(resolve(fixtureRoot, "package.json"), '{"type":"module"}\n');
+  writeFileSync(resolve(fixtureRoot, "packages/cli/dist/auth-bridge.js"), 'export function tokenizeAuthCommand(value) { return value.trim().replace(/^\\/auth\\s*/, "").split(/\\s+/); }\n');
+  writeFileSync(resolve(fixtureRoot, "packages/cli/dist/index.js"), 'import { writeFileSync } from "node:fs"; export async function runCli(argv) { writeFileSync(process.env.FIXTURE_INVOKED, JSON.stringify(argv)); return { code: 0, stdout: process.env.FIXTURE_DELETE_OUTPUT, stderr: "" }; }\n');
+  try {
+    const result = spawnSync(process.execPath, [fixtureChatops, "/auth delete opaque --apply"], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env: { ...process.env, FIXTURE_INVOKED: invoked, FIXTURE_DELETE_OUTPUT: DELETE_APPLIED_TEXT },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, DELETE_APPLIED_TEXT);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(JSON.parse(readFileSync(invoked, "utf8")), ["auth", "delete", "opaque", "--apply"]);
+    assert.equal(result.stdout.includes("opaque"), true, "the opaque receipt sentinel must survive the shared wrapper");
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test("MCP forwards only the two canonical opaque delete contracts from the shared Dexter wrapper", () => {
