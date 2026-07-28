@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-01-R3",
-  "state": "REVIEWED",
-  "updatedAt": "2026-07-28T11:14:06Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-28T11:14:51Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "fixture-teardown-lifecycle-r3",
@@ -25,5 +25,12 @@
       "QA: npm run qa:security passed (240 fixture/mock tests, typecheck/build, 15 Chromium/axe fixture tests, secret scan 118 tracked files, npm audit 0 high vulnerabilities); owned codex-auth-delete.py compile-only check passed.",
       "Invariant review: no changes to the owned delete transaction/opaque receipt, Sentinel /auth rendering, or Hermes/Dexter weekly-only policy; no live mutation performed."
     ]
+  },
+  "merge": {
+    "commit": "f9f1e9a6608aff45a14084aaa08039d9e0f6aed0",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": false,
+    "scope": "SC-01-R3 fixture-only teardown QA release gate"
   }
 }
