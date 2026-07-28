@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-02",
   "state": "MERGED",
-  "updatedAt": "2026-07-28T07:10:00Z",
+  "updatedAt": "2026-07-28T07:12:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "active-openclaw-scope-warning-r1",
@@ -30,7 +30,7 @@
     "commit": "afe02b9",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "SC-02 active OpenClaw scope acknowledgement fixture contract"
   }
 }
