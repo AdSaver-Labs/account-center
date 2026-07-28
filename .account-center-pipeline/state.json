@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06-R4",
-  "state": "MERGED",
-  "updatedAt": "2026-07-28T12:20:37Z",
+  "activeCheckpoint": "AC-07",
+  "state": "READY_TO_MERGE",
+  "updatedAt": "2026-07-28T17:36:01Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "owned-delete-contract-r4-verification",
+    "kind": "shared-mutation-executor-ac07-release-validation",
     "boundedSteps": [
-      "Exercise only fixture/mock Account Center OpenClaw adapter and Hermes bridge delete paths; assert the owned exact-account transaction invocation and the two fixed target-free public outcomes without passing --apply to any real runtime.",
-      "Compile the owned Python transaction without executing it, run Account Center fixture-only test/security QA, and inspect Sentinel /auth plus Hermes/Dexter weekly-only contract coverage; do not modify the owned transaction, native stores, Sentinel rendering, or policy.",
-      "Perform a diff and contract review for receipt opacity, exact-target fail-closed behavior, and preserved Dexter command; if any internal failure is found, retain this candidate, record a new bounded remediation plan, and remain PLANNED."
+      "Inventory CLI, /auth, MCP, API, executor, and runtime-adapter mutation entry points, then prove fixture-only that every supported mutation either obtains the shared protected lifecycle or fails before native apply.",
+      "Run adversarial fixture tests for forged direct-adapter capabilities, review/scope/target mismatch, duplicate idempotency replay, and attempted-but-UNPROVEN operation rendering; retain the AC-06 owned transaction and opaque public delete contract unchanged.",
+      "Run full deterministic QA/security/browser gates and a diff/invariant review for byte-stable Sentinel /auth plus Hermes/Dexter weekly-only behavior; record only real evidence before merging."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -20,17 +20,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Contract review: Account Center invokes only the owned codex-auth-delete.py after exact connected-target resolution; it validates correlation privately and returns the fixed target-free opaque receipt. Hermes and Dexter permit only the same two canonical public delete outcomes.",
-      "Fixture proof: focused Account Center adapter, Hermes-capacity, /auth bridge, and Dexter MCP tests passed 76/76; Hermes plugin fixture tests passed 8/8. No fixture invokes a real delete transaction.",
-      "QA: npm run qa:security passed 240 tests, typecheck/build, 15 browser/axe fixtures, secret scan of 118 tracked files, and npm audit with zero high vulnerabilities. The owned Python transaction passed an in-memory compile-only check.",
-      "Invariant review: only pipeline state changed; the owned transaction, Sentinel /auth format, working Dexter command, and Hermes/Dexter weekly-only policy remain untouched. No live deletion or runtime mutation was performed."
+      "Inventory/review: CLI, /auth bridge, MCP, API, shared executor, and runtime adapters are covered. Supported route and delete applies require the shared signed review/idempotency lifecycle; unowned mutation vocabulary and generic-command live apply fail closed before native execution.",
+      "Adversarial fixture proof: all 240 tests passed, including forged direct-adapter capability rejection, scope/review/target binding, immutable idempotency replay, attempted-but-UNPROVEN replay, owned delete lifecycle, opaque MCP/Dexter outcomes, and Hermes capacity pairing.",
+      "QA: npm run qa:security passed typecheck/build, 240 tests, 15 Playwright/axe browser fixtures, secret scan of 118 tracked files, and npm audit with zero high vulnerabilities. The owned Python transaction was compile-checked only; no live deletion or runtime mutation occurred.",
+      "Invariant review: candidate diff contains only pipeline state. The owned native delete transaction, Sentinel /auth output contract, working Dexter command, and Hermes/Dexter weekly-only policy remain unchanged."
     ]
-  },
-  "merge": {
-    "commit": "fd83b7058f57e6f8b284c491d4737d1f04b119d0",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "AC-06-R4 owned transaction opaque receipt fixture verification release gate"
   }
 }
