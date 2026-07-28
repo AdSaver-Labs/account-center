@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06",
+  "activeCheckpoint": "AC-07",
   "state": "MERGED",
-  "updatedAt": "2026-07-27T23:29:19Z",
+  "updatedAt": "2026-07-28T00:34:59Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "owned-delete-contract-hardening-r3",
+    "kind": "shared-mutation-lifecycle-release-r1",
     "boundedSteps": [
-      "Pin Account Center credential-delete execution to the exact locally owned Dexter transaction and remove all destructive-script override paths.",
-      "Carry only the fixed opaque verified/unproven delete receipts across Account Center, ChatOps/Dexter, MCP, and Hermes; reject every altered or private native output.",
-      "Exercise mocked fixture-only adapter and MCP transport cases, then run full tests and security QA while reviewing Sentinel /auth bytes and Hermes/Dexter weekly-only policy."
+      "Maintain the shared fixture-only preview, exact review confirmation, idempotency claim/replay, owner-only redacted receipt, and truthful verified versus UNPROVEN lifecycle for protected mutations.",
+      "Keep account.delete restricted to the AC-06 owned exact-target OpenClaw adapter and allow only its fixed opaque receipt contract through Account Center, Dexter, MCP, and Hermes boundaries.",
+      "Before any later release gate, run fixture-only full QA/security and confirm byte-stable Sentinel /auth rendering plus Hermes/Dexter weekly-only capacity policy."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -20,19 +20,18 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Account Center account.delete is now pinned to /home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py; config and environment delete-script overrides are removed.",
-      "The adapter validates private native digest/backup/verification evidence and exports only the opaque-owned-delete contract; fixture runners exercised exact identity, malformed, mismatched, and unverified receipt paths without running a live delete.",
-      "MCP now accepts only the same byte-exact verified or UNPROVEN opaque delete texts used by Hermes and Dexter ChatOps; fixture transport tests reject appended private text.",
-      "Python compilation of the owned transaction passed. npm test passed 238 fixture-only tests; Hermes Python suites passed 15 tests; npm run qa:security passed typecheck/build, 15 Chromium/axe checks, secret scan (117 tracked files), and high-severity audit (0 vulnerabilities).",
-      "Diff review passed: only Account Center adapter/transport/test files and the ignored pipeline state changed; normal Sentinel /auth rendering and Hermes/Dexter weekly-only capacity policy were not changed. No live credential deletion was run.",
-      "AC-06 merged as 4e31ad4 (fix(auth): pin owned delete receipt contract) and pushed to origin/main after the passing fixture-only QA/security gates."
+      "AC-07 shared protected lifecycle is present on main: confirmed route mutations and account.delete require exact signed review, durable idempotency claim/replay, redacted receipt/audit evidence, and verified-versus-UNPROVEN terminal handling.",
+      "Account deletion remains exclusively pinned to the owned local Dexter/OpenClaw transaction; fixture paths accept only the fixed opaque verified or UNPROVEN contract and do not invoke a live delete.",
+      "Current fixture-only npm test passed 238 tests, including direct-adapter, lifecycle/replay, owned-delete opaque-receipt, Sentinel /auth, and Hermes weekly-only coverage.",
+      "Current npm run qa:security passed typecheck/build, 238 fixture tests, 15 Chromium/axe checks, secret scan (117 tracked files), and high-severity dependency audit (0 vulnerabilities).",
+      "Working tree and diff check were clean before this state reconciliation; no production runtime, credential, routing, provider, or service operation was invoked."
     ]
   },
   "merge": {
-    "commit": "4e31ad4",
+    "commit": "0d001c9",
     "branch": "main",
     "remote": "origin/main",
     "pushed": true,
-    "scope": "AC-06 owned exact-account delete receipt contract"
+    "scope": "AC-07 shared mutation executor lifecycle (final QA reconciled)"
   }
 }
