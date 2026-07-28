@@ -11,6 +11,7 @@ export * from "./idempotency-store.js";
 export * from "./model-selection.js";
 export * from "./mutation-contract.js";
 export * from "./mutation-repository.js";
+export * from "./operation-state.js";
 export * from "./policy.js";
 export * from "./provider-family.js";
 export * from "./public-views.js";

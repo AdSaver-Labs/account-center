@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-04",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-28T23:20:00Z",
+  "state": "REVIEW",
+  "updatedAt": "2026-07-28T23:40:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "sc04-honest-state-taxonomy-r1",
@@ -18,10 +18,14 @@
     "preserveOpaqueNativeDeleteReceiptContract": true
   },
   "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qa": "pending",
-    "evidence": []
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
+    "evidence": [
+      "SC-04 bounded review: fixed target-free taxonomy is exported from core, served only as a protected static allow-list, and UI consumes it without adapter text or mutation authority.",
+      "Fixture/full test review: npm test passed 243 tests; focused taxonomy fixtures prove malformed/absent capability evidence is unknown and all taxonomy outcomes are terminal non-success.",
+      "QA: npm run qa:security passed earlier after the taxonomy core addition; final npm test and npm run test:a11y passed 243 fixture tests and 15 Playwright/axe tests. Owned helper compile-only and Hermes/Dexter opaque receipt parity passed; no native transaction ran."
+    ]
   },
   "merge": {
     "commit": "69ea5698e3cd72e2711fab6945a70ed81b5aeec6",
