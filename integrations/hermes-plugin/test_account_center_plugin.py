@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,6 +59,20 @@ class AccountCenterHermesPluginTest(unittest.TestCase):
         self.assertIn("Receipt: opaque-owned-delete", result)
         self.assertNotIn("person@example.test", result)
         self.assertNotIn("private/receipt", result)
+
+    def test_fixture_only_dry_run_matches_the_shared_dexter_contract(self):
+        """The real Hermes -> ChatOps path accepts the exact shared delete output.
+
+        No --apply flag is passed and the Account Center fixture adapter is
+        forced, so this test cannot invoke the owned native transaction or
+        touch a live credential store.
+        """
+        plugin = load_plugin_module()
+        with patch.object(plugin, "_env_for_account_center", return_value={**os.environ, "ACCOUNT_CENTER_SOURCE": "fixture"}):
+            result = plugin._run_auth("delete openai:helper-2")
+        self.assertEqual(result, plugin._DELETE_UNPROVEN_TEXT)
+        self.assertIn("Target: redacted-target", result)
+        self.assertNotIn("openai:helper-2", result)
 
     def test_delete_stdout_outside_the_two_opaque_contracts_fails_closed(self):
         plugin = load_plugin_module()

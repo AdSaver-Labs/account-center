@@ -370,21 +370,25 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
   assert.deepEqual(calls, [[OWNED_OPENCLAW_DELETE_SCRIPT, "openai:helper-2", "--apply"]]);
 });
 
-test("OpenClaw account delete fails closed when the owned transaction receipt is malformed, mismatched, or unverified", async () => {
+test("OpenClaw account delete fails closed for every unproven owned transaction result", async () => {
   const workspace = await openClawWorkspace();
-  for (const stdout of [
-    "not-json",
-    JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "0123456789abcdef", backup: true, verified: true }),
-    JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: false })
+  const verifiedFixture = JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: true });
+  for (const native of [
+    { name: "malformed receipt", result: { code: 0, stdout: "not-json", stderr: "secret@example.test" } },
+    { name: "mismatched receipt", result: { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "0123456789abcdef", backup: true, verified: true }), stderr: "secret@example.test" } },
+    { name: "unverified receipt", result: { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: false }), stderr: "secret@example.test" } },
+    { name: "nonzero native exit", result: { code: 1, stdout: verifiedFixture, stderr: "secret@example.test" } },
+    { name: "native timeout", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", timeoutExceeded: true } },
+    { name: "native output limit", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", outputLimitExceeded: true } }
   ]) {
-    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout, stderr: "secret@example.test" }) });
+    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => native.result });
     const result = await adapter.mutate({ action: "account.delete", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw" });
-    assert.equal(result.code, 2);
+    assert.equal(result.code, 2, native.name);
     const payload = result.payload as { applied: boolean; verification: { kind: string }; reason: string };
-    assert.equal(payload.applied, false);
-    assert.equal(payload.verification.kind, "unproven");
-    assert.equal(payload.reason, "owned_delete_transaction_unproven");
-    assert.equal(JSON.stringify(payload).includes("secret@example.test"), false);
+    assert.equal(payload.applied, false, native.name);
+    assert.equal(payload.verification.kind, "unproven", native.name);
+    assert.equal(payload.reason, "owned_delete_transaction_unproven", native.name);
+    assert.equal(JSON.stringify(payload).includes("secret@example.test"), false, native.name);
   }
 });
 
