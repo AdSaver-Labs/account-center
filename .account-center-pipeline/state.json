@@ -1,36 +1,27 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-07",
-  "state": "MERGED",
-  "updatedAt": "2026-07-28T17:36:40Z",
+  "activeCheckpoint": "SC-03",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-28T18:00:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "shared-mutation-executor-ac07-release-validation",
+    "kind": "model-policy-truth-sc03-fixture-first",
     "boundedSteps": [
-      "Inventory CLI, /auth, MCP, API, executor, and runtime-adapter mutation entry points, then prove fixture-only that every supported mutation either obtains the shared protected lifecycle or fails before native apply.",
-      "Run adversarial fixture tests for forged direct-adapter capabilities, review/scope/target mismatch, duplicate idempotency replay, and attempted-but-UNPROVEN operation rendering; retain the AC-06 owned transaction and opaque public delete contract unchanged.",
-      "Run full deterministic QA/security/browser gates and a diff/invariant review for byte-stable Sentinel /auth plus Hermes/Dexter weekly-only behavior; record only real evidence before merging."
+      "Map every model-evidence producer and consumer before changing a contract; preserve the current main candidate and no-touch runtime boundaries.",
+      "Prove in fixtures that catalog, requested/effective selection, fallback, eligibility, and verification cannot be conflated or borrowed across runtime/scope.",
+      "Run deterministic review, security, and browser QA before any merge; compile-check only the owned delete helper and never invoke live deletion."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
-    "preserveSentinelAuthFormat": true
+    "preserveSentinelAuthFormat": true,
+    "preserveOwnedDeleteTransaction": true,
+    "preserveOpaqueNativeDeleteReceiptContract": true
   },
   "review": {
-    "spec": "passed",
-    "quality": "passed",
-    "qa": "passed",
-    "evidence": [
-      "Inventory/review: CLI, /auth bridge, MCP, API, shared executor, and runtime adapters are covered. Supported route and delete applies require the shared signed review/idempotency lifecycle; unowned mutation vocabulary and generic-command live apply fail closed before native execution.",
-      "Adversarial fixture proof: all 240 tests passed, including forged direct-adapter capability rejection, scope/review/target binding, immutable idempotency replay, attempted-but-UNPROVEN replay, owned delete lifecycle, opaque MCP/Dexter outcomes, and Hermes capacity pairing.",
-      "QA: npm run qa:security passed typecheck/build, 240 tests, 15 Playwright/axe browser fixtures, secret scan of 118 tracked files, and npm audit with zero high vulnerabilities. The owned Python transaction was compile-checked only; no live deletion or runtime mutation occurred.",
-      "Invariant review: candidate diff contains only pipeline state. The owned native delete transaction, Sentinel /auth output contract, working Dexter command, and Hermes/Dexter weekly-only policy remain unchanged."
-    ]
+    "spec": "pending",
+    "quality": "pending",
+    "qa": "pending",
+    "evidence": []
   },
-  "merge": {
-    "qaCommit": "4cd6244bdac8080d511918b16df47fae03a15cc7",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "AC-07 shared protected mutation executor release gate"
-  }
+  "merge": null
 }
