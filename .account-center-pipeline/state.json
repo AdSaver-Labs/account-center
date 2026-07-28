@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
   "state": "MERGED",
-  "updatedAt": "2026-07-28T23:15:20Z",
+  "updatedAt": "2026-07-28T23:15:37Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "sc03-owned-delete-fixture-isolation-r4",
@@ -33,7 +33,7 @@
     "commit": "69ea5698e3cd72e2711fab6945a70ed81b5aeec6",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "SC-03 owned-delete fixture-isolation release gate; preserved Sentinel /auth, Dexter opaque receipt parity, owned transaction path, and Hermes/Dexter weekly-only policy"
   }
 }
