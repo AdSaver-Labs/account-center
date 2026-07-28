@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06",
-  "state": "MERGED",
-  "updatedAt": "2026-07-28T19:22:02Z",
+  "activeCheckpoint": "SC-03",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-28T19:55:33Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "owned-delete-opaque-contract-fixtures-r2",
+    "kind": "ignored-pipeline-state-durable-activation-r2",
     "boundedSteps": [
-      "Bind Account Center only to the existing owned exact-account helper; preserve main and no-touch Sentinel/Hermes capacity boundaries.",
-      "Use checked-in native-result fixtures to prove digest-bound verified completion alone becomes the fixed target-free opaque receipt and all other results fail closed.",
-      "Prove shared Hermes/Dexter ChatOps transport parity with a fake CLI fixture, then complete build, review, security, QA, and a compile-only helper check without a live deletion."
+      "Keep main as the candidate and retain the SC-03 no-touch safety invariants while correcting only pipeline-state tracking.",
+      "Force-add the intentionally ignored but repository-tracked pipeline state file, then verify its staged content and whitespace before commit.",
+      "Push the activation record and verify the remote-tracking branch contains the exact commit; do not alter model, auth, Sentinel, Hermes, Dexter, or runtime files."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -18,24 +18,10 @@
     "preserveOpaqueNativeDeleteReceiptContract": true
   },
   "review": {
-    "spec": "passed",
-    "quality": "passed",
-    "qa": "passed",
-    "evidence": [
-      "npm run build: passed",
-      "focused owned-delete adapter and Hermes/Dexter/MCP fixture tests: 58 passed",
-      "npm test: 241 passed",
-      "npm run qa: passed, including 15 accessibility tests",
-      "npm run qa:security: passed; tracked-file secret scan passed and npm audit found 0 high vulnerabilities",
-      "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile owned delete helper: passed",
-      "git diff --check: passed"
-    ]
+    "spec": "pending",
+    "quality": "pending",
+    "qa": "pending",
+    "evidence": []
   },
-  "merge": {
-    "commit": "678f3b4fd8897bcb88c28a2dd762835e29496508",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "AC-06 owned exact-account delete transaction, opaque receipt contract, and fixture-only Hermes/Dexter parity release gate"
-  }
+  "merge": null
 }
