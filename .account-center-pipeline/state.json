@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-01-R3",
   "state": "MERGED",
-  "updatedAt": "2026-07-28T11:14:51Z",
+  "updatedAt": "2026-07-28T11:15:03Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "fixture-teardown-lifecycle-r3",
@@ -30,7 +30,7 @@
     "commit": "f9f1e9a6608aff45a14084aaa08039d9e0f6aed0",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "SC-01-R3 fixture-only teardown QA release gate"
   }
 }
