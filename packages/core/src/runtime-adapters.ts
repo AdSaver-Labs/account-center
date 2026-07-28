@@ -66,6 +66,8 @@ export interface OpenClawAdapterConfig {
   cli?: string;
   agentDir?: string;
   runner?: CommandRunner;
+  /** Test seam only: production defaults to the real filesystem check. */
+  fileExists?: (path: string) => Promise<boolean>;
 }
 
 export interface GenericCommandAdapterConfig {
@@ -108,6 +110,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   private readonly agentDir: string;
   private readonly deleteScript: string;
   private readonly runner: CommandRunner;
+  private readonly fileExists: (path: string) => Promise<boolean>;
 
   constructor(config: OpenClawAdapterConfig = {}) {
     this.workspace = resolve(config.workspace ?? process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE ?? join(homedir(), ".openclaw", "workspace"));
@@ -115,6 +118,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     this.agentDir = resolve(config.agentDir ?? process.env.ACCOUNT_CENTER_OPENCLAW_AGENT_DIR ?? join(dirname(this.workspace), "agents", "main", "agent"));
     this.deleteScript = OWNED_OPENCLAW_DELETE_SCRIPT;
     this.runner = config.runner ?? execFileRunner;
+    this.fileExists = config.fileExists ?? exists;
   }
 
   async readStatus(): Promise<AccountCenterStatus> {
@@ -270,7 +274,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     // backups, SQLite/JSON atomicity, rollback, and its private receipt. AC
     // accepts only a narrow opaque result, never paths, store snapshots, or
     // native diagnostics.
-    if (!(await exists(this.deleteScript))) return this.deleteFailure(requestedTarget, status, "owned_delete_transaction_missing");
+    if (!(await this.fileExists(this.deleteScript))) return this.deleteFailure(requestedTarget, status, "owned_delete_transaction_missing");
     let native: CommandResult;
     try {
       native = await this.runner("python3", [this.deleteScript, target, "--apply"], { cwd: this.workspace, timeoutMs: 60_000, maxOutputBytes: 64 * 1024 });
@@ -722,7 +726,11 @@ function resolveExactDeleteTarget(target: string, status: AccountCenterStatus): 
     // explicitly connected email. Labels and derived provider aliases are
     // intentionally excluded: they are presentation/routing hints, not a
     // canonical credential identity.
-    const connectedEmail = connectedEmails?.get(profile.id) ?? profileEmail(profile);
+    // The private sidecar may contain a legacy display fallback when the
+    // runtime omits email. Preserve the destructive boundary here too: only a
+    // syntactically email-shaped connected value can authorize an email match.
+    const sidecarEmail = connectedEmails?.get(profile.id);
+    const connectedEmail = sidecarEmail?.includes("@") ? sidecarEmail : profileEmail(profile);
     return normalizeProfileTarget(profile.id) === normalized
       || normalizeProfileTarget(connectedEmail ?? "") === normalized;
   });

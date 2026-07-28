@@ -328,7 +328,7 @@ test("OpenClaw account delete uses the owned exact-account transaction and expos
     calls.push({ command, args });
     return { code: 0, stdout: verified, stderr: "private@example.test /private/store.sqlite" };
   };
-  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
   const result = await adapter.mutate({
     action: "account.delete",
     target: "openai:helper-2",
@@ -367,7 +367,7 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner: async (_command, args) => {
     calls.push(args);
     return { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: true }), stderr: "" };
-  } });
+  }, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
   const publicStatus = await adapter.readStatus();
   assert.doesNotMatch(JSON.stringify(publicStatus), /connected\.member@example\.test/i);
   const result = await adapter.mutate({ action: "account.delete", target: ` \t${email.toLowerCase()}\n`, apply: true, provider: "openai", runtime: "openclaw" });
@@ -386,7 +386,7 @@ test("OpenClaw account delete fails closed for every unproven owned transaction 
     { name: "native timeout", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", timeoutExceeded: true } },
     { name: "native output limit", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", outputLimitExceeded: true } }
   ]) {
-    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => native.result });
+    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => native.result, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
     const result = await adapter.mutate({ action: "account.delete", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw" });
     assert.equal(result.code, 2, native.name);
     const payload = result.payload as { applied: boolean; verification: { kind: string }; reason: string };
@@ -406,7 +406,7 @@ test("OpenClaw account delete blocks profile labels rather than treating them as
   let deleteHelperCalled = false;
   const runner: CommandRunner = async (command, args) => {
     if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
-    if (command === "python3" && args[0] === "-c") deleteHelperCalled = true;
+    if (command === "python3" && args[0] === OWNED_OPENCLAW_DELETE_SCRIPT) deleteHelperCalled = true;
     return { code: 0, stdout: "{}", stderr: "" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
@@ -431,7 +431,7 @@ test("OpenClaw account delete blocks an ambiguous exact connected email", async 
   let deleteHelperCalled = false;
   const runner: CommandRunner = async (command, args) => {
     if (args.includes("status")) return { code: 0, stdout: JSON.stringify(ambiguousStatus), stderr: "" };
-    if (command === "python3" && args[0] === "-c") deleteHelperCalled = true;
+    if (command === "python3" && args[0] === OWNED_OPENCLAW_DELETE_SCRIPT) deleteHelperCalled = true;
     return { code: 0, stdout: "{}", stderr: "" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
@@ -449,7 +449,7 @@ test("OpenClaw account delete blocks targets that do not exactly match a connect
   let deleteHelperCalled = false;
   const runner: CommandRunner = async (command, args) => {
     if (args.includes("status")) return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
-    if (command === "python3" && args[0] === "-c") deleteHelperCalled = true;
+    if (command === "python3" && args[0] === OWNED_OPENCLAW_DELETE_SCRIPT) deleteHelperCalled = true;
     return { code: 0, stdout: JSON.stringify({ warning: "target_not_found" }), stderr: "" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });

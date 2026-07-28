@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
-  "state": "MERGED",
-  "updatedAt": "2026-07-28T22:38:27Z",
+  "state": "PASSED",
+  "updatedAt": "2026-07-28T23:14:46Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "sc03-model-evidence-scope-separation-r3",
+    "kind": "sc03-owned-delete-fixture-isolation-r4",
     "boundedSteps": [
-      "Keep main as the candidate; preserve the Sentinel /auth format, the working Dexter command, the owned delete helper, and the Hermes/Dexter weekly-only boundary.",
-      "Keep the public model catalog read-only and fail closed: catalog eligibility remains distinct from requested policy, effective runtime selection, fallback evidence, and verification; unreported scoped evidence stays unproven.",
-      "Use only fixture and browser QA evidence, compile-check the owned helper without executing it, and release only after deterministic review, security, and accessibility gates pass."
+      "Keep main as the candidate and retain the immutable owned delete-script path; preserve Sentinel /auth bytes, the working Dexter command, and the Hermes/Dexter weekly-only boundary.",
+      "Make the fixture suite hermetic by injecting only a file-existence seam that defaults to the production filesystem check and cannot replace, redirect, or execute the owned delete transaction.",
+      "Strengthen invalid, ambiguous, and label target tests to record every runner invocation and prove the exact python3 owned-helper command was never reached; use fixtures only, then run deterministic review, security, and accessibility gates without live deletion."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,17 +22,12 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "SC-03 contract review: protected model catalog keeps eligibility distinct from requested policy, effective runtime model, fallback chain, and verification; absent scoped selection evidence remains UNPROVEN.",
-      "npm run qa:security: passed \u2014 build/typecheck, 241 fixture tests (including owned-delete and Hermes/Dexter parity), 15 Playwright/axe tests, tracked-file secret scan, and npm audit (0 high vulnerabilities).",
-      "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile owned delete helper: passed; no native delete transaction was invoked.",
-      "git diff --check: passed; reviewed policy boundary remains weekly-only and existing Sentinel /auth, Dexter, and owned opaque receipt code are unchanged."
+      "Contract review: the immutable owned Python path remains the only native delete executable; Account Center normalizes only a verified digest-bound result to opaque-owned-delete, and Hermes/Dexter fixture transport retains the exact public receipt.",
+      "Fixture isolation repair: injected fileExists defaults to production exists and cannot change the owned executable; fixtures prove verified, malformed, mismatched, unverified, nonzero, timeout, and output-limit outcomes without invoking native deletion.",
+      "Exact-target repair: non-email sidecar display fallbacks no longer authorize a delete; label, ambiguous-email, and unmatched-target tests record and reject any owned-helper invocation.",
+      "npm run qa:security: passed — 241 fixture tests, typecheck/build, 15 Playwright/axe tests, secret scan, and npm audit with 0 high vulnerabilities; standalone a11y and Hermes plugin receipt tests passed.",
+      "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile owned helper: passed; no native delete transaction was invoked. git diff --check: passed; Sentinel /auth, Dexter command, and weekly-only policy remain preserved."
     ]
   },
-  "merge": {
-    "commit": "28fc4edf0ca1e338005b15928a4371a76a4e9f7e",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "SC-03 model truth release gate; fixture-only validation preserves Sentinel /auth, owned exact-account delete receipt contract, and Hermes/Dexter weekly-only policy"
-  }
+  "merge": null
 }
