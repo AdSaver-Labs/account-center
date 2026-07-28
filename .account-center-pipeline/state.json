@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-01-R3",
-  "state": "MERGED",
-  "updatedAt": "2026-07-28T11:15:03Z",
+  "activeCheckpoint": "AC-06-R4",
+  "state": "REVIEWED",
+  "updatedAt": "2026-07-28T12:20:21Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "fixture-teardown-lifecycle-r3",
+    "kind": "owned-delete-contract-r4-verification",
     "boundedSteps": [
-      "Run only the two runtime-context browser fixtures against their mkdtemp-owned loopback server and determine whether teardown leaves a fixture directory.",
-      "If reproduction shows residual fixture activity, close browser-origin activity before server close and assert the fixture root is absent after its bounded cleanup; do not alter runtime adapters, the owned transaction, public receipts, or /auth grammar.",
-      "Run the complete fixture-only browser/a11y suite, then full security QA and a compile-only check of the owned script; independently review filesystem safety and preserved Sentinel plus Hermes/Dexter weekly-only invariants before release-gate completion."
+      "Exercise only fixture/mock Account Center OpenClaw adapter and Hermes bridge delete paths; assert the owned exact-account transaction invocation and the two fixed target-free public outcomes without passing --apply to any real runtime.",
+      "Compile the owned Python transaction without executing it, run Account Center fixture-only test/security QA, and inspect Sentinel /auth plus Hermes/Dexter weekly-only contract coverage; do not modify the owned transaction, native stores, Sentinel rendering, or policy.",
+      "Perform a diff and contract review for receipt opacity, exact-target fail-closed behavior, and preserved Dexter command; if any internal failure is found, retain this candidate, record a new bounded remediation plan, and remain PLANNED."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -20,17 +20,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Fixture lifecycle review: mkdtemp-owned loopback origin is left before server close and bounded recursive cleanup is confined to its fixture root.",
-      "Quality proof: both runtime-context detail fixtures passed independently; the complete 15-test browser/a11y run created no fixture root.",
-      "QA: npm run qa:security passed (240 fixture/mock tests, typecheck/build, 15 Chromium/axe fixture tests, secret scan 118 tracked files, npm audit 0 high vulnerabilities); owned codex-auth-delete.py compile-only check passed.",
-      "Invariant review: no changes to the owned delete transaction/opaque receipt, Sentinel /auth rendering, or Hermes/Dexter weekly-only policy; no live mutation performed."
+      "Contract review: Account Center invokes only the owned codex-auth-delete.py after exact connected-target resolution; it validates correlation privately and returns the fixed target-free opaque receipt. Hermes and Dexter permit only the same two canonical public delete outcomes.",
+      "Fixture proof: focused Account Center adapter, Hermes-capacity, /auth bridge, and Dexter MCP tests passed 76/76; Hermes plugin fixture tests passed 8/8. No fixture invokes a real delete transaction.",
+      "QA: npm run qa:security passed 240 tests, typecheck/build, 15 browser/axe fixtures, secret scan of 118 tracked files, and npm audit with zero high vulnerabilities. The owned Python transaction passed an in-memory compile-only check.",
+      "Invariant review: only pipeline state changed; the owned transaction, Sentinel /auth format, working Dexter command, and Hermes/Dexter weekly-only policy remain untouched. No live deletion or runtime mutation was performed."
     ]
-  },
-  "merge": {
-    "commit": "f9f1e9a6608aff45a14084aaa08039d9e0f6aed0",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "SC-01-R3 fixture-only teardown QA release gate"
   }
 }
