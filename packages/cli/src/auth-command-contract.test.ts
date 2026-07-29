@@ -5,6 +5,7 @@ import { parseAuthCommand } from "./auth-bridge.js";
 
 const contract = readFileSync(new URL("../../../docs/AUTH_COMMAND_CONTRACT.md", import.meta.url), "utf8");
 const strategy = readFileSync(new URL("../../../docs/ACCOUNT_CENTER_CONTROL_APP_STRATEGY.md", import.meta.url), "utf8");
+const operations = readFileSync(new URL("../../../docs/AGENT_OPERATIONS.md", import.meta.url), "utf8");
 
 test("auth command contract documents remove preview/confirmation and safety distinctions", () => {
   assert.match(contract, /\/auth auto` \| route mutation \| live apply/);
@@ -28,6 +29,14 @@ test("control-app strategy preserves the owned delete transaction and opaque rec
   assert.match(strategy, /opaque receipt `opaque-owned-delete`/);
   assert.match(strategy, /Missing, malformed, or unverified native evidence remains fail-closed as `UNPROVEN`/);
   assert.doesNotMatch(strategy, /until a documented native transactional delete adapter exists/);
+});
+
+test("operations guidance names the owned delete transaction instead of the superseded upstream-CLI blocker", () => {
+  assert.match(operations, /Credential delete \| `account\.delete` \| Available only through the owned exact-account transaction/);
+  assert.match(operations, /`codex-auth-delete\.py` transaction shared with Dexter `\/auth delete`/);
+  assert.match(operations, /target-free opaque receipt `opaque-owned-delete`/);
+  assert.match(operations, /malformed, or unverified native evidence is `UNPROVEN`/);
+  assert.doesNotMatch(operations, /installed OpenClaw CLI has no stable exact-profile deletion API/);
 });
 
 test("contract-critical auth commands map to expected executor argv", () => {
