@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T04:40:00Z",
+  "updatedAt": "2026-07-29T04:45:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "ac06-owned-native-transaction-parity-r2",
@@ -26,5 +26,12 @@
       "Quality review: fixture runners assert the exact helper argv, normalized exact email/profile resolution, malformed/mismatched/unverified result rejection, and Hermes/Dexter canonical-text transport rejection without executing the helper.",
       "QA review: npm run qa:security passed full 245-test suite, typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and npm audit; owned helper passed py_compile only and was not executed. Sentinel /auth and weekly-only fixture assertions passed."
     ]
+  },
+  "merge": {
+    "integrationCommit": "ef47206",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": false,
+    "scope": "AC-06 owned exact-account delete parity: Account Center and Hermes/Dexter share only the locally owned transaction and target-free opaque receipt; locked Sentinel /auth and weekly-only policy preserved; all deletion evidence fixture-only"
   }
 }
