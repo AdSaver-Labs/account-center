@@ -42,6 +42,6 @@
     "commit": "4cf0cce",
     "branch": "main",
     "scope": "AC-08 direct Hermes plugin fixture closes the receipt-contract coverage gap; the owned exact-account delete transaction and opaque receipt boundary are preserved.",
-    "recordedBy": "local merge record pending origin/main verification"
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
