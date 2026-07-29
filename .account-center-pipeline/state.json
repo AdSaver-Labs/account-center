@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T12:32:20Z",
+  "updatedAt": "2026-07-29T12:32:42Z",
   "candidate": "main working-tree candidate preserved from AC-01; AC-06 Hermes deployment-parity repair is bounded to the enabled plugin artifact and its fixture-only verification.",
   "blockerResolutionPlan": {
     "kind": "ac06-hermes-enabled-plugin-receipt-contract-parity-r1",
@@ -30,9 +30,9 @@
     ]
   },
   "merge": {
-    "commit": "pending-local-gate-commit",
+    "commit": "80ec21f29ed3832dd3ce8956406b7ce2e954372e",
     "remote": "origin/main",
-    "verified": false,
-    "note": "AC-06 Hermes receipt-contract deployment parity passed review/QA. No live credential deletion, provider mutation, or runtime route mutation was executed."
+    "verified": true,
+    "note": "AC-06 Hermes receipt-contract deployment parity committed and pushed to origin/main after fixture-only review/QA; no live credential deletion, provider mutation, or runtime route mutation was executed."
   }
 }
