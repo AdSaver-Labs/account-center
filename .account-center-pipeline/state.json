@@ -1,18 +1,19 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06",
-  "state": "MERGED",
-  "updatedAt": "2026-07-29T12:32:42Z",
-  "candidate": "main working-tree candidate preserved from AC-01; AC-06 Hermes deployment-parity repair is bounded to the enabled plugin artifact and its fixture-only verification.",
+  "activeCheckpoint": "AC-02",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-29T12:33:45Z",
+  "candidate": "main candidate at verified AC-06 merge 80ec21f; AC-02 is bounded to fixture-only validation of durable distinct guided-auth starts.",
   "blockerResolutionPlan": {
-    "kind": "ac06-hermes-enabled-plugin-receipt-contract-parity-r1",
+    "kind": "ac02-guided-auth-start-contract-verification-r1",
     "boundedSteps": [
-      "Preserve the AC-01 candidate and compare the enabled Hermes Account Center plugin with the reviewed repository integration artifact without invoking any delete apply path.",
-      "Install only the reviewed Account Center Hermes plugin artifact so runtime slash-command handling accepts precisely the shared opaque owned-delete receipt contract; leave locked Sentinel/Dexter formatting and weekly-only capacity policy unchanged.",
-      "Run fixture/mock-only source and enabled-plugin contract tests plus the Account Center deterministic QA/security suite; compile the owned helper only and never execute it against live credentials.",
-      "Review the resulting deployed parity and record AC-06 evidence; advance only after all bounded checks pass."
+      "Preserve the verified AC-06 candidate and inspect only the existing add/reauth start contract across guarded executor, durable store, CLI, MCP, and protected API surfaces.",
+      "Use fixture-only adversarial coverage for explicit mode, runtime/scope validation, idempotency, and redacted durable results; do not perform interactive authentication.",
+      "Repair only a demonstrated AC-02 contract gap, then run focused tests and full QA/security with browser proof if a public surface changes.",
+      "Keep owned delete, Hermes/Dexter Sentinel /auth format, and weekly-only capacity policy untouched; do not advance before independent review and QA pass."
     ],
     "liveDeletionTestsForbidden": true,
+    "interactiveLoginForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
     "preserveSentinelAuthFormat": true,
     "preserveOwnedDeleteTransaction": true,
@@ -20,19 +21,15 @@
     "preserveDexterAuthDeleteCommand": true
   },
   "review": {
-    "spec": "passed",
-    "quality": "passed",
-    "qa": "passed",
-    "evidence": [
-      "Spec: Account Center and the enabled Hermes Account Center plugin invoke the shared Dexter/ChatOps delete surface; only the owned exact-account transaction can produce the verified opaque receipt.",
-      "Quality: enabled plugin was synchronized byte-for-byte with the reviewed integration artifact and fixture-mocked canonical/hostile receipt parity passed; locked Sentinel /auth rendering, Dexter command transport, and weekly-only capacity policy remain unchanged.",
-      "QA: python source-plugin tests (8), enabled-plugin fixture parity, owned helper py_compile, npm run qa, and npm run qa:security passed; 249 fixture/mock Node tests, 15 Playwright/axe tests, secret scan, and audit ran without native delete execution."
-    ]
+    "spec": "pending",
+    "quality": "pending",
+    "qa": "pending",
+    "evidence": []
   },
-  "merge": {
+  "previousMerge": {
+    "checkpoint": "AC-06",
     "commit": "80ec21f29ed3832dd3ce8956406b7ce2e954372e",
     "remote": "origin/main",
-    "verified": true,
-    "note": "AC-06 Hermes receipt-contract deployment parity committed and pushed to origin/main after fixture-only review/QA; no live credential deletion, provider mutation, or runtime route mutation was executed."
+    "verified": true
   }
 }
