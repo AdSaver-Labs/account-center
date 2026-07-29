@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "CP-01",
+  "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T04:25:00Z",
+  "updatedAt": "2026-07-29T04:40:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "cp01-loopback-launch-token-r1",
+    "kind": "ac06-owned-native-transaction-parity-r2",
     "boundedSteps": [
-      "Preserve the owned AC-06 exact-account delete transaction, opaque receipt, locked Sentinel auth output, working Dexter delete command, and Hermes/Dexter weekly-only policy.",
-      "Prove fixture-only loopback, fresh launch-token, redacted-output, and lifecycle cleanup behavior without adding runtime mutation authority.",
-      "Run deterministic review and QA; no live deletion, provider request, native helper execution, account, credential, routing, session, or service operation."
+      "Use only the locally owned exact-account delete transaction shared with Dexter; treat upstream CLI absence as irrelevant.",
+      "Prove fixture-only adapter and Hermes/Dexter transport parity for the one target-free opaque receipt contract; do not execute the helper.",
+      "Run review and deterministic QA while preserving locked Sentinel /auth format and weekly-only policy before release-gate advancement."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,16 +22,9 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: server listen is hard-bound to 127.0.0.1; serve accepts only the closed fixture token-file launch contract and no mutation endpoint was added.",
-      "Quality review: existing lifecycle tests prove token-file ownership/symlink rejection, loopback-only serving, token-free output, unauthorized denial, and connection cleanup; AC-06 owned delete, Sentinel auth, Dexter parity, and weekly-only capacity sources were unchanged.",
-      "QA review: npm run qa:security passed full 245-test suite, typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and npm audit; owned native helper was py_compile-checked only and never executed."
+      "Spec review: the OpenClaw adapter reaches only the owned exact-account helper after shared executor capability and exact connected-target resolution; public success requires the fixed target-free opaque receipt.",
+      "Quality review: fixture runners assert the exact helper argv, normalized exact email/profile resolution, malformed/mismatched/unverified result rejection, and Hermes/Dexter canonical-text transport rejection without executing the helper.",
+      "QA review: npm run qa:security passed full 245-test suite, typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and npm audit; owned helper passed py_compile only and was not executed. Sentinel /auth and weekly-only fixture assertions passed."
     ]
-  },
-  "merge": {
-    "integrationCommit": "81f9c7a",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "CP-01 loopback and per-launch token proof: release gate reconciled after fixture-only lifecycle/security/browser evidence; AC-06 owned delete receipt, Sentinel auth, Dexter parity, and Hermes/Dexter weekly-only policy preserved"
   }
 }
