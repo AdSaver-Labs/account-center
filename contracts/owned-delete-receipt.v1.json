@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "account-center.owned-delete-receipt.v1",
+  "nativeReceipt": {
+    "action": "account.delete",
+    "state": "DELETED",
+    "receipt": "opaque-owned-delete"
+  },
+  "public": {
+    "appliedText": "APPLIED — owned exact-account credential delete completed.\nAction: account.delete\nResult: APPLIED\nVerification: VERIFIED\nReceipt: opaque-owned-delete\n",
+    "unprovenText": "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\nAction: account.delete\nTarget: redacted-target\nResult: BLOCKED\nVerification: UNPROVEN\n\nCredential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\nExact connected-target confirmation remains required before credential deletion.\n"
+  }
+}

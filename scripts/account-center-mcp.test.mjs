@@ -10,6 +10,7 @@ import { dirname, resolve } from "node:path";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bridge = resolve(root, "scripts/account-center-mcp.mjs");
 const chatops = resolve(root, "scripts/chatops.mjs");
+const deleteContract = JSON.parse(readFileSync(resolve(root, "contracts", "owned-delete-receipt.v1.json"), "utf8"));
 
 function call(command, env = {}) {
   const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "account_center_auth", arguments: { command } } };
@@ -31,20 +32,8 @@ const MUTATION_BLOCKED_TEXT =
   "Blocked potentially mutating Account Center command in Codex MCP.\n\n" +
   "For safety, this MCP bridge allows status/help and dry-runs by default. " +
   "Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.";
-const DELETE_UNPROVEN_TEXT =
-  "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\n" +
-  "Action: account.delete\n" +
-  "Target: redacted-target\n" +
-  "Result: BLOCKED\n" +
-  "Verification: UNPROVEN\n\n" +
-  "Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n" +
-  'Exact connected-target confirmation remains required before credential deletion.\n';
-const DELETE_APPLIED_TEXT =
-  "APPLIED — owned exact-account credential delete completed.\n" +
-  "Action: account.delete\n" +
-  "Result: APPLIED\n" +
-  "Verification: VERIFIED\n" +
-  "Receipt: opaque-owned-delete\n";
+const DELETE_UNPROVEN_TEXT = deleteContract.public.unprovenText;
+const DELETE_APPLIED_TEXT = deleteContract.public.appliedText;
 
 test("MCP initializes and lists tools before ignored CLI build artifacts exist", () => {
   const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-clean-"));
@@ -137,7 +126,9 @@ test("MCP forwards only the two canonical opaque delete contracts from the share
   const fixtureBridge = resolve(fixtureScripts, "account-center-mcp.mjs");
   mkdirSync(resolve(fixtureRoot, "packages/cli/dist"), { recursive: true });
   mkdirSync(fixtureScripts, { recursive: true });
+  mkdirSync(resolve(fixtureRoot, "contracts"), { recursive: true });
   copyFileSync(bridge, fixtureBridge);
+  copyFileSync(resolve(root, "contracts", "owned-delete-receipt.v1.json"), resolve(fixtureRoot, "contracts", "owned-delete-receipt.v1.json"));
   writeFileSync(resolve(fixtureRoot, "package.json"), '{"type":"module"}\n');
   writeFileSync(resolve(fixtureRoot, "packages/cli/dist/auth-bridge.js"), 'export function inspectAuthCommand() { return { invocation: ["accounts", "delete", "opaque", "--apply"], mutationCapable: true, explicitlyDryRun: false }; }\n');
   writeFileSync(resolve(fixtureScripts, "chatops.mjs"), 'process.stdout.write(process.env.FIXTURE_DELETE_OUTPUT || "");\n');

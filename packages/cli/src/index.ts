@@ -30,6 +30,7 @@ import {
   redactJson
 } from "@account-center/core";
 import { randomBytes } from "node:crypto";
+import { loadOwnedDeleteReceiptContract } from "./owned-delete-contract.js";
 import { createAccountCenterServer } from "./server.js";
 import { parseAuthCommand, renderAuthHelp } from "./auth-bridge.js";
 
@@ -652,6 +653,7 @@ function orderCodexProfiles(profiles: AccountCenterStatus["profiles"]): AccountC
     const ar = meta(a, "routingEnabled") === false ? 1 : 0;
     const br = meta(b, "routingEnabled") === false ? 1 : 0;
     if (ar !== br) return ar - br;
+  const contract = loadOwnedDeleteReceiptContract();
     if (isAdsaver(a) && !isAdsaver(b)) return 1;
     if (isAdsaver(b) && !isAdsaver(a)) return -1;
     return profileEmail(a).localeCompare(profileEmail(b));
@@ -783,24 +785,9 @@ export function renderMutation(payload: PublicMutationView): string {
 /** The sole public renderer for the opaque owned credential-delete contract. */
 export function renderCredentialDelete(payload: PublicMutationView = blockedCredentialDeleteView()): string {
   if (payload.applied === true && payload.liveRuntimeMutation === true && payload.verificationState === "VERIFIED") {
-    return [
-      "APPLIED — owned exact-account credential delete completed.",
-      "Action: account.delete",
-      "Result: APPLIED",
-      "Verification: VERIFIED",
-      "Receipt: opaque-owned-delete"
-    ].join("\n") + "\n";
+    return contract.public.appliedText;
   }
-  return [
-    "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.",
-    "Action: account.delete",
-    `Target: ${payload.receipt.target}`,
-    "Result: BLOCKED",
-    "Verification: UNPROVEN",
-    "",
-    "Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.",
-    "Exact connected-target confirmation remains required before credential deletion."
-  ].join("\n") + "\n";
+  return contract.public.unprovenText;
 }
 
 function renderAccounts(view: ReturnType<typeof publicAccountsView>): string {

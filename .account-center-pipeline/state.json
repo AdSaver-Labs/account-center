@@ -2,14 +2,14 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T08:19:34Z",
+  "updatedAt": "2026-07-29T09:25:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "ac06-owned-delete-opaque-receipt-fixtures-r2",
+    "kind": "ac06-owned-delete-manual-parity-contract-r3",
     "boundedSteps": [
-      "Map the owned native helper boundary and current Account Center/Hermes public receipt projections without executing any delete path.",
-      "Harden the adapter parser and transport projection around exactly the canonical opaque native receipt; add fixture fakes that prove invocation shape, redaction, malformed-result rejection, and no native-helper execution.",
-      "Run focused fixture tests, deterministic build/security QA, owned-helper static compilation, then review locked Sentinel /auth and weekly-only fixtures before merge."
+      "Preserve the locked Dexter/Hermes /auth delete --apply command through the shared guarded executor; retain explicit --dry-run preview and all exact-target/capability/backup checks.",
+      "Make the target-free verified and unproven public delete outcomes a single versioned opaque contract artifact consumed by Account Center, Hermes, and Dexter fixture transports.",
+      "Use fake runners and fixture subprocesses only to prove owned-helper argv, receipt rejection, byte-for-byte transport parity, locked Sentinel /auth format, and weekly-only policy; then build, QA, and independently review before merge."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,16 +22,16 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: Account Center resolves one exact connected identity, invokes only the owned codex-auth-delete.py transaction with --apply after shared review/idempotency confirmation, and accepts only verified opaque completion evidence; no upstream CLI-delete dependency was introduced.",
-      "Quality review: Account Center, ChatOps/Dexter, Hermes plugin, and MCP fixture transports retain the two fixed target-free delete outcomes; malformed, mismatched, timed-out, unverified, or injected native/transport output fails closed. Sentinel /auth source and weekly-only capacity policy were untouched.",
-      "QA review: npm run qa:security passed 246 fixture/mock tests, typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and audit; Hermes plugin fixture suite passed 8 tests; owned helper passed py_compile only and was never executed."
+      "Spec review: the OpenClaw adapter retains its owned codex-auth-delete.py --apply boundary behind exact connected-target resolution and shared review/idempotency capability; no upstream CLI-delete dependency was introduced.",
+      "Quality review: v1 is the single target-free opaque native/public receipt artifact consumed by CLI/Dexter, MCP, Hermes, and fixture tests; malformed or absent contract data fails closed for auth delete. The locked /auth --apply/delete-dry-run behavior is unchanged.",
+      "QA review: npm run qa:security passed 249 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan, and npm audit; Hermes fixture tests and owned helper py_compile passed. No owned helper invocation or live deletion occurred."
     ]
   },
   "merge": {
-    "integrationCommit": "145337c",
+    "integrationCommit": "9030a43",
     "branch": "main",
     "remote": "origin/main",
     "pushed": true,
-    "scope": "AC-06 owned exact-account delete parity: fixture-proven Account Center/Hermes/Dexter opaque receipt boundary; no live deletion"
+    "scope": "AC-06 v1 opaque owned-delete receipt contract shared by Account Center, Hermes, and Dexter; fixture-only verification"
   }
 }

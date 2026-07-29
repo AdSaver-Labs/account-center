@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import subprocess
+import json
 from pathlib import Path
 from typing import Any
 
@@ -32,24 +33,18 @@ _REDACTION_PATTERNS = [
     re.compile(r"(?<![:/A-Za-z0-9_])/(?!auth(?:\s|$))[^\r\n\"'<>]*", re.IGNORECASE),
 ]
 _AUTH_UNPROVEN_TEXT = "Account Center `/auth` request UNPROVEN. Check `/auth status` or the durable redacted receipt."
-_DELETE_UNPROVEN_TEXT = (
-    "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\n"
-    "Action: account.delete\n"
-    "Target: redacted-target\n"
-    "Result: BLOCKED\n"
-    "Verification: UNPROVEN\n\n"
-    "Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n"
-    "Exact connected-target confirmation remains required before credential deletion.\n"
-)
-_DELETE_APPLIED_TEXT = (
-    "APPLIED — owned exact-account credential delete completed.\n"
-    "Action: account.delete\n"
-    "Result: APPLIED\n"
-    "Verification: VERIFIED\n"
-    "Receipt: opaque-owned-delete\n"
-)
-_CANONICAL_DELETE_OUTPUTS = frozenset({_DELETE_UNPROVEN_TEXT, _DELETE_APPLIED_TEXT})
-
+def _delete_contract() -> dict[str, Any]:
+    path = _account_center_root() / "contracts" / "owned-delete-receipt.v1.json"
+    try:
+        contract = json.loads(path.read_text(encoding="utf-8"))
+        if (contract.get("schemaVersion") != "account-center.owned-delete-receipt.v1" or
+                contract.get("nativeReceipt") != {"action": "account.delete", "state": "DELETED", "receipt": "opaque-owned-delete"} or
+                not isinstance(contract.get("public", {}).get("appliedText"), str) or
+                not isinstance(contract.get("public", {}).get("unprovenText"), str)):
+            raise ValueError("invalid owned delete receipt contract")
+        return contract
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {"public": {"appliedText": "", "unprovenText": ""}}
 
 def _cfg_get(path: str, default: Any = None) -> Any:
     try:
@@ -83,6 +78,12 @@ def _account_center_root() -> Path:
         "Account Center root not found. Set account_center.root in ~/.hermes/config.yaml "
         "or ACCOUNT_CENTER_ROOT to the repo containing scripts/chatops.mjs."
     )
+
+
+_DELETE_CONTRACT = _delete_contract()
+_DELETE_UNPROVEN_TEXT = _DELETE_CONTRACT["public"]["unprovenText"]
+_DELETE_APPLIED_TEXT = _DELETE_CONTRACT["public"]["appliedText"]
+_CANONICAL_DELETE_OUTPUTS = frozenset({_DELETE_UNPROVEN_TEXT, _DELETE_APPLIED_TEXT})
 
 
 def _build_auth_message(raw_args: str) -> str:
@@ -124,6 +125,8 @@ def _env_for_account_center() -> dict[str, str]:
 def _run_auth(raw_args: str) -> str:
     message = _build_auth_message(raw_args)
     delete_request = bool(re.match(r"^/auth\s+delete(?:\s|$)", message, re.IGNORECASE))
+    if delete_request and (not _DELETE_UNPROVEN_TEXT or not _DELETE_APPLIED_TEXT):
+        return _AUTH_UNPROVEN_TEXT
     try:
         root = _account_center_root()
         timeout = int(_cfg_get("account_center.command_timeout", 45) or 45)

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,26 +12,33 @@ const ALLOW_MUTATIONS = process.env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS === '1';
 const DEFAULT_SOURCE = process.env.ACCOUNT_CENTER_SOURCE || 'openclaw';
 const MAX_OUTPUT = 12000;
 const OPAQUE_FAILURE_TEXT = 'Account Center request UNPROVEN.\n';
-const DELETE_UNPROVEN_TEXT =
-  'DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\n' +
-  'Action: account.delete\n' +
-  'Target: redacted-target\n' +
-  'Result: BLOCKED\n' +
-  'Verification: UNPROVEN\n\n' +
-  'Credential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\n' +
-  'Exact connected-target confirmation remains required before credential deletion.\n';
-const DELETE_APPLIED_TEXT =
-  'APPLIED — owned exact-account credential delete completed.\n' +
-  'Action: account.delete\n' +
-  'Result: APPLIED\n' +
-  'Verification: VERIFIED\n' +
-  'Receipt: opaque-owned-delete\n';
+const DELETE_CONTRACT_PATH = resolve(ROOT, 'contracts', 'owned-delete-receipt.v1.json');
+const DELETE_CONTRACT = loadDeleteContract();
+const DELETE_UNPROVEN_TEXT = DELETE_CONTRACT.public.unprovenText;
+const DELETE_APPLIED_TEXT = DELETE_CONTRACT.public.appliedText;
 const CANONICAL_DELETE_OUTPUTS = new Set([DELETE_UNPROVEN_TEXT, DELETE_APPLIED_TEXT]);
 const INVALID_REQUEST_TEXT = 'Invalid Account Center MCP request.';
 const MUTATION_BLOCKED_TEXT =
   'Blocked potentially mutating Account Center command in Codex MCP.\n\n' +
   'For safety, this MCP bridge allows status/help and dry-runs by default. ' +
   'Ask Alej for an explicit target/approval and run through Telegram/Hermes/OpenClaw, or set ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS=1 for a controlled test session.';
+
+function loadDeleteContract() {
+  try {
+    const contract = JSON.parse(readFileSync(DELETE_CONTRACT_PATH, 'utf8'));
+    if (contract?.schemaVersion !== 'account-center.owned-delete-receipt.v1' ||
+        contract?.nativeReceipt?.action !== 'account.delete' ||
+        contract?.nativeReceipt?.state !== 'DELETED' ||
+        contract?.nativeReceipt?.receipt !== 'opaque-owned-delete' ||
+        typeof contract?.public?.appliedText !== 'string' ||
+        typeof contract?.public?.unprovenText !== 'string') throw new Error('invalid');
+    return contract;
+  } catch {
+    // MCP must initialize even if a partial checkout is being inspected. Auth
+    // calls remain fail-closed below because no canonical contract is present.
+    return { public: { appliedText: '', unprovenText: '' } };
+  }
+}
 
 if (!existsSync(CHATOPS)) {
   console.error(`Account Center chatops wrapper not found: ${CHATOPS}`);
@@ -114,6 +121,7 @@ function opaqueFailure(deleteRequest = false) {
 async function runAuth(command) {
   const normalized = normalizeCommand(command);
   const deleteRequest = /^\/auth\s+delete(?:\s|$)/i.test(normalized);
+  if (deleteRequest && (!DELETE_APPLIED_TEXT || !DELETE_UNPROVEN_TEXT)) return opaqueFailure(false);
   let inspection;
   try {
     // The MCP transport must be able to initialize from a clean checkout,
