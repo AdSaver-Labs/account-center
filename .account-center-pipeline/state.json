@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-01",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T07:14:52Z",
+  "updatedAt": "2026-07-29T07:15:14Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "cp01-loopback-launch-token-proof-r1",
@@ -31,7 +31,7 @@
     "integrationCommit": "ed76a05",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "CP-01 loopback launch-token proof: generated per-launch 256-bit bearer tokens are stored only in owner-only files and never reported; fixture-tested; no live deletion"
   }
 }
