@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-04",
-  "state": "READY_TO_MERGE",
-  "updatedAt": "2026-07-29T10:42:00Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-29T10:59:00Z",
   "candidate": "main working-tree candidate",
   "blockerResolutionPlan": {
     "kind": "cp04-redacted-connection-references-r1",
@@ -26,5 +26,11 @@
       "Quality: hostile-scope and reordering fixtures pass; diff check, locked Sentinel /auth fixture, AC-06 opaque receipt transport, and weekly-only capacity checks remain green.",
       "QA: npm run qa and npm run qa:security passed 249 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan, and audit with 0 high vulnerabilities; owned helper py_compile only, no execution."
     ]
+  },
+  "merge": {
+    "commit": "8072d6c",
+    "remote": "origin/main",
+    "verified": true,
+    "note": "CP-04 merged after deterministic fixture-only QA/security review; no native delete execution or live provider/runtime mutation."
   }
 }
