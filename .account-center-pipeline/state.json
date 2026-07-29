@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T16:26:54Z",
+  "updatedAt": "2026-07-29T16:59:13Z",
   "candidate": "main candidate after AC-07 shared protected mutation-executor release-gate verification; AC-06 owned exact-account delete remains its sole native apply route with the one opaque receipt contract.",
   "blockerResolutionPlan": {
     "kind": "ac07-shared-mutation-executor-release-gate-r1",
@@ -42,6 +42,6 @@
     "commit": "06713a1",
     "branch": "main",
     "scope": "AC-07 shared protected mutation-executor release gate verified fixture-only; AC-06 owned exact-account delete and opaque receipt boundary preserved.",
-    "recordedBy": "pipeline state commit pending"
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
