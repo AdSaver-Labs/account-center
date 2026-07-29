@@ -41,6 +41,13 @@ async function capabilityRoute(adapter: OpenClawRuntimeAdapter, action: "route.a
   return executeAccountCenterCommand({ command: action, target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, activeScopeWarning: warning, activeScopeWarningToken: warning.token, idempotencyKey: "routeapplycapabilitykey0001" }, { adapter, mutation: { secret, repository: new MutationRepository(await mkdtemp(join(tmpdir(), "account-center-capability-"))) } });
 }
 
+async function capabilityDelete(adapter: OpenClawRuntimeAdapter, target: string) {
+  const scope = { kind: "default" as const, id: "default" };
+  const secret = "test-shared-mutation-secret";
+  const review = createMutationReview({ action: "account.delete", target, provider: "openai", runtime: "openclaw", scope }, { secret });
+  return executeAccountCenterCommand({ command: "account.delete", target, apply: true, provider: "openai", runtime: "openclaw", scope, review, reviewToken: review.token, idempotencyKey: "deleteapplycapabilitykey0001" }, { adapter, mutation: { secret, repository: new MutationRepository(await mkdtemp(join(tmpdir(), "account-center-delete-capability-"))) } });
+}
+
 function routedStatus(activeProfileId: string, order: string[], agent = "main") {
   return { ...routerStatus, scope: `agent:${agent}`, override: { enabled: true, profileId: activeProfileId }, effectiveAuthOrder: order };
 }
@@ -153,7 +160,7 @@ test("OpenClaw route apply never invokes the native script before shared confirm
   assert.ok(payload.receipt.warnings.includes("explicit_agent_scope_required"));
 });
 
-test("a deep-imported public core surface cannot mint a route capability for direct live apply", async () => {
+test("a deep-imported public core surface cannot mint a mutation capability for direct live apply", async () => {
   const capabilityModule = await import(new URL("../dist/executor-route-capability.js", import.meta.url).href) as Record<string, unknown>;
   assert.equal(typeof capabilityModule.mintExecutorRouteCapability, "undefined");
   const workspace = await openClawWorkspace();
@@ -162,7 +169,7 @@ test("a deep-imported public core surface cannot mint a route capability for dir
     if (command === process.execPath) nativeCalls += 1;
     return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
   } });
-  const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw", scope: { kind: "agent", id: "main" }, routeCapability: capabilityModule.mintExecutorRouteCapability });
+  const result = await adapter.mutate({ action: "route.use", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw", scope: { kind: "agent", id: "main" }, mutationCapability: capabilityModule.mintExecutorRouteCapability });
   assert.equal(result.code, 2);
   assert.equal(nativeCalls, 0);
 });
@@ -174,7 +181,7 @@ test("hostile direct adapter callers cannot supply a verifier secret or forge a 
     workspace: workspace.root,
     cli: workspace.cli,
     // Runtime config is deliberately ignored even if an untyped caller tries it.
-    routeCapabilitySecret: "attacker-controlled-secret",
+    mutationCapabilitySecret: "attacker-controlled-secret",
     runner: async (command: string) => {
       if (command === process.execPath) nativeCalls += 1;
       return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
@@ -183,7 +190,7 @@ test("hostile direct adapter callers cannot supply a verifier secret or forge a 
   const adapter = new OpenClawRuntimeAdapter(hostileConfig as ConstructorParameters<typeof OpenClawRuntimeAdapter>[0]);
   const result = await adapter.mutate({
     action: "route.use", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw",
-    scope: { kind: "agent", id: "main" }, routeCapability: "attacker-forged-capability"
+    scope: { kind: "agent", id: "main" }, mutationCapability: "attacker-forged-capability"
   });
   assert.equal(result.code, 2);
   assert.equal(nativeCalls, 0);
@@ -316,7 +323,25 @@ test("OpenClaw read-after-write mismatch never reports applied", async () => {
   assert.equal((result.mutation as unknown as { reason: string }).reason, "route_read_after_write_mismatch");
 });
 
-test("OpenClaw account delete uses the owned exact-account transaction and exposes one opaque receipt contract", async () => {
+test("OpenClaw account delete blocks direct adapter apply before the owned transaction", async () => {
+  const workspace = await openClawWorkspace();
+  let nativeCalls = 0;
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command) => {
+    if (command === "python3") nativeCalls += 1;
+    return { code: 0, stdout: JSON.stringify(routerStatus), stderr: "" };
+  } });
+  const result = await adapter.mutate({ action: "account.delete", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw", scope: { kind: "default", id: "default" } });
+  assert.equal(result.code, 2);
+  assert.equal(nativeCalls, 0);
+  const payload = result.payload as { applied: boolean; liveRuntimeMutation: boolean; reason: string; receipt: { target?: string; warnings: string[] } };
+  assert.equal(payload.applied, false);
+  assert.equal(payload.liveRuntimeMutation, false);
+  assert.equal(payload.reason, "delete_apply_requires_executor_capability");
+  assert.equal(payload.receipt.target, undefined);
+  assert.ok(payload.receipt.warnings.includes("no_live_mutation"));
+});
+
+test("OpenClaw executor-confirmed account delete uses the owned exact-account transaction and exposes one opaque receipt contract", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-"));
   const cli = join(workspace, "oauth_routing_cli.py");
   await mkdir(join(workspace, "3-Resources", "codex-account-ops", "scripts"), { recursive: true });
@@ -329,16 +354,10 @@ test("OpenClaw account delete uses the owned exact-account transaction and expos
     return { code: 0, stdout: verified, stderr: "private@example.test /private/store.sqlite" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
-  const result = await adapter.mutate({
-    action: "account.delete",
-    target: "openai:helper-2",
-    apply: true,
-    provider: "openai",
-    runtime: "openclaw"
-  });
+  const result = await capabilityDelete(adapter, "openai:helper-2");
   assert.equal(result.code, 0);
   assert.deepEqual(calls, [{ command: "python3", args: [OWNED_OPENCLAW_DELETE_SCRIPT, "openai:helper-2", "--apply"] }]);
-  const payload = result.payload as { applied: boolean; liveRuntimeMutation: boolean; receipt: { warnings: string[]; target?: string }; nativeReceipt: unknown };
+  const payload = result.mutation as unknown as { applied: boolean; liveRuntimeMutation: boolean; receipt: { warnings: string[]; target?: string }; nativeReceipt: unknown };
   assert.equal(payload.applied, true);
   assert.equal(payload.liveRuntimeMutation, true);
   assert.equal(payload.receipt.target, undefined);
@@ -370,7 +389,7 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
   }, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
   const publicStatus = await adapter.readStatus();
   assert.doesNotMatch(JSON.stringify(publicStatus), /connected\.member@example\.test/i);
-  const result = await adapter.mutate({ action: "account.delete", target: ` \t${email.toLowerCase()}\n`, apply: true, provider: "openai", runtime: "openclaw" });
+  const result = await capabilityDelete(adapter, ` \t${email.toLowerCase()}\n`);
   assert.equal(result.code, 0);
   assert.deepEqual(calls, [[OWNED_OPENCLAW_DELETE_SCRIPT, "openai:helper-2", "--apply"]]);
 });
@@ -387,9 +406,9 @@ test("OpenClaw account delete fails closed for every unproven owned transaction 
     { name: "native output limit", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", outputLimitExceeded: true } }
   ]) {
     const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => native.result, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
-    const result = await adapter.mutate({ action: "account.delete", target: "openai:helper-2", apply: true, provider: "openai", runtime: "openclaw" });
+    const result = await capabilityDelete(adapter, "openai:helper-2");
     assert.equal(result.code, 2, native.name);
-    const payload = result.payload as { applied: boolean; verification: { kind: string }; reason: string };
+    const payload = result.mutation as unknown as { applied: boolean; verification: { kind: string }; reason: string };
     assert.equal(payload.applied, false, native.name);
     assert.equal(payload.verification.kind, "unproven", native.name);
     assert.equal(payload.reason, "owned_delete_transaction_unproven", native.name);
@@ -410,7 +429,7 @@ test("OpenClaw account delete blocks profile labels rather than treating them as
     return { code: 0, stdout: "{}", stderr: "" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
-  const result = await adapter.mutate({ action: "account.delete", target: "helper-2", apply: true, provider: "openai", runtime: "openclaw" });
+  const result = await capabilityDelete(adapter, "helper-2");
   assert.equal(result.code, 2);
   assert.equal(deleteHelperCalled, false);
 });
@@ -435,7 +454,7 @@ test("OpenClaw account delete blocks an ambiguous exact connected email", async 
     return { code: 0, stdout: "{}", stderr: "" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
-  const result = await adapter.mutate({ action: "account.delete", target: "duplicate@example.test", apply: true, provider: "openai", runtime: "openclaw" });
+  const result = await capabilityDelete(adapter, "duplicate@example.test");
   assert.equal(result.code, 2);
   assert.equal(deleteHelperCalled, false);
 });
@@ -453,16 +472,10 @@ test("OpenClaw account delete blocks targets that do not exactly match a connect
     return { code: 0, stdout: JSON.stringify({ warning: "target_not_found" }), stderr: "" };
   };
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner });
-  const result = await adapter.mutate({
-    action: "account.delete",
-    target: "nobody@example.invalid",
-    apply: true,
-    provider: "openai",
-    runtime: "openclaw"
-  });
+  const result = await capabilityDelete(adapter, "nobody@example.invalid");
   assert.equal(result.code, 2);
   assert.equal(deleteHelperCalled, false);
-  const payload = result.payload as { applied: boolean; liveRuntimeMutation: boolean; receipt: { warnings: string[] } };
+  const payload = result.mutation as unknown as { applied: boolean; liveRuntimeMutation: boolean; receipt: { warnings: string[] } };
   assert.equal(payload.applied, false);
   assert.equal(payload.liveRuntimeMutation, false);
   assert.ok(payload.receipt.warnings.includes("exact_match_required"));

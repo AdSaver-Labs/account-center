@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { verifiesExecutorRouteCapability } from "./command-executor.js";
+import { verifiesExecutorMutationCapability } from "./command-executor.js";
 import { AccountCenterStatus, AgentConnection, AuditAction, Profile, RuntimeKey, assertAccountCenterStatus, isRecord, nowIso } from "./schemas.js";
 import { createReceipt } from "./policy.js";
 import { loadFixtureStatus } from "./fixtures.js";
@@ -44,7 +44,7 @@ export interface RuntimeMutationInput {
   provider: string;
   runtime: string;
   /** Opaque, executor-minted, one-operation authorization; a boolean is never sufficient. */
-  routeCapability?: unknown;
+  mutationCapability?: unknown;
   /** OpenClaw route mutations are deliberately limited to one exact agent. */
   scope?: MutationScope;
 }
@@ -186,7 +186,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
       return { code: 2, payload };
     };
     if (input.scope?.kind !== "agent" || !isExactAgentScope(input.scope.id)) return blocked("explicit_agent_scope_required", "explicit_agent_scope_required");
-    if (!input.target || !verifiesExecutorRouteCapability(input.routeCapability, { action: input.action, target: input.target, provider: input.provider, runtime: input.runtime, scope: input.scope })) return blocked("route_apply_requires_executor_capability", "route_apply_requires_executor_capability");
+    if (!input.target || !verifiesExecutorMutationCapability(input.mutationCapability, { action: input.action, target: input.target, provider: input.provider, runtime: input.runtime, scope: input.scope })) return blocked("route_apply_requires_executor_capability", "route_apply_requires_executor_capability");
     if (input.provider !== "openai" || input.runtime !== "openclaw") return blocked("openclaw_route_provider_runtime_required", "openclaw_route_provider_runtime_required");
 
     const switchScript = join(this.workspace, "3-Resources", "codex-account-ops", "scripts", "codex-auth-switch.mjs");
@@ -253,6 +253,10 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
 
   private async deleteAccountCredentials(input: RuntimeMutationInput, status: AccountCenterStatus): Promise<RuntimeMutationResult> {
     const requestedTarget = requiredTarget(input.target, input.action);
+    if (input.scope?.kind !== "default" || input.scope.id !== "default" || !verifiesExecutorMutationCapability(input.mutationCapability, { action: "account.delete", target: requestedTarget, provider: input.provider, runtime: input.runtime, scope: input.scope })) {
+      const receipt = createReceipt({ action: "account.delete", dryRun: true, summary: "Blocked credential delete: a confirmed shared executor capability is required.", before: routeBefore(status), warnings: ["delete_apply_requires_executor_capability", "no_live_mutation"] });
+      return { code: 2, payload: { applied: false, dryRun: true, liveRuntimeMutation: false, receipt, reason: "delete_apply_requires_executor_capability", verification: { kind: "unproven" } } };
+    }
     const resolution = resolveExactDeleteTarget(requestedTarget, status);
     if (resolution.kind !== "resolved") {
       const reason = resolution.kind;

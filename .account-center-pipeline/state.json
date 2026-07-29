@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
-  "state": "MERGED",
-  "updatedAt": "2026-07-29T01:30:47Z",
+  "state": "READY_FOR_RELEASE_GATE",
+  "updatedAt": "2026-07-29T02:07:45Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "ac07-release-gate-evidence-revalidation-r1",
+    "kind": "ac07-delete-adapter-capability-repair-r2",
     "boundedSteps": [
-      "Preserve main, the immutable owned exact-account delete script, Sentinel /auth rendering, working Dexter /auth delete command, and Hermes/Dexter weekly-only capacity policy.",
-      "Revalidate every mutation entry point against the shared executor using existing fixture-only tests; prove account.delete remains limited to the OpenClaw exact-target adapter and one target-free opaque receipt contract.",
-      "Run focused fixture tests plus full QA/security, static no-touch invariants, and diff review; do not invoke the owned native delete executable or any live mutation."
+      "Preserve the immutable owned exact-account delete script, the one opaque public receipt contract, Sentinel /auth rendering, working Dexter /auth delete command, and Hermes/Dexter weekly-only capacity policy.",
+      "Require an executor-minted capability bound to action, exact target, provider, runtime, and default scope before a direct OpenClaw account.delete apply can call the owned transaction; direct adapter calls fail closed without runner invocation.",
+      "Use fixture-only mocked runner evidence to prove the exact owned argv, opaque receipt, rejection paths, executor lifecycle, and Dexter/Hermes wrapper parity; then run full quality/security QA and review without invoking the helper or any live mutation."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,17 +22,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: every supported protected mutation is routed through the shared review, exact scope, idempotency, and redacted terminal lifecycle; account.delete remains confined to the OpenClaw exact-target adapter and the owned local transaction.",
-      "Quality review: npm test passed 244 fixture tests; direct adapter bypass, target/scope/token mismatch, idempotency replay, UNPROVEN rendering, exact target/delete receipt, Hermes/Dexter shared ChatOps, MCP, Sentinel /auth, and weekly-only capacity coverage passed. git diff --check passed.",
-      "QA review: npm run qa:security passed typecheck, build, 15 Playwright/axe tests, secret scan (125 tracked files), and npm audit at high (0 vulnerabilities). The owned helper was compile-checked only; no native deletion or live mutation ran.",
-      "Static release review: candidate diff is pipeline state only; the exact one owned adapter pin and opaque-owned-delete marker remain, the weekly-only invariant remains, and no native delete receipt was created during this gate."
+      "Spec review: account.delete now requires the same executor-minted action/target/provider/runtime/default-scope capability as any protected live mutation; direct adapter apply fails closed before the owned helper can run.",
+      "Quality review: fixture-only focused tests passed 83/83 and npm test passed 245/245. Exact owned argv, opaque-owned-delete receipt, direct-adapter block, malformed/unverified/timeout/oversized result handling, exact target checks, replay, Sentinel /auth, and Hermes/Dexter shared wrapper parity passed. git diff --check passed.",
+      "QA review: npm run qa and npm run qa:security passed typecheck, build, 15 Playwright/axe tests, secret scan (125 tracked files), and npm audit at high (0 vulnerabilities). The owned helper was not invoked; no live deletion or mutation ran.",
+      "Static release review: only executor/adapter fixture contract and pipeline state changed. The exact owned script pin, python3 argv, opaque-owned-delete marker, Sentinel /auth format, and weekly-only policy remain intact."
     ]
-  },
-  "merge": {
-    "integrationCommit": "85231fc",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "AC-07 shared mutation executor release gate revalidated: AC-06 owned exact-account delete and its sole opaque receipt contract remain protected; Sentinel /auth and Hermes/Dexter weekly-only policy preserved"
   }
 }

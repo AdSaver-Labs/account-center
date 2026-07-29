@@ -4,17 +4,17 @@ import type { RuntimeAdapter } from "./runtime-adapters.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { ActiveScopeWarning, createActiveScopeWarning, createMutationReview, MutationReview, MutationScope, verifyActiveScopeWarning, verifyMutationApply } from "./mutation-contract.js";
 import { MutationEvidence, MutationReceipt, MutationRepository, RouteScopeEvidence } from "./mutation-repository.js";
-const routeCapabilitySecret = randomBytes(32);
-const routeCapabilityBrand = Symbol("account-center.executor-route-capability");
-type RouteCapabilityBinding = { action: AuditAction; target: string; provider: string; runtime: string; scope: MutationScope };
-type ExecutorRouteCapability = { readonly [routeCapabilityBrand]: string };
+const mutationCapabilitySecret = randomBytes(32);
+const mutationCapabilityBrand = Symbol("account-center.executor-mutation-capability");
+type MutationCapabilityBinding = { action: AuditAction; target: string; provider: string; runtime: string; scope: MutationScope };
+type ExecutorMutationCapability = { readonly [mutationCapabilityBrand]: string };
 // This minting closure is intentionally not exported: only a confirmed
 // protected command lifecycle can issue a capability for an adapter apply.
-function mintRouteCapability(binding: RouteCapabilityBinding): ExecutorRouteCapability { return { [routeCapabilityBrand]: createHmac("sha256", routeCapabilitySecret).update(canonicalCapability(binding)).digest("base64url") }; }
-export function verifiesExecutorRouteCapability(value: unknown, binding: RouteCapabilityBinding): boolean {
+function mintMutationCapability(binding: MutationCapabilityBinding): ExecutorMutationCapability { return { [mutationCapabilityBrand]: createHmac("sha256", mutationCapabilitySecret).update(canonicalCapability(binding)).digest("base64url") }; }
+export function verifiesExecutorMutationCapability(value: unknown, binding: MutationCapabilityBinding): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const signature = (value as Partial<ExecutorRouteCapability>)[routeCapabilityBrand];
-  const expected = createHmac("sha256", routeCapabilitySecret).update(canonicalCapability(binding)).digest("base64url");
+  const signature = (value as Partial<ExecutorMutationCapability>)[mutationCapabilityBrand];
+  const expected = createHmac("sha256", mutationCapabilitySecret).update(canonicalCapability(binding)).digest("base64url");
   return typeof signature === "string" && Buffer.byteLength(signature) === Buffer.byteLength(expected) && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 function canonicalCapability(value: unknown): string { if (Array.isArray(value)) return `[${value.map(canonicalCapability).join(",")}]`; if (value && typeof value === "object") { const record = value as Record<string, unknown>; return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalCapability(record[key])}`).join(",")}}`; } return JSON.stringify(value); }
@@ -103,7 +103,7 @@ export async function executeAccountCenterCommand(request: CommandRequest, deps:
     apply: request.apply === true,
     provider,
     runtime,
-    ...(authorization.kind === "confirmed" && isRouteAction(action) ? { routeCapability: mintRouteCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
+    ...(authorization.kind === "confirmed" ? { mutationCapability: mintMutationCapability({ action, target: target!, provider, runtime, scope: request.scope! }), scope: request.scope } : {})
   });
   const payload = asMutation(result.payload, action, target);
   if (authorization.kind === "confirmed") {
