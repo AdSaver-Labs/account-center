@@ -1,17 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-04-R8",
+  "activeCheckpoint": "AC-06-R4",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T22:50:02Z",
-  "candidate": "AC-04-R8 bounded reauth-proof validator merged after review/QA; the prior AC-06 owned-delete receipt integration remains preserved and AC-04 parent transaction work remains incomplete.",
+  "updatedAt": "2026-07-29T23:23:23Z",
+  "candidate": "AC-06-R4 verifies the already-integrated owned exact-account delete path and its single opaque receipt contract across Account Center, ChatOps/MCP, and Hermes using fixtures only; no native transaction is launched.",
   "blockerResolutionPlan": {
-    "kind": "ac04-r8-bounded-reauth-proof-contract-review-record",
+    "kind": "ac06-r4-owned-delete-contract-review-qa",
     "boundedSteps": [
-      "Preserve merged AC-06 and all prior AC-04 candidates.",
-      "Validate only target-free, exact-bound, fresh fixture reauth proof evidence.",
-      "Keep proof validation disconnected from all runtime mutation, terminal durable lifecycle, and public completion rendering.",
-      "Run deterministic test, QA, security, browser, and review gates before any release-gate change.",
-      "Do not execute owned helper, deletion, login, provider query, credential write, or route mutation."
+      "Preserve the candidate and the locked owned helper, Sentinel /auth format, Dexter /auth delete command, and Hermes/Dexter weekly-only policy.",
+      "Inspect the shared receipt contract and adapter/ChatOps/Hermes boundaries for canonical allow-listed applied and UNPROVEN results only.",
+      "Run fixture-only Node and Hermes tests, then full quality and security QA; native helper execution, live deletion, login, provider access, credential/store writes, routing mutation, and service operations are forbidden.",
+      "Record review evidence and advance only the AC-06 release-gate decision if all gates pass."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -25,9 +24,9 @@
       "quality": "approved",
       "qa": "passed",
       "evidence": [
-        "Spec review: the target-free validator accepts only exact pending reauth challenge metadata with matched identity, healthy status, verified replacement, canonical timestamp, and five-minute freshness; it is disconnected from mutation and public completion rendering.",
-        "Quality review: strict own-key/schema checking, exact challenge binding, canonical future/stale time rejection, and terminal UNPROVEN output cover malformed, inherited, credential-bearing, and mismatched fixtures. AC-06 owned helper, Sentinel /auth format, Dexter /auth delete, and Hermes/Dexter weekly-only policy are untouched.",
-        "QA: npm test passed 255 Node fixture/mock tests plus 18 Hermes plugin tests; qa and qa:security passed including 15 Chromium/axe checks, secret scan of 141 tracked files, and npm audit --audit-level=high with 0 vulnerabilities. Python static compilation passed for Hermes plugin and owned helper; no helper, live deletion, login, provider query, credential/store write, route mutation, or service operation ran."
+        "Review: the fixed owned exact-account helper is invoked only after shared executor capability, exact connected-target resolution, and owner/type/mode/hash trust validation. Its private backup/verification receipt is reduced to the fixed opaque contract; helper paths, target digest, target, and native diagnostics are not exported.",
+        "Contract review: contracts/owned-delete-receipt.v1.json supplies the two target-free canonical public outcomes. Account Center ChatOps/MCP and Hermes allow-list exactly those bytes and fail closed to UNPROVEN for malformed, failed, or injected transport output.",
+        "QA: npm test passed 255 Node fixture/mock tests plus 18 Hermes plugin tests. qa and qa:security passed including typecheck/build, 15 Chromium/axe checks, secret scan of 141 tracked files, and npm audit --audit-level=high with 0 vulnerabilities. No owned helper, live deletion, login, provider access, credential/store write, routing mutation, or service operation ran."
       ]
     }
   },
@@ -41,7 +40,7 @@
   "merge": {
     "commit": "recorded in current Git commit",
     "branch": "main",
-    "scope": "AC-04-R8 review/QA record only; no release checkbox advanced because the full AC-04 transaction is not complete.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
+    "scope": "AC-06-R4 fixture-only owned delete receipt-contract review/QA record; the next release gate may proceed.",
+    "recordedBy": "local review/QA complete; pending remote verification"
   }
 }
