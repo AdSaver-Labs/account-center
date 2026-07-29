@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-01",
-  "state": "READY_TO_MERGE",
-  "updatedAt": "2026-07-29T11:56:04Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-29T11:56:38Z",
   "candidate": "main working-tree candidate preserved from CP-04",
   "blockerResolutionPlan": {
     "kind": "ac01-public-projection-release-reconciliation-r1",
@@ -27,5 +27,11 @@
       "Quality: stable connection references and hostile fixture boundaries pass; locked Sentinel /auth, working Dexter delete, AC-06 owned transaction, and one opaque receipt contract are unchanged.",
       "QA: npm run qa and npm run qa:security passed 249 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan, and audit; owned helper py_compile only."
     ]
+  },
+  "merge": {
+    "commit": "b4a579e",
+    "remote": "origin/main",
+    "verified": true,
+    "note": "AC-01 public projection release gate merged after fixture-only review and QA/security; no native delete execution or live provider/runtime mutation."
   }
 }
