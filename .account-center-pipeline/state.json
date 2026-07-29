@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-03",
+  "activeCheckpoint": "SC-04",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T02:44:54Z",
+  "updatedAt": "2026-07-29T03:18:47Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "sc03-model-truth-contract-r1",
+    "kind": "sc04-honest-state-taxonomy-r1",
     "boundedSteps": [
-      "Preserve the owned exact-account delete script and its one opaque receipt boundary, working Dexter /auth delete command, locked Sentinel /auth bytes, and Hermes/Dexter weekly-only capacity policy.",
-      "Normalize fixture-only authoritative model observations into separate catalog, requested policy, effective selection, fallback, eligibility, and verification fields; unavailable evidence must remain not_reported or UNPROVEN.",
-      "Prove CLI/API/MCP/ChatOps views share the redacted contract with hostile and cross-runtime fixtures, then run deterministic review and QA without calling a provider or native delete helper."
+      "Preserve the owned exact-account delete script and opaque receipt, locked Sentinel /auth output, working Dexter delete command, and Hermes/Dexter weekly-only policy.",
+      "Normalize fixture-only unsupported, unentitled, read-only, unknown, and UNPROVEN evidence into one terminal non-success taxonomy without extending runtime mutation authority.",
+      "Prove public CLI/API/MCP/ChatOps/UI renderers reject malformed, stale, and cross-runtime evidence; run deterministic review/QA without provider calls or native helper execution."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,16 +22,9 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: CLI models list now uses the same typed runtime-scoped account-center.models.v1 contract as the protected API. Observed catalog facts remain distinct from not_reported requested policy, effective selection, and fallback, with UNPROVEN verification.",
-      "Quality review: only the shared public model view, CLI renderer, fixture contract test, and pipeline state changed. The owned exact-account delete pin/opaque receipt, Sentinel /auth path, and weekly-only public capacity projection were not changed; git diff --check passed.",
-      "QA review: npm run qa and npm run qa:security passed 245 tests, typecheck/build, 15 fixture-only Playwright/axe tests, 125-file secret scan, and npm audit high (0 vulnerabilities). The owned helper was compile-checked only; no provider, native delete, credential, route, session, or service mutation ran."
+      "Spec review: fixture-only unavailable-state taxonomy is exhaustive, terminal, target-free, and cannot render success.",
+      "Quality review: Account Center, Hermes, and Dexter retain the owned exact-account transaction boundary and the sole public opaque-owned-delete receipt; Sentinel /auth and weekly-only capacity sources were unchanged.",
+      "QA review: npm test passed 245 tests; npm run qa:security passed typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and npm audit; native helper syntax was compile-checked only."
     ]
-  },
-  "merge": {
-    "integrationCommit": "28b36eb",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "SC-03 model truth contract: CLI and API share the typed redacted model catalog; policy/effective/fallback remain not_reported and verification UNPROVEN; owned delete, Sentinel /auth, and Hermes/Dexter weekly-only policy preserved"
   }
 }
