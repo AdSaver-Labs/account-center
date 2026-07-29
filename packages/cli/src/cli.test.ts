@@ -224,30 +224,34 @@ test("serve uses a closed fixture-only option grammar and accepts one equals-for
   }
 });
 
-test("stdin launch-token writer accumulates split fixture chunks and writes one owner-only file at EOF", async () => {
-  const token = "fixture-split-chunk-token-123456789";
-  const child = spawn(process.execPath, [new URL("../../../scripts/create-launch-token-file.mjs", import.meta.url).pathname], { stdio: ["pipe", "pipe", "pipe"] });
-  let output = "";
-  let errors = "";
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => { output += chunk; });
-  child.stderr.on("data", (chunk: string) => { errors += chunk; });
-  child.stdin.write("fixture-split-");
-  child.stdin.write("chunk-token-123456789\n");
-  child.stdin.end();
-  const code = await once(child, "exit").then(([exitCode]) => exitCode as number | null);
-  assert.equal(code, 0);
-  assert.match(errors, /Paste the launch token, then press Ctrl\+D:/);
-  assert.equal(`${output}${errors}`.includes(token), false);
-  const path = output.trim();
-  assert.ok(path);
+test("launch-token generator creates independent owner-only bearer files without reporting either value", async () => {
+  const generator = new URL("../../../scripts/create-launch-token-file.mjs", import.meta.url).pathname;
+  const create = async (): Promise<{ path: string; token: string; output: string; errors: string }> => {
+    const child = spawn(process.execPath, [generator], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    let errors = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { output += chunk; });
+    child.stderr.on("data", (chunk: string) => { errors += chunk; });
+    const code = await once(child, "exit").then(([exitCode]) => exitCode as number | null);
+    assert.equal(code, 0);
+    const path = output.trim();
+    assert.ok(path);
+    return { path, token: (await readFile(path, "utf8")).trim(), output, errors };
+  };
+  const [first, second] = await Promise.all([create(), create()]);
   try {
-    assert.equal(await readFile(path, "utf8"), `${token}\n`);
-    assert.equal((await lstat(path)).mode & 0o777, 0o600);
-    assert.equal((await lstat(join(path, ".."))).mode & 0o777, 0o700);
+    assert.match(first.token, /^[A-Za-z0-9_-]{43}$/);
+    assert.match(second.token, /^[A-Za-z0-9_-]{43}$/);
+    assert.notEqual(first.token, second.token);
+    for (const item of [first, second]) {
+      assert.equal(`${item.output}${item.errors}`.includes(item.token), false);
+      assert.equal((await lstat(item.path)).mode & 0o777, 0o600);
+      assert.equal((await lstat(join(item.path, ".."))).mode & 0o777, 0o700);
+    }
   } finally {
-    await rm(join(path, ".."), { recursive: true, force: true });
+    await Promise.all([first, second].map((item) => rm(join(item.path, ".."), { recursive: true, force: true })));
   }
 });
 
