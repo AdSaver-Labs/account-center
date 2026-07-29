@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-07",
-  "state": "MERGED",
-  "updatedAt": "2026-07-29T16:59:13Z",
-  "candidate": "main candidate after AC-07 shared protected mutation-executor release-gate verification; AC-06 owned exact-account delete remains its sole native apply route with the one opaque receipt contract.",
+  "activeCheckpoint": "AC-08",
+  "state": "REVIEWED",
+  "updatedAt": "2026-07-29T17:33:46Z",
+  "candidate": "main candidate after AC-07 merge; AC-08 closes the direct Hermes plugin fixture gap while preserving the AC-06 owned exact-account delete transaction and all locked Sentinel/weekly-only behavior.",
   "blockerResolutionPlan": {
-    "kind": "ac07-shared-mutation-executor-release-gate-r1",
+    "kind": "ac08-hermes-owned-delete-contract-fixture-r1",
     "boundedSteps": [
-      "Inventory CLI, /auth, MCP, API, and runtime-adapter mutation entry points for executor lifecycle bypasses using static inspection and fixture-only tests.",
-      "Add only bounded adversarial fixtures for review, scope, target, and idempotency mismatches plus truthful attempted-but-UNPROVEN replay rendering.",
-      "Route any in-scope bypass through the shared executor; retain AC-06 owned exact-account delete as its only native apply route and preserve its opaque receipt contract.",
-      "Verify byte-stable Sentinel /auth format, Hermes/Dexter weekly-only policy, full QA/security gates, and review before a release-gate merge."
+      "Add a hermetic Python fixture that imports the real Hermes plugin against a temporary Account Center root containing only the versioned receipt contract and a presence-only ChatOps stub.",
+      "Stub the plugin subprocess boundary and assert that Hermes forwards only the two canonical target-free contract texts, rejecting injected, malformed, failed, or unavailable transport output as canonical UNPROVEN.",
+      "Run the fixture as part of the repository test/QA path alongside the existing Account Center/Dexter/MCP fixture suite; use no live helper execution, provider request, credential/store access, or interactive login.",
+      "Review the diff and rerun QA/security before recording the release-gate result; preserve byte-stable Sentinel /auth output, weekly-only policy, and the working Dexter /auth delete command."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -25,10 +25,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: static inventory found no supported CLI, /auth, MCP, API, or runtime-adapter native account mutation bypass; protected apply requires the shared signed review, exact scope/target binding, durable idempotency claim/replay, and redacted receipt lifecycle.",
-      "Quality review: the owned local codex-auth-delete.py remains the only account.delete native apply route after exact connected-target resolution; Account Center, Hermes, Dexter ChatOps, and MCP expose only the canonical target-free opaque receipt or fixed UNPROVEN contract. Sentinel /auth rendering and weekly-only policy fixture coverage passed unchanged.",
-      "QA review: disposable worktree /tmp/account-center-ac07-qa-72cf1d2 ran npm ci --ignore-scripts, npm run qa, and npm run qa:security successfully: 249 fixture/mock tests, TypeScript typecheck/build, 15 Playwright/axe checks, 132-file secret scan, and high-severity npm audit with 0 vulnerabilities.",
-      "The owned Python helper was verified only by static py_compile; it was never executed. No live deletion, credential/provider/runtime/route/session mutation, interactive login, Sentinel/store operation, or provider request occurred."
+      "Spec review: the real Hermes plugin loads the one versioned Account Center owned-delete receipt contract and accepts only its exact applied or UNPROVEN public delete text.",
+      "Quality review: the hermetic fixture replaces subprocess.run before every /auth delete request, asserts the ChatOps bridge boundary, and fails closed for injected, nonzero, and unavailable outputs; the owned helper remains unexecuted.",
+      "QA review: npm run qa:security passed 249 Node fixture/mock tests, 2 direct Hermes-plugin fixtures, typecheck/build, 15 Playwright/axe checks, a 132-file secret scan, and npm audit --audit-level=high with 0 vulnerabilities.",
+      "Static py_compile passed for the Hermes plugin and owned Python helper. No live deletion, provider request, credential/store operation, interactive login, Sentinel status operation, or route/session mutation occurred."
     ]
   },
   "previousMerge": {
@@ -37,11 +37,5 @@
     "branch": "main",
     "verified": true,
     "scope": "Owned exact-account delete integration verified fixture-only; no live credential deletion executed."
-  },
-  "merge": {
-    "commit": "06713a1",
-    "branch": "main",
-    "scope": "AC-07 shared protected mutation-executor release gate verified fixture-only; AC-06 owned exact-account delete and opaque receipt boundary preserved.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
