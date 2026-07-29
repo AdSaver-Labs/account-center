@@ -1,13 +1,14 @@
 import type { AccountCenterStatus, AgentConnection } from "./schemas.js";
+import { opaqueConnectionRef } from "./connection-refs.js";
 
 export type AgentConnectionState = "connected" | "needs-auth" | "unavailable";
 
 export interface ScopedAccountLeaseContract {
   schemaVersion: "account-center.scoped-account-lease.v1";
   leaseRef: string;
+  connectionRef: string;
   accountRef: string;
   runtime: "hermes" | "openclaw";
-  scope: string;
   state: "verified";
 }
 
@@ -17,9 +18,8 @@ export interface AgentConnectionInventory {
   inventory: Array<{
     connectionRef: string;
     runtime: "hermes" | "openclaw";
-    scope: string;
     state: AgentConnectionState;
-    onboarding: { action: "connect-local-adapter" | "reauth-local-adapter"; command: string };
+    onboarding: { action: "connect-local-adapter" | "reauth-local-adapter" };
     accounts: Array<{
       accountRef: string;
       state: "usable" | "needs-auth" | "unavailable";
@@ -43,14 +43,15 @@ export function publicAgentConnectionInventoryView(status: AccountCenterStatus):
   return {
     schemaVersion: "account-center.agent-connections.v1",
     generatedAt: validTimestamp(status.generatedAt) ? status.generatedAt : "unknown",
-    inventory: knownConnections.map((connection, index) => ({
-      connectionRef: `connection-${index + 1}`,
+    inventory: knownConnections.map((connection) => {
+      const connectionRef = opaqueConnectionRef(connection.runtime, connection.id);
+      return {
+        connectionRef,
       runtime: connection.runtime,
-      scope: connection.scope,
       state: connection.state,
       onboarding: connection.state === "needs-auth"
-        ? { action: "reauth-local-adapter", command: `account-center connect-agent --runtime ${connection.runtime} --scope ${connection.scope} --reauth-local` }
-        : { action: "connect-local-adapter", command: `account-center connect-agent --runtime ${connection.runtime} --scope ${connection.scope}` },
+        ? { action: "reauth-local-adapter" }
+        : { action: "connect-local-adapter" },
       // A connected agent sees every canonical account in redacted form. Only
       // its explicit local pairing can make an individual row actionable.
       accounts: status.profiles.flatMap((profile) => {
@@ -70,10 +71,10 @@ export function publicAgentConnectionInventoryView(status: AccountCenterStatus):
           pairing,
           weeklyRemainingPct,
           routeState,
-          ...(usable ? { lease: createScopedAccountLease(connection, accountRef) } : {})
+          ...(usable ? { lease: createScopedAccountLease(connection, connectionRef, accountRef) } : {})
         }];
       })
-    }))
+    }})
   };
 }
 
@@ -87,13 +88,13 @@ export function verifyAgentConnection(connection: AgentConnection, profileId: st
   };
 }
 
-function createScopedAccountLease(connection: AgentConnection & { runtime: "hermes" | "openclaw" }, accountRef: string): ScopedAccountLeaseContract {
+function createScopedAccountLease(connection: AgentConnection & { runtime: "hermes" | "openclaw" }, connectionRef: string, accountRef: string): ScopedAccountLeaseContract {
   return {
     schemaVersion: "account-center.scoped-account-lease.v1",
-    leaseRef: `lease-${connection.runtime}-${connection.scope.replace(/[^a-z0-9_-]/gi, "-")}-${accountRef}`,
+    leaseRef: `lease-${connectionRef}-${accountRef}`,
+    connectionRef,
     accountRef,
     runtime: connection.runtime,
-    scope: connection.scope,
     state: "verified"
   };
 }

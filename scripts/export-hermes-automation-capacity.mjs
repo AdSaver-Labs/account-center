@@ -40,12 +40,12 @@ function parseOptions(argv) {
   return options;
 }
 
-function blockedWithoutTransition(scope) {
+function blockedWithoutTransition(_scope) {
   const result = {
     schemaVersion: "account-center.automation-capacity-export.v1",
     generatedAt: "unknown",
-    state: { schemaVersion: "account-center.automation-capacity-state.v1", agents: [{ agentRef: "connection-1", runtime: "hermes", scope, state: "blocked" }] },
-    agents: [{ agentRef: "connection-1", runtime: "hermes", scope, state: "blocked", workers: "paused", reason: "runtime-unproven", evidence: { runtime: "unproven", provider: "unproven" } }]
+    state: { schemaVersion: "account-center.automation-capacity-state.v1", agents: [{ agentRef: "connection-redacted", runtime: "hermes", state: "blocked" }] },
+    agents: [{ agentRef: "connection-redacted", runtime: "hermes", state: "blocked", workers: "paused", reason: "runtime-unproven", evidence: { runtime: "unproven", provider: "unproven" } }]
   };
   return { code: 2, stdout: `${JSON.stringify(result)}\n`, stderr: "" };
 }

@@ -29,7 +29,7 @@ test("successful Hermes verification creates only a scoped redacted lease", asyn
   const hermes = publicAgentConnectionInventoryView(status).inventory.find((candidate) => candidate.runtime === "hermes");
   assert.equal(hermes?.accounts[0]?.state, "usable");
   assert.deepEqual(hermes?.accounts[0]?.lease, {
-    schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-hermes-agent-main-account-1", accountRef: "account-1", runtime: "hermes", scope: "agent:main", state: "verified"
+    schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-connection-4e2ad5d32de1db5932cf9708-account-1", connectionRef: "connection-4e2ad5d32de1db5932cf9708", accountRef: "account-1", runtime: "hermes", state: "verified"
   });
   assert.equal(JSON.stringify(hermes).match(/openai:helper|token|secret/i), null);
 });
@@ -55,4 +55,15 @@ test("connected Hermes sees five canonical redacted accounts but only its exact 
     { accountRef: "account-5", pairing: "unpaired", weekly: 55, lease: false }
   ]);
   assert.equal(JSON.stringify(view).match(/helper-|five-hour|token|secret/i), null);
+});
+
+test("hostile but syntactically valid connection scopes remain private", async () => {
+  const status = await loadFixtureStatus();
+  const hermes = status.agentConnections!.find((connection) => connection.runtime === "hermes")!;
+  hermes.scope = "profile:person-example-test";
+  hermes.state = "connected";
+  hermes.verifiedProfileIds = ["openai:helper-1"];
+  const serialized = JSON.stringify(publicAgentConnectionInventoryView(status));
+  assert.doesNotMatch(serialized, /person-example-test|profile:|--scope|connect-agent|helper-|five-hour|token|secret/i);
+  assert.match(serialized, /connection-4e2ad5d32de1db5932cf9708/);
 });

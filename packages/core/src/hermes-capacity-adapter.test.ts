@@ -33,14 +33,14 @@ test("Hermes exporter joins fresh runtime proof to canonical mapped OpenClaw/Sen
   const adapter = new HermesRuntimeCapacityAdapter({ now, scope: "agent:main", runner: runtimeRunner(), statusReader: async () => status });
   const result = await adapter.export();
   assert.deepEqual(result.agents, [{
-    agentRef: "connection-1", runtime: "hermes", scope: "agent:main", state: "blocked", workers: "paused",
+    agentRef: "connection-4e2ad5d32de1db5932cf9708", runtime: "hermes", state: "blocked", workers: "paused",
     reason: "provider-unavailable", evidence: { runtime: "verified", provider: "blocked" }, notification: "automation-blocked"
   }], "only the canonical weekly window gates Hermes automation");
 
   status.profiles.find((candidate) => candidate.id === "openai:helper-1")!.usage.windows.find((window) => window.name === "weekly")!.remainingPct = 84;
   const available = await adapter.export(result.state);
   assert.deepEqual(available.agents[0], {
-    agentRef: "connection-1", runtime: "hermes", scope: "agent:main", state: "available", workers: "running",
+    agentRef: "connection-4e2ad5d32de1db5932cf9708", runtime: "hermes", state: "available", workers: "running",
     reason: "verified-capacity", evidence: { runtime: "verified", provider: "available" }, notification: "automation-resumed"
   });
   assert.equal(JSON.stringify(available).match(/token|secret|credential|helper-1|local-capacity-proof/i), null);

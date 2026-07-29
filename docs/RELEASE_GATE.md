@@ -36,7 +36,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [x] Server binds only to loopback by default and issues a per-launch token.
 - [ ] API authentication, origin checks, no-store headers, input validation, CSRF/confirmation policy, and redacted error handling are tested.
 - [ ] API routes cover status, accounts, routing, guided-auth lifecycle, model policy, receipts, and audit history through the shared executor.
-- [ ] No credential values, OAuth/device codes, account email addresses, tokens, or raw runtime configuration are returned or logged.
+- [x] No credential values, OAuth/device codes, account email addresses, tokens, or raw runtime configuration are returned or logged.
 
 ### 4. Codex-owned interface
 

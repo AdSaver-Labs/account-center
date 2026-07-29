@@ -1,4 +1,5 @@
 import type { AccountCenterStatus, AgentConnection } from "./schemas.js";
+import { opaqueConnectionRef } from "./connection-refs.js";
 
 export type CapacityGateState = "available" | "unavailable";
 export type AgentAutomationCapacityState = "available" | "blocked";
@@ -6,7 +7,7 @@ export type AutomationCapacityReason = "verified-capacity" | "needs-auth" | "run
 
 export interface AutomationCapacityState {
   schemaVersion: "account-center.automation-capacity-state.v1";
-  agents: Array<{ agentRef: string; runtime: "hermes" | "openclaw"; scope: string; state: AgentAutomationCapacityState }>;
+  agents: Array<{ agentRef: string; runtime: "hermes" | "openclaw"; state: AgentAutomationCapacityState }>;
 }
 
 export interface AutomationCapacityExport {
@@ -16,7 +17,6 @@ export interface AutomationCapacityExport {
   agents: Array<{
     agentRef: string;
     runtime: "hermes" | "openclaw";
-    scope: string;
     state: AgentAutomationCapacityState;
     workers: "running" | "paused";
     reason: AutomationCapacityReason;
@@ -50,10 +50,10 @@ export function transitionAutomationCapacity(previous: CapacityGateState | undef
  */
 export function automationCapacityExport(status: AccountCenterStatus, previous?: AutomationCapacityState): AutomationCapacityExport {
   const connections = (status.agentConnections ?? []).filter(isSupportedConnection);
-  const agents = connections.map((connection, index) => {
-    const agentRef = `connection-${index + 1}`;
+  const agents = connections.map((connection) => {
+    const agentRef = opaqueConnectionRef(connection.runtime, connection.id);
     const evaluation = evaluateConnection(status, connection);
-    const prior = previous?.agents.find((agent) => agent.agentRef === agentRef && agent.runtime === connection.runtime && agent.scope === connection.scope);
+    const prior = previous?.agents.find((agent) => agent.agentRef === agentRef && agent.runtime === connection.runtime);
     const notification: "automation-blocked" | "automation-resumed" | undefined = prior?.state === evaluation.state
       ? undefined
       : evaluation.state === "blocked"
@@ -62,7 +62,7 @@ export function automationCapacityExport(status: AccountCenterStatus, previous?:
     return {
       agentRef,
       runtime: connection.runtime,
-      scope: connection.scope,
+
       state: evaluation.state,
       workers: evaluation.state === "available" ? "running" as const : "paused" as const,
       reason: evaluation.reason,
@@ -75,7 +75,7 @@ export function automationCapacityExport(status: AccountCenterStatus, previous?:
     generatedAt: validTimestamp(status.generatedAt) ? status.generatedAt : "unknown",
     state: {
       schemaVersion: "account-center.automation-capacity-state.v1",
-      agents: agents.map(({ agentRef, runtime, scope, state }) => ({ agentRef, runtime, scope, state }))
+      agents: agents.map(({ agentRef, runtime, state }) => ({ agentRef, runtime, state }))
     },
     agents
   };
