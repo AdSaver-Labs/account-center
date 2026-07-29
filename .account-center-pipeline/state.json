@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-04",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T03:18:47Z",
+  "updatedAt": "2026-07-29T03:19:15Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "sc04-honest-state-taxonomy-r1",
@@ -26,5 +26,12 @@
       "Quality review: Account Center, Hermes, and Dexter retain the owned exact-account transaction boundary and the sole public opaque-owned-delete receipt; Sentinel /auth and weekly-only capacity sources were unchanged.",
       "QA review: npm test passed 245 tests; npm run qa:security passed typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and npm audit; native helper syntax was compile-checked only."
     ]
+  },
+  "merge": {
+    "integrationCommit": "52d8566",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": true,
+    "scope": "SC-04 honest operation taxonomy: unavailable states are terminal/non-success and fixture-only evidence fails closed; owned delete opaque receipt, Sentinel /auth, and Hermes/Dexter weekly-only policy preserved"
   }
 }
