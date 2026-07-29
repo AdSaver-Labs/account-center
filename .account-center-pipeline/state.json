@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-04",
-  "state": "MERGED",
-  "updatedAt": "2026-07-29T03:19:15Z",
+  "activeCheckpoint": "CP-01",
+  "state": "READY_TO_MERGE",
+  "updatedAt": "2026-07-29T04:20:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "sc04-honest-state-taxonomy-r1",
+    "kind": "cp01-loopback-launch-token-r1",
     "boundedSteps": [
-      "Preserve the owned exact-account delete script and opaque receipt, locked Sentinel /auth output, working Dexter delete command, and Hermes/Dexter weekly-only policy.",
-      "Normalize fixture-only unsupported, unentitled, read-only, unknown, and UNPROVEN evidence into one terminal non-success taxonomy without extending runtime mutation authority.",
-      "Prove public CLI/API/MCP/ChatOps/UI renderers reject malformed, stale, and cross-runtime evidence; run deterministic review/QA without provider calls or native helper execution."
+      "Preserve the owned AC-06 exact-account delete transaction, opaque receipt, locked Sentinel auth output, working Dexter delete command, and Hermes/Dexter weekly-only policy.",
+      "Prove fixture-only loopback, fresh launch-token, redacted-output, and lifecycle cleanup behavior without adding runtime mutation authority.",
+      "Run deterministic review and QA; no live deletion, provider request, native helper execution, account, credential, routing, session, or service operation."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,16 +22,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: fixture-only unavailable-state taxonomy is exhaustive, terminal, target-free, and cannot render success.",
-      "Quality review: Account Center, Hermes, and Dexter retain the owned exact-account transaction boundary and the sole public opaque-owned-delete receipt; Sentinel /auth and weekly-only capacity sources were unchanged.",
-      "QA review: npm test passed 245 tests; npm run qa:security passed typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and npm audit; native helper syntax was compile-checked only."
+      "Spec review: server listen is hard-bound to 127.0.0.1; serve accepts only the closed fixture token-file launch contract and no mutation endpoint was added.",
+      "Quality review: existing lifecycle tests prove token-file ownership/symlink rejection, loopback-only serving, token-free output, unauthorized denial, and connection cleanup; AC-06 owned delete, Sentinel auth, Dexter parity, and weekly-only capacity sources were unchanged.",
+      "QA review: npm run qa:security passed full 245-test suite, typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and npm audit; owned native helper was py_compile-checked only and never executed."
     ]
   },
-  "merge": {
-    "integrationCommit": "52d8566",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "SC-04 honest operation taxonomy: unavailable states are terminal/non-success and fixture-only evidence fails closed; owned delete opaque receipt, Sentinel /auth, and Hermes/Dexter weekly-only policy preserved"
-  }
+  "merge": null
 }
