@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T04:45:00Z",
+  "updatedAt": "2026-07-29T04:46:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "ac06-owned-native-transaction-parity-r2",
@@ -31,7 +31,7 @@
     "integrationCommit": "ef47206",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "AC-06 owned exact-account delete parity: Account Center and Hermes/Dexter share only the locally owned transaction and target-free opaque receipt; locked Sentinel /auth and weekly-only policy preserved; all deletion evidence fixture-only"
   }
 }
