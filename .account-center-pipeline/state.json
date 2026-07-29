@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06-R4",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T23:23:23Z",
+  "updatedAt": "2026-07-29T23:23:51Z",
   "candidate": "AC-06-R4 verifies the already-integrated owned exact-account delete path and its single opaque receipt contract across Account Center, ChatOps/MCP, and Hermes using fixtures only; no native transaction is launched.",
   "blockerResolutionPlan": {
     "kind": "ac06-r4-owned-delete-contract-review-qa",
@@ -38,9 +38,9 @@
     "scope": "Bounded target-free reauth-proof validator remote-verified after fixture-only review/QA; no runtime mutation. Parent AC-04 transaction remains open."
   },
   "merge": {
-    "commit": "recorded in current Git commit",
+    "commit": "eed7d91",
     "branch": "main",
     "scope": "AC-06-R4 fixture-only owned delete receipt-contract review/QA record; the next release gate may proceed.",
-    "recordedBy": "local review/QA complete; pending remote verification"
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
