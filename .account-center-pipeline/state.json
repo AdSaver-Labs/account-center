@@ -28,10 +28,10 @@
     ]
   },
   "merge": {
-    "integrationCommit": "pending",
+    "integrationCommit": "145337c",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "AC-06 owned exact-account delete parity: fixture-proven Account Center/Hermes/Dexter opaque receipt boundary; no live deletion"
   }
 }
