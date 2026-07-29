@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T06:05:39Z",
+  "updatedAt": "2026-07-29T06:06:13Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "ac06-stale-operations-guidance-reconciliation-r3",
@@ -31,7 +31,7 @@
     "integrationCommit": "cdce609",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": false,
+    "pushed": true,
     "scope": "AC-06 operations guidance reconciliation: stale upstream-CLI blocker removed; owned exact-account transaction and target-free opaque receipt documented and fixture-tested; no live deletion"
   }
 }
