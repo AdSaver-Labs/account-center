@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-08",
+  "activeCheckpoint": "SC-05",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T17:33:46Z",
-  "candidate": "main candidate after AC-07 merge; AC-08 closes the direct Hermes plugin fixture gap while preserving the AC-06 owned exact-account delete transaction and all locked Sentinel/weekly-only behavior.",
+  "updatedAt": "2026-07-29T19:11:45Z",
+  "candidate": "main after AC-08 remote merge; reconcile the release gate against the now-direct Hermes owned-delete receipt fixture while preserving the single AC-06 transaction and locked operational policies.",
   "blockerResolutionPlan": {
-    "kind": "ac08-hermes-owned-delete-contract-fixture-r1",
+    "kind": "sc05-release-gate-reconciliation-r2-after-ac08",
     "boundedSteps": [
-      "Add a hermetic Python fixture that imports the real Hermes plugin against a temporary Account Center root containing only the versioned receipt contract and a presence-only ChatOps stub.",
-      "Stub the plugin subprocess boundary and assert that Hermes forwards only the two canonical target-free contract texts, rejecting injected, malformed, failed, or unavailable transport output as canonical UNPROVEN.",
-      "Run the fixture as part of the repository test/QA path alongside the existing Account Center/Dexter/MCP fixture suite; use no live helper execution, provider request, credential/store access, or interactive login.",
-      "Review the diff and rerun QA/security before recording the release-gate result; preserve byte-stable Sentinel /auth output, weekly-only policy, and the working Dexter /auth delete command."
+      "Confirm every public strategy and command contract names the locally owned exact-account transaction, preview-by-default behavior, exact connected-target confirmation, owner-only backup/rollback verification, and the single target-free opaque receipt.",
+      "Add or strengthen a hermetic documentation-contract fixture that reads only repository documentation and rejects stale no-native-transaction claims or divergent receipt wording; never execute the helper, provider, or runtime adapter.",
+      "Run the direct Hermes fixture, shared ChatOps/MCP/Dexter contract suite, full repository QA/security, static Python compilation, and byte-stability/policy assertions.",
+      "Review the candidate and remote state before recording the release-gate result; retain the candidate and replace this bounded plan if any internal check fails."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -25,23 +25,23 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: the real Hermes plugin loads the one versioned Account Center owned-delete receipt contract and accepts only its exact applied or UNPROVEN public delete text.",
-      "Quality review: the hermetic fixture replaces subprocess.run before every /auth delete request, asserts the ChatOps bridge boundary, and fails closed for injected, nonzero, and unavailable outputs; the owned helper remains unexecuted.",
-      "QA review: npm run qa:security passed 249 Node fixture/mock tests, 2 direct Hermes-plugin fixtures, typecheck/build, 15 Playwright/axe checks, a 132-file secret scan, and npm audit --audit-level=high with 0 vulnerabilities.",
-      "Static py_compile passed for the Hermes plugin and owned Python helper. No live deletion, provider request, credential/store operation, interactive login, Sentinel status operation, or route/session mutation occurred."
+      "Spec review: the public Account Center strategy, /auth contract, and operations guidance consistently name the locally owned codex-auth-delete.py exact-account transaction shared with Dexter, preview-by-default behavior, exact connected-target confirmation, backup/atomic rollback/authoritative verification, and the one target-free opaque receipt.",
+      "Quality review: a hermetic documentation-contract fixture rejects stale no-native-transaction claims and verifies the public documentation preserves opaque target-free receipt evidence; the direct Hermes fixture and shared Dexter/ChatOps/MCP contract fixtures remain green. Locked Sentinel /auth, weekly-only policy, Dexter bridge, and Hermes bridge sources are unchanged.",
+      "QA review: npm run qa:security passed 251 Node fixture/mock tests, 2 direct Hermes-plugin fixtures, typecheck/build, 15 Playwright/axe checks, a 134-file secret scan, and npm audit --audit-level=high with 0 vulnerabilities.",
+      "Static py_compile passed for the Hermes plugin and owned Python helper. No native helper execution, live deletion, provider request, credential/store operation, interactive login, Sentinel status operation, route/session mutation, or service operation occurred."
     ]
   },
   "previousMerge": {
-    "checkpoint": "AC-06",
-    "commit": "c7b5c55",
-    "branch": "main",
-    "verified": true,
-    "scope": "Owned exact-account delete integration verified fixture-only; no live credential deletion executed."
-  },
-  "merge": {
+    "checkpoint": "AC-08",
     "commit": "4cf0cce",
     "branch": "main",
-    "scope": "AC-08 direct Hermes plugin fixture closes the receipt-contract coverage gap; the owned exact-account delete transaction and opaque receipt boundary are preserved.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
+    "verified": true,
+    "scope": "Direct Hermes owned-delete receipt fixture merged and remote-verified; no live credential deletion executed."
+  },
+  "merge": {
+    "commit": "PENDING",
+    "branch": "main",
+    "scope": "SC-05 release-gate reconciliation: documentation contract fixture and AC-08 direct Hermes fixture verified without live operations.",
+    "recordedBy": "local review complete; commit and remote verification pending"
   }
 }
