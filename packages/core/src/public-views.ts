@@ -34,6 +34,31 @@ export interface PublicStatusView {
   reauth: Array<{ id: string; provider: PublicProvider; profileHint: string; expiresAt?: string; status: "pending" | "complete" | "expired" | "failed" }>;
 }
 
+/**
+ * One read-only, runtime-scoped model-truth contract shared by API and CLI.
+ * Catalog observation never proves policy, runtime selection, fallback, or
+ * verification; unavailable evidence remains explicitly not_reported.
+ */
+export interface PublicModelCatalogView {
+  schemaVersion: "account-center.models.v1";
+  generatedAt: string;
+  selection: {
+    requestedPolicy: { state: "not_reported" };
+    effectiveRuntimeModel: { state: "not_reported" };
+    fallbackChain: { state: "not_reported" };
+    verificationState: "UNPROVEN";
+  };
+  models: Array<{
+    id: string;
+    selectable: boolean;
+    reason?: "disabled_by_policy";
+    observedProfileCount: number;
+    readableProfileCount: number;
+    runtimeCompatibility: PublicRuntime[];
+    verificationState: "UNPROVEN";
+  }>;
+}
+
 export function publicStatusView(status: AccountCenterStatus): PublicStatusView {
   const accountRefById = new Map(status.profiles.map((profile, index) => [profile.id, `account-${index + 1}`]));
   const accountRef = (id: string): string => accountRefById.get(id) ?? "account-redacted";
@@ -110,7 +135,7 @@ export function publicDoctorView(source: RuntimeSource | string, report: unknown
  * rather than serializing runtime status fields directly. Generic-command
  * status is schema-valid but still untrusted for public labels.
  */
-export function publicModelCatalogView(status: AccountCenterStatus, runtime?: string): unknown {
+export function publicModelCatalogView(status: AccountCenterStatus, runtime?: string): PublicModelCatalogView {
   const known = new Set([
     ...status.profiles.flatMap((profile) => profile.models),
     ...status.policy.disabledModels

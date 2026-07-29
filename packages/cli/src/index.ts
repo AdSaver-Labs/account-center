@@ -23,6 +23,7 @@ import {
   parseRuntimeSource,
   probeProviders,
   publicDoctorView,
+  publicModelCatalogView,
   projectRedactedDurableChallenge,
   PublicStatusView,
   publicStatusView,
@@ -139,7 +140,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
     return ok(options.json ? json(view) : renderProviderProbes(view));
   }
   if (command === "models" && subcommand === "list") {
-    const view = publicModelsView(status);
+    const view = publicModelCatalogView(status, options.runtime);
     return ok(options.json ? json(view) : renderModels(view));
   }
   if (command === "routes" && subcommand === "next") {
@@ -371,13 +372,6 @@ function publicAccountsView(status: AccountCenterStatus) {
   };
 }
 
-function publicModelsView(status: AccountCenterStatus) {
-  return {
-    schemaVersion: "account-center.public-models.v1" as const,
-    verificationState: "UNPROVEN" as const,
-    models: listModels(status).map((item, index) => ({ id: `model-${index + 1}`, disabled: item.disabled, accountCount: item.profiles.length }))
-  };
-}
 
 function publicProviderProbesView(probes: Array<{ ok: boolean; profiles: number; usableProfiles: number; lowestRemainingPct: number | null; highestRemainingPct: number | null }>) {
   return {
@@ -821,8 +815,8 @@ function renderDoctorReport(report: ReturnType<typeof publicDoctorView>): string
   return `Doctor: ${report.state}\nSource: ${report.source}\n`;
 }
 
-function renderModels(view: ReturnType<typeof publicModelsView>): string {
-  return view.models.map((item) => `${item.id} disabled=${item.disabled} accounts=${item.accountCount}`).join("\n") + "\n";
+function renderModels(view: ReturnType<typeof publicModelCatalogView>): string {
+  return view.models.map((item) => `${item.id} selectable=${item.selectable} observed=${item.observedProfileCount} verification=${item.verificationState}`).join("\n") + "\n";
 }
 
 function publicAuditView(status: AccountCenterStatus, limit: number) {

@@ -1033,13 +1033,23 @@ test("credential delete apply and renderer accept only the owned opaque transact
   assert.equal(renderMutation(ownedSuccess), "APPLIED — owned exact-account credential delete completed.\nAction: account.delete\nResult: APPLIED\nVerification: VERIFIED\nReceipt: opaque-owned-delete\n");
 });
 
-test("models list reports fixture model policy", async () => {
+test("models list shares the scoped model-truth contract with the protected API", async () => {
   const result = await runCli(["models", "list", "--json"]);
   assert.equal(result.code, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.schemaVersion, "account-center.public-models.v1");
-  assert.equal(parsed.models.some((item: { id: string }) => item.id === "model-1"), true);
-  assert.doesNotMatch(result.stdout, /openai\/gpt-5\.3-codex/);
+  assert.equal(parsed.schemaVersion, "account-center.models.v1");
+  assert.deepEqual(parsed.selection, {
+    requestedPolicy: { state: "not_reported" },
+    effectiveRuntimeModel: { state: "not_reported" },
+    fallbackChain: { state: "not_reported" },
+    verificationState: "UNPROVEN"
+  });
+  assert.deepEqual(parsed.models.map((item: { id: string; verificationState: string }) => ({ id: item.id, verificationState: item.verificationState })), [
+    { id: "openai/gpt-4.1", verificationState: "UNPROVEN" },
+    { id: "openai/gpt-5.3-codex", verificationState: "UNPROVEN" },
+    { id: "openai/gpt-5.5", verificationState: "UNPROVEN" }
+  ]);
+  assert.doesNotMatch(result.stdout, /helper-[0-9]|person@example\.test|sk-/);
 });
 
 test("help promotes /auth compatibility as the manual chat command", async () => {
