@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "CP-01",
+  "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T07:15:14Z",
+  "updatedAt": "2026-07-29T08:19:34Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "cp01-loopback-launch-token-proof-r1",
+    "kind": "ac06-owned-delete-opaque-receipt-fixtures-r2",
     "boundedSteps": [
-      "Inventory the existing local server launch/listen lifecycle and fixture-only coverage for host selection, launch-token generation, public-output redaction, and shutdown.",
-      "Add bounded fixture tests for loopback-only default binding, independent per-launch bearer tokens, token-free reporting, and deterministic cleanup; make only the minimum fail-closed lifecycle changes those tests require.",
-      "Run focused fixtures, full deterministic security/browser QA, owned-helper static compilation, and locked Sentinel /auth, Dexter delete, and Hermes/Dexter weekly-only invariants before review."
+      "Map the owned native helper boundary and current Account Center/Hermes public receipt projections without executing any delete path.",
+      "Harden the adapter parser and transport projection around exactly the canonical opaque native receipt; add fixture fakes that prove invocation shape, redaction, malformed-result rejection, and no native-helper execution.",
+      "Run focused fixture tests, deterministic build/security QA, owned-helper static compilation, then review locked Sentinel /auth and weekly-only fixtures before merge."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,16 +22,16 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: local control-plane server remains loopback-only and bearer-protected; the launch helper now independently creates one fresh 256-bit token in an owner-only file without reporting the bearer value.",
-      "Quality review: changed scope is bounded to the launch-token generator and its fixture test; no Sentinel /auth renderer, Hermes/Dexter transport or weekly-only policy, AC-06 adapter, opaque receipt boundary, or owned delete helper changed.",
-      "QA review: npm run qa:security passed 246 fixture/mock tests, typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and audit; owned helper passed py_compile only and was not executed."
+      "Spec review: Account Center resolves one exact connected identity, invokes only the owned codex-auth-delete.py transaction with --apply after shared review/idempotency confirmation, and accepts only verified opaque completion evidence; no upstream CLI-delete dependency was introduced.",
+      "Quality review: Account Center, ChatOps/Dexter, Hermes plugin, and MCP fixture transports retain the two fixed target-free delete outcomes; malformed, mismatched, timed-out, unverified, or injected native/transport output fails closed. Sentinel /auth source and weekly-only capacity policy were untouched.",
+      "QA review: npm run qa:security passed 246 fixture/mock tests, typecheck/build, 15 fixture-only Playwright/axe tests, secret scan, and audit; Hermes plugin fixture suite passed 8 tests; owned helper passed py_compile only and was never executed."
     ]
   },
   "merge": {
-    "integrationCommit": "ed76a05",
+    "integrationCommit": "pending",
     "branch": "main",
     "remote": "origin/main",
-    "pushed": true,
-    "scope": "CP-01 loopback launch-token proof: generated per-launch 256-bit bearer tokens are stored only in owner-only files and never reported; fixture-tested; no live deletion"
+    "pushed": false,
+    "scope": "AC-06 owned exact-account delete parity: fixture-proven Account Center/Hermes/Dexter opaque receipt boundary; no live deletion"
   }
 }
