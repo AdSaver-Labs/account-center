@@ -1,15 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "CP-04",
-  "state": "MERGED",
-  "updatedAt": "2026-07-29T10:59:00Z",
-  "candidate": "main working-tree candidate",
+  "activeCheckpoint": "AC-01",
+  "state": "READY_TO_MERGE",
+  "updatedAt": "2026-07-29T11:56:04Z",
+  "candidate": "main working-tree candidate preserved from CP-04",
   "blockerResolutionPlan": {
-    "kind": "cp04-redacted-connection-references-r1",
+    "kind": "ac01-public-projection-release-reconciliation-r1",
     "boundedSteps": [
-      "Preserve the existing candidate and restrict the remediation to public connection inventory and Hermes automation-capacity exports.",
-      "Replace public scope-derived identifiers and onboarding commands with deterministic opaque references, while retaining server-side identity binding.",
-      "Prove fixture-only disclosure rejection, reference stability, locked Sentinel /auth rendering, AC-06 owned-delete parity, and weekly-only policy before deterministic QA/security review."
+      "Preserve the CP-04 candidate and confine work to release-gate reconciliation for the public status, limits, connected-account, and routing projections.",
+      "Independently trace the protected HTTP, CLI, MCP, and Hermes automation projections to their fixed redacted DTOs and verify only stable opaque references and weekly capacity can cross their public boundaries.",
+      "Re-run fixture-only full QA/security and the owned-helper syntax compilation; verify locked Sentinel /auth rendering, Dexter delete transport, and the single opaque owned-delete receipt contract remain unchanged.",
+      "Record review evidence, update only the satisfied AC-01 release-gate entries, and commit/push only after all deterministic checks pass."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,15 +23,9 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec: public connection inventory, leases, and Hermes capacity export expose deterministic opaque references only; private scopes remain adapter-internal.",
-      "Quality: hostile-scope and reordering fixtures pass; diff check, locked Sentinel /auth fixture, AC-06 opaque receipt transport, and weekly-only capacity checks remain green.",
-      "QA: npm run qa and npm run qa:security passed 249 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan, and audit with 0 high vulnerabilities; owned helper py_compile only, no execution."
+      "Spec: public status, limits, inventory, routing, and automation projections have fixed redacted DTOs with opaque references and weekly-only capacity.",
+      "Quality: stable connection references and hostile fixture boundaries pass; locked Sentinel /auth, working Dexter delete, AC-06 owned transaction, and one opaque receipt contract are unchanged.",
+      "QA: npm run qa and npm run qa:security passed 249 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan, and audit; owned helper py_compile only."
     ]
-  },
-  "merge": {
-    "commit": "8072d6c",
-    "remote": "origin/main",
-    "verified": true,
-    "note": "CP-04 merged after deterministic fixture-only QA/security review; no native delete execution or live provider/runtime mutation."
   }
 }
