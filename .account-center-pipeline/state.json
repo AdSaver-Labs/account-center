@@ -1,7 +1,7 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-05",
-  "state": "READY_FOR_RELEASE_GATE",
+  "state": "MERGED",
   "updatedAt": "2026-07-29T00:57:16Z",
   "candidate": "main",
   "blockerResolutionPlan": {
@@ -27,5 +27,11 @@
       "QA review: npm run qa:security passed full tests, typecheck, build, 15 Playwright/axe tests, secret scan (125 tracked files), and npm audit at high (0 vulnerabilities). Owned helper was compile-checked only; no native deletion ran."
     ]
   },
-  "merge": null
+  "merge": {
+    "commit": "98d3567",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": true,
+    "scope": "SC-05 AC-06 release-gate reconciliation: public strategy and fixture contract now affirm the owned exact-account transaction and its opaque receipt; Sentinel /auth, Dexter command, Hermes bridge, and weekly-only policy preserved"
+  }
 }
