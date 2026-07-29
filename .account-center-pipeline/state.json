@@ -1,7 +1,7 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-08",
-  "state": "REVIEWED",
+  "state": "MERGED",
   "updatedAt": "2026-07-29T17:33:46Z",
   "candidate": "main candidate after AC-07 merge; AC-08 closes the direct Hermes plugin fixture gap while preserving the AC-06 owned exact-account delete transaction and all locked Sentinel/weekly-only behavior.",
   "blockerResolutionPlan": {
@@ -37,5 +37,11 @@
     "branch": "main",
     "verified": true,
     "scope": "Owned exact-account delete integration verified fixture-only; no live credential deletion executed."
+  },
+  "merge": {
+    "commit": "4cf0cce",
+    "branch": "main",
+    "scope": "AC-08 direct Hermes plugin fixture closes the receipt-contract coverage gap; the owned exact-account delete transaction and opaque receipt boundary are preserved.",
+    "recordedBy": "local merge record pending origin/main verification"
   }
 }
