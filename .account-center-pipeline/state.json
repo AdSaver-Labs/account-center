@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-04-R6",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-29T13:40:19Z",
-  "candidate": "main candidate at verified AC-03 lifecycle gate c1cf4fd; AC-04-R6 is bounded to fixture-only durable mutation-envelope prototype-pollution verification.",
+  "activeCheckpoint": "AC-06",
+  "state": "MERGED",
+  "updatedAt": "2026-07-29T14:46:51Z",
+  "candidate": "main candidate at verified AC-03 lifecycle gate c1cf4fd; AC-06 is bounded to owned exact-account delete transaction integration, a single opaque receipt contract, and fixture-only regression proof.",
   "blockerResolutionPlan": {
-    "kind": "ac04-r6-prototype-pollution-envelope-verification",
+    "kind": "ac06-owned-delete-opaque-receipt-integration-r1",
     "boundedSteps": [
-      "Preserve the verified AC-03 candidate and inspect only durable mutation-repository envelope validation and its fixture regressions.",
-      "Use fixture-only adversarial Object.prototype-pollution records to prove unknown inherited keys fail closed before state, history, replay, completion, or dependency access; do not invoke any runtime adapter.",
-      "Repair only a demonstrated envelope-validation gap, then run focused tests and full QA/security/browser evidence.",
-      "Keep owned delete, Hermes/Dexter Sentinel /auth format, and weekly-only policy untouched; do not advance before spec, quality, and QA pass."
+      "Preserve the AC-03 candidate and inspect the Account Center adapter, CLI, MCP/Dexter transport, and owned native transaction boundary without contacting an external provider.",
+      "Prove the exact owned Python transaction path is the only credential-delete apply route and that verified native evidence is projected exclusively as the target-free opaque receipt contract.",
+      "Add or repair fixture-only regressions for verified, malformed, mismatched, and unproven native evidence plus Hermes/Dexter command parity; never execute live credential deletion in tests.",
+      "Run build, complete tests, security quality review, and QA before recording a merge; preserve Sentinel /auth format and weekly-only policy unchanged."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -21,10 +21,20 @@
     "preserveDexterAuthDeleteCommand": true
   },
   "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qa": "pending",
-    "evidence": []
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
+    "evidence": [
+      "Spec review: the exact owned Python transaction is pinned as the sole credential-delete apply route; verified native evidence crosses the adapter only as the target-free opaque-owned-delete receipt.",
+      "Quality review: npm test passed 249 fixture-only tests, including exact target normalization, malformed/mismatched/unproven native evidence, opaque receipt rendering, and Hermes/Dexter/MCP parity; git diff --check passed.",
+      "QA review: npm run qa:security passed typecheck, build, 15 Playwright/axe checks, secret scan of 132 tracked files, and npm audit at high with 0 vulnerabilities. No native deletion, provider mutation, or interactive login ran.",
+      "Static review: native script presence and --help succeeded; the Account Center adapter invokes it only via python3 with an exact resolved target and --apply, while tests use fixtures and mocked runners. Sentinel /auth format and weekly-only policy remain covered."
+    ]
+  },
+  "merge": {
+    "commit": "pending-local-pipeline-merge-commit",
+    "branch": "main",
+    "scope": "AC-06 owned exact-account delete receipt integration verified with fixture-only tests; no live credential deletion executed."
   },
   "previousMerge": {
     "checkpoint": "AC-03",
