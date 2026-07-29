@@ -1,37 +1,38 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-01",
+  "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T11:56:38Z",
-  "candidate": "main working-tree candidate preserved from CP-04",
+  "updatedAt": "2026-07-29T12:32:20Z",
+  "candidate": "main working-tree candidate preserved from AC-01; AC-06 Hermes deployment-parity repair is bounded to the enabled plugin artifact and its fixture-only verification.",
   "blockerResolutionPlan": {
-    "kind": "ac01-public-projection-release-reconciliation-r1",
+    "kind": "ac06-hermes-enabled-plugin-receipt-contract-parity-r1",
     "boundedSteps": [
-      "Preserve the CP-04 candidate and confine work to release-gate reconciliation for the public status, limits, connected-account, and routing projections.",
-      "Independently trace the protected HTTP, CLI, MCP, and Hermes automation projections to their fixed redacted DTOs and verify only stable opaque references and weekly capacity can cross their public boundaries.",
-      "Re-run fixture-only full QA/security and the owned-helper syntax compilation; verify locked Sentinel /auth rendering, Dexter delete transport, and the single opaque owned-delete receipt contract remain unchanged.",
-      "Record review evidence, update only the satisfied AC-01 release-gate entries, and commit/push only after all deterministic checks pass."
+      "Preserve the AC-01 candidate and compare the enabled Hermes Account Center plugin with the reviewed repository integration artifact without invoking any delete apply path.",
+      "Install only the reviewed Account Center Hermes plugin artifact so runtime slash-command handling accepts precisely the shared opaque owned-delete receipt contract; leave locked Sentinel/Dexter formatting and weekly-only capacity policy unchanged.",
+      "Run fixture/mock-only source and enabled-plugin contract tests plus the Account Center deterministic QA/security suite; compile the owned helper only and never execute it against live credentials.",
+      "Review the resulting deployed parity and record AC-06 evidence; advance only after all bounded checks pass."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
     "preserveSentinelAuthFormat": true,
     "preserveOwnedDeleteTransaction": true,
-    "preserveOpaqueNativeDeleteReceiptContract": true
+    "preserveOpaqueNativeDeleteReceiptContract": true,
+    "preserveDexterAuthDeleteCommand": true
   },
   "review": {
     "spec": "passed",
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec: public status, limits, inventory, routing, and automation projections have fixed redacted DTOs with opaque references and weekly-only capacity.",
-      "Quality: stable connection references and hostile fixture boundaries pass; locked Sentinel /auth, working Dexter delete, AC-06 owned transaction, and one opaque receipt contract are unchanged.",
-      "QA: npm run qa and npm run qa:security passed 249 fixture/mock tests, typecheck/build, 15 Playwright/axe tests, secret scan, and audit; owned helper py_compile only."
+      "Spec: Account Center and the enabled Hermes Account Center plugin invoke the shared Dexter/ChatOps delete surface; only the owned exact-account transaction can produce the verified opaque receipt.",
+      "Quality: enabled plugin was synchronized byte-for-byte with the reviewed integration artifact and fixture-mocked canonical/hostile receipt parity passed; locked Sentinel /auth rendering, Dexter command transport, and weekly-only capacity policy remain unchanged.",
+      "QA: python source-plugin tests (8), enabled-plugin fixture parity, owned helper py_compile, npm run qa, and npm run qa:security passed; 249 fixture/mock Node tests, 15 Playwright/axe tests, secret scan, and audit ran without native delete execution."
     ]
   },
   "merge": {
-    "commit": "b4a579e",
+    "commit": "pending-local-gate-commit",
     "remote": "origin/main",
-    "verified": true,
-    "note": "AC-01 public projection release gate merged after fixture-only review and QA/security; no native delete execution or live provider/runtime mutation."
+    "verified": false,
+    "note": "AC-06 Hermes receipt-contract deployment parity passed review/QA. No live credential deletion, provider mutation, or runtime route mutation was executed."
   }
 }
