@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { parseAuthCommand } from "./auth-bridge.js";
 
 const contract = readFileSync(new URL("../../../docs/AUTH_COMMAND_CONTRACT.md", import.meta.url), "utf8");
+const strategy = readFileSync(new URL("../../../docs/ACCOUNT_CENTER_CONTROL_APP_STRATEGY.md", import.meta.url), "utf8");
 
 test("auth command contract documents remove preview/confirmation and safety distinctions", () => {
   assert.match(contract, /\/auth auto` \| route mutation \| live apply/);
@@ -18,6 +19,15 @@ test("auth command contract documents remove preview/confirmation and safety dis
   assert.match(contract, /explicitly given `--apply`/);
   assert.match(contract, /Hermes \/ Jack/);
   assert.match(contract, /Codex is chat\/session\/default oriented/);
+});
+
+test("control-app strategy preserves the owned delete transaction and opaque receipt boundary", () => {
+  assert.match(strategy, /codex-auth-delete\.py/);
+  assert.match(strategy, /the same transaction used by Dexter `\/auth delete`/);
+  assert.match(strategy, /exact-target adapter with explicit `--apply`/);
+  assert.match(strategy, /opaque receipt `opaque-owned-delete`/);
+  assert.match(strategy, /Missing, malformed, or unverified native evidence remains fail-closed as `UNPROVEN`/);
+  assert.doesNotMatch(strategy, /until a documented native transactional delete adapter exists/);
 });
 
 test("contract-critical auth commands map to expected executor argv", () => {

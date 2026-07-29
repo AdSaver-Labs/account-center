@@ -1,15 +1,15 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-04",
-  "state": "MERGED",
-  "updatedAt": "2026-07-28T23:42:00Z",
+  "activeCheckpoint": "SC-05",
+  "state": "READY_FOR_RELEASE_GATE",
+  "updatedAt": "2026-07-29T00:57:16Z",
   "candidate": "main",
   "blockerResolutionPlan": {
-    "kind": "sc04-honest-state-taxonomy-r1",
+    "kind": "sc05-ac06-release-gate-reconciliation-r1",
     "boundedSteps": [
-      "Preserve main as candidate and retain immutable owned delete-script path, Sentinel /auth format, working Dexter command, and Hermes/Dexter weekly-only boundary.",
-      "Inventory public state renderers and add a narrow typed taxonomy for unsupported, unentitled, read_only, unknown, and UNPROVEN without adding authority.",
-      "Use fixture-only adversarial tests to prove absent or malformed evidence fails closed and no owned delete transaction executes; then complete deterministic review and QA."
+      "Preserve main and the immutable owned exact-account delete script, Sentinel /auth format, working Dexter command, and Hermes/Dexter weekly-only policy.",
+      "Reconcile the stale public strategy claim with AC-06: the owned local transaction exists and only its exact-target OpenClaw adapter plus opaque receipt are supported.",
+      "Add documentation-contract fixture coverage and run fixture-only adapter, parity, full test, QA/security, and review gates without invoking native deletion."
     ],
     "liveDeletionTestsForbidden": true,
     "preserveWeeklyOnlyPolicy": true,
@@ -22,16 +22,10 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "SC-04 bounded review: fixed target-free taxonomy is exported from core, served only as a protected static allow-list, and UI consumes it without adapter text or mutation authority.",
-      "Fixture/full test review: npm test passed 243 tests; focused taxonomy fixtures prove malformed/absent capability evidence is unknown and all taxonomy outcomes are terminal non-success.",
-      "QA: npm run qa:security passed earlier after the taxonomy core addition; final npm test and npm run test:a11y passed 243 fixture tests and 15 Playwright/axe tests. Owned helper compile-only and Hermes/Dexter opaque receipt parity passed; no native transaction ran."
+      "Spec review: corrected the stale strategy claim; the owned local exact-account transaction and sole opaque receipt contract are now explicit.",
+      "Quality review: npm test passed 244 fixture tests; documentation contract, exact-target/delete-receipt, Hermes/Dexter ChatOps, MCP, Sentinel status, and weekly-only tests passed; git diff --check passed.",
+      "QA review: npm run qa:security passed full tests, typecheck, build, 15 Playwright/axe tests, secret scan (125 tracked files), and npm audit at high (0 vulnerabilities). Owned helper was compile-checked only; no native deletion ran."
     ]
   },
-  "merge": {
-    "commit": "09a28a6",
-    "branch": "main",
-    "remote": "origin/main",
-    "pushed": true,
-    "scope": "SC-04 honest state taxonomy; static protected state vocabulary, fixture coverage, and UI rendering; owned delete, Sentinel /auth, Dexter command, and weekly-only policy preserved"
-  }
+  "merge": null
 }
