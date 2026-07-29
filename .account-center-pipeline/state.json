@@ -32,9 +32,10 @@
     ]
   },
   "merge": {
-    "commit": "pending-local-pipeline-merge-commit",
+    "commit": "c7b5c55",
     "branch": "main",
-    "scope": "AC-06 owned exact-account delete receipt integration verified with fixture-only tests; no live credential deletion executed."
+    "scope": "AC-06 owned exact-account delete receipt integration verified with fixture-only tests; no live credential deletion executed.",
+    "recordedBy": "pipeline state commit c7b5c55"
   },
   "previousMerge": {
     "checkpoint": "AC-03",
