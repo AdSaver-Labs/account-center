@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-02",
+  "activeCheckpoint": "AC-03",
   "state": "PLANNED",
-  "updatedAt": "2026-07-29T12:33:45Z",
-  "candidate": "main candidate at verified AC-06 merge 80ec21f; AC-02 is bounded to fixture-only validation of durable distinct guided-auth starts.",
+  "updatedAt": "2026-07-29T13:07:04Z",
+  "candidate": "main candidate at verified AC-02 merge 0b7a8cd; AC-03 is bounded to fixture-only durable guided-auth lifecycle verification.",
   "blockerResolutionPlan": {
-    "kind": "ac02-guided-auth-start-contract-verification-r1",
+    "kind": "ac03-guided-auth-lifecycle-verification-r1",
     "boundedSteps": [
-      "Preserve the verified AC-06 candidate and inspect only the existing add/reauth start contract across guarded executor, durable store, CLI, MCP, and protected API surfaces.",
-      "Use fixture-only adversarial coverage for explicit mode, runtime/scope validation, idempotency, and redacted durable results; do not perform interactive authentication.",
-      "Repair only a demonstrated AC-02 contract gap, then run focused tests and full QA/security with browser proof if a public surface changes.",
-      "Keep owned delete, Hermes/Dexter Sentinel /auth format, and weekly-only capacity policy untouched; do not advance before independent review and QA pass."
+      "Preserve the verified AC-02 candidate and inspect only the local durable guided-auth lifecycle, guarded executor, and redacted public projections.",
+      "Use fixture-only adversarial coverage for malformed, expired, duplicate, hostile, or proof-bearing lifecycle records; do not perform interactive authentication or a runtime mutation.",
+      "Repair only a demonstrated AC-03 boundary gap, then run focused tests and full QA/security with browser proof if a public surface changes.",
+      "Keep owned delete, Hermes/Dexter Sentinel /auth format, and weekly-only capacity policy untouched; do not advance before review and QA pass."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -27,8 +27,8 @@
     "evidence": []
   },
   "previousMerge": {
-    "checkpoint": "AC-06",
-    "commit": "80ec21f29ed3832dd3ce8956406b7ce2e954372e",
+    "checkpoint": "AC-02",
+    "commit": "0b7a8cd9962abddc145e6a0612b6cb9ca4a5af51",
     "remote": "origin/main",
     "verified": true
   }
