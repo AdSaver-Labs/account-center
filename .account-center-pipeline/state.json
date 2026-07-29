@@ -1,16 +1,17 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "CP-04",
+  "activeCheckpoint": "CP-01",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T19:25:00Z",
-  "candidate": "main CP-04 release-gate record after hermetic review; public connection references remain opaque and stable with no live runtime operation.",
+  "updatedAt": "2026-07-29T20:20:00Z",
+  "candidate": "main CP-01 loopback/per-launch-token release-gate record after hermetic review; no live server, deletion, or runtime operation.",
   "blockerResolutionPlan": {
-    "kind": "cp04-release-record-admission-r2",
+    "kind": "cp01-loopback-token-lifecycle-r1",
     "boundedSteps": [
-      "Preserve the reviewed CP-04 evidence record exactly; confirm the repository ignore rule rather than changing implementation, runtime policy, or production state.",
-      "Force-add only the two explicitly reviewed pipeline record files, excluding the transient exclusive-lock file and every generated status or test artifact.",
-      "Re-check staged names and diff scope, commit the release-gate record, push only after remote ancestry is current, and verify the remote commit.",
-      "If admission fails again, retain the candidate and record a new bounded plan; do not execute native helpers or live operations."
+      "Preserve the completed AC-06 owned exact-account delete integration and its versioned opaque receipt contract; do not execute the native helper or any live delete.",
+      "Inventory the existing local-server launch lifecycle and execute only fixture-backed tests for loopback defaults, fresh owner-only launch-token files, redacted reporting, protected access, and deterministic cleanup.",
+      "Review the effective implementation and test evidence for unsafe host/token/lifecycle fail-closed behavior; retain Sentinel /auth bytes, working Dexter /auth delete, and Hermes/Dexter weekly-only policy unchanged.",
+      "Run the full deterministic QA/security/browser suite and static Python compilation, then independently record spec, quality, and QA findings before committing only the CP-01 release-gate evidence.",
+      "If a fixture, receipt, filesystem, adapter, or review issue appears, preserve this candidate, write a materially different bounded resolution plan, keep PLANNED, and execute it; do not skip this checkpoint."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -25,23 +26,22 @@
     "quality": "passed",
     "qa": "passed",
     "evidence": [
-      "Spec review: public inventory, lease, and Hermes automation-capacity boundaries retain only deterministic opaque connection references; scope, command, provider identity, credential, and short-window capacity fields do not cross the public boundary.",
-      "Quality review: hostile-scope and reorder-stability fixture coverage remains green; locked Sentinel /auth rendering, Dexter /auth delete, the AC-06 owned exact-account transaction, and Hermes/Dexter weekly-only policy were unchanged.",
-      "QA review: npm run qa:security passed 251 Node fixture/mock tests, 2 direct Hermes-plugin tests, typecheck/build, 15 Playwright/axe checks, a 136-file secret scan, and npm audit --audit-level=high with 0 vulnerabilities.",
-      "Static py_compile passed for the Hermes plugin and owned Python helper. The helper was not executed; no live deletion, provider, credential/store, routing, session, or runtime operation occurred."
+      "Spec review: server listen lifecycle is loopback-only with no public host override; exactly one owner-only launch-token file is required, and protected API access rejects absent/wrong bearer tokens without outputting token material.",
+      "Quality review: fixture cases cover fresh independent token files, owner-only mode, missing/repeated/symlinked/unsafe token-file rejection before launch, token-free reporting, cleanup, and canonical Hermes/Dexter opaque-delete parity. Sentinel /auth and weekly-only behavior were unchanged.",
+      "QA review: npm test passed 251 Node fixture/mock tests and 2 Hermes plugin tests; npm run qa:security passed typecheck/build, 15 Playwright/axe checks, 136-file secret scan, and high-severity audit with 0 vulnerabilities. Static py_compile passed for Hermes plugin and owned helper; neither the helper nor a live runtime was executed."
     ]
   },
   "previousMerge": {
-    "checkpoint": "SC-05",
-    "commit": "fafc0f2308c830a7833ad75ae87b1e1bec82ba2b",
+    "checkpoint": "CP-04",
+    "commit": "bf43c8c5a47e97944ec61eb68fb477e8a3edfc75",
     "branch": "main",
     "verified": true,
-    "scope": "AC-06 owned-delete receipt release-gate reconciliation remote-verified; no live credential deletion executed."
+    "scope": "CP-04 opaque public connection-reference release-gate record remote-verified; no live runtime operation."
   },
   "merge": {
     "commit": "recorded in current Git commit",
     "branch": "main",
-    "scope": "CP-04 opaque public connection-reference release-gate record verified with hermetic fixtures only.",
+    "scope": "CP-01 loopback/per-launch-token release-gate record verified with fixture-only evidence.",
     "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
