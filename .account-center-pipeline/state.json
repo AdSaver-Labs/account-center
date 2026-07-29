@@ -1,16 +1,17 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06-R3",
+  "activeCheckpoint": "AC-04-R8",
   "state": "PLANNED",
-  "updatedAt": "2026-07-29T20:59:54Z",
-  "candidate": "3f59a82 retained; CI fixture portability remediation in progress.",
+  "updatedAt": "2026-07-29T22:00:00Z",
+  "candidate": "AC-04-R8 reauth-proof validator candidate; merged AC-06 owned-delete receipt integration remains preserved.",
   "blockerResolutionPlan": {
-    "kind": "ac06-ci-fixture-portability-r3",
+    "kind": "ac04-bounded-reauth-proof-contract-r8",
     "boundedSteps": [
-      "Preserve production helper validation and the prior candidate.",
-      "Inject trusted helper evidence only in existing fixture adapters, never production configuration.",
-      "Run full local QA and static compilation, push the narrow correction, and verify GitHub Actions.",
-      "Do not execute owned helper or live deletion; do not advance release gate unless CI is green."
+      "Preserve merged AC-06 and all prior AC-04 candidates.",
+      "Validate only target-free, exact-bound, fresh fixture reauth proof evidence.",
+      "Keep proof validation disconnected from all runtime mutation, terminal durable lifecycle, and public completion rendering.",
+      "Run deterministic test, QA, security, browser, and review gates before any release-gate change.",
+      "Do not execute owned helper, deletion, login, provider query, credential write, or route mutation."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -21,10 +22,10 @@
     "preserveDexterAuthDeleteCommand": true
   },
   "previousMerge": {
-    "checkpoint": "CP-04",
-    "commit": "bf43c8c5a47e97944ec61eb68fb477e8a3edfc75",
+    "checkpoint": "AC-06-R3",
+    "commit": "c4608eff282cc077ee7a0396f8e1a34bba2cd5ff",
     "branch": "main",
     "verified": true,
-    "scope": "CP-04 opaque public connection-reference release-gate record remote-verified; no live runtime operation."
+    "scope": "AC-06 exact-account delete now uses the owned Dexter transaction with one opaque target-free receipt contract; CI fixture portability correction remote-verified. No live runtime operation."
   }
 }
