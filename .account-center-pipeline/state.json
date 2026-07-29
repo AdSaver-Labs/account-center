@@ -42,6 +42,6 @@
     "commit": "recorded in current Git commit",
     "branch": "main",
     "scope": "AC-04-R8 review/QA record only; no release checkbox advanced because the full AC-04 transaction is not complete.",
-    "recordedBy": "reviewed deterministic fixture evidence; remote verification pending"
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
