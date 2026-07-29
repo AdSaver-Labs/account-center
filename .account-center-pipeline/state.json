@@ -1,9 +1,9 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-29T15:52:14Z",
-  "candidate": "main candidate after AC-06 owned-delete receipt merge; AC-07 is bounded to shared protected mutation-executor lifecycle coverage without changing the owned transaction, Sentinel /auth output, or Hermes/Dexter weekly-only policy.",
+  "state": "MERGED",
+  "updatedAt": "2026-07-29T16:26:08Z",
+  "candidate": "main candidate after AC-07 shared protected mutation-executor release-gate verification; AC-06 owned exact-account delete remains its sole native apply route with the one opaque receipt contract.",
   "blockerResolutionPlan": {
     "kind": "ac07-shared-mutation-executor-release-gate-r1",
     "boundedSteps": [
@@ -21,12 +21,14 @@
     "preserveDexterAuthDeleteCommand": true
   },
   "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qa": "pending",
+    "spec": "passed",
+    "quality": "passed",
+    "qa": "passed",
     "evidence": [
-      "AC-06 re-verification immediately before advancement: qa:security passed 249 fixture/mock tests, TypeScript typecheck/build, 15 Playwright/axe checks, 132-file secret scan, and high-severity audit with 0 vulnerabilities.",
-      "The owned Python helper was syntax-compiled only with py_compile; it was not executed. No native deletion, provider mutation, interactive login, or Sentinel/store operation ran."
+      "Spec review: static inventory found no supported CLI, /auth, MCP, API, or runtime-adapter native account mutation bypass; protected apply requires the shared signed review, exact scope/target binding, durable idempotency claim/replay, and redacted receipt lifecycle.",
+      "Quality review: the owned local codex-auth-delete.py remains the only account.delete native apply route after exact connected-target resolution; Account Center, Hermes, Dexter ChatOps, and MCP expose only the canonical target-free opaque receipt or fixed UNPROVEN contract. Sentinel /auth rendering and weekly-only policy fixture coverage passed unchanged.",
+      "QA review: disposable worktree /tmp/account-center-ac07-qa-72cf1d2 ran npm ci --ignore-scripts, npm run qa, and npm run qa:security successfully: 249 fixture/mock tests, TypeScript typecheck/build, 15 Playwright/axe checks, 132-file secret scan, and high-severity npm audit with 0 vulnerabilities.",
+      "The owned Python helper was verified only by static py_compile; it was never executed. No live deletion, credential/provider/runtime/route/session mutation, interactive login, Sentinel/store operation, or provider request occurred."
     ]
   },
   "previousMerge": {
@@ -35,5 +37,10 @@
     "branch": "main",
     "verified": true,
     "scope": "Owned exact-account delete integration verified fixture-only; no live credential deletion executed."
+  },
+  "merge": {
+    "commit": "pending-local-pipeline-merge-commit",
+    "branch": "main",
+    "scope": "AC-07 shared protected mutation-executor release gate verified fixture-only; AC-06 owned exact-account delete and opaque receipt boundary preserved."
   }
 }
