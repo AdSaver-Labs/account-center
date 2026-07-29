@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T09:25:00Z",
+  "updatedAt": "2026-07-29T09:30:00Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "ac06-owned-delete-manual-parity-contract-r3",
@@ -28,7 +28,7 @@
     ]
   },
   "merge": {
-    "integrationCommit": "9030a43",
+    "integrationCommit": "cdde2dc",
     "branch": "main",
     "remote": "origin/main",
     "pushed": true,
