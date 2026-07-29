@@ -353,7 +353,7 @@ test("OpenClaw executor-confirmed account delete uses the owned exact-account tr
     calls.push({ command, args });
     return { code: 0, stdout: verified, stderr: "private@example.test /private/store.sqlite" };
   };
-  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
+  const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT, ownedDeleteScriptIsTrusted: async () => true });
   const result = await capabilityDelete(adapter, "openai:helper-2");
   assert.equal(result.code, 0);
   assert.deepEqual(calls, [{ command: "python3", args: [OWNED_OPENCLAW_DELETE_SCRIPT, "openai:helper-2", "--apply"] }]);
@@ -410,7 +410,7 @@ test("OpenClaw account delete privately resolves a case- and whitespace-normaliz
   const adapter = new OpenClawRuntimeAdapter({ workspace, cli, runner: async (_command, args) => {
     calls.push(args);
     return { code: 0, stdout: JSON.stringify({ action: "account.delete", state: "DELETED", targetDigest: "676ca2b8db45302e", backup: true, verified: true }), stderr: "" };
-  }, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
+  }, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT, ownedDeleteScriptIsTrusted: async () => true });
   const publicStatus = await adapter.readStatus();
   assert.doesNotMatch(JSON.stringify(publicStatus), /connected\.member@example\.test/i);
   const result = await capabilityDelete(adapter, ` \t${email.toLowerCase()}\n`);
@@ -429,7 +429,7 @@ test("OpenClaw account delete fails closed for every unproven owned transaction 
     { name: "native timeout", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", timeoutExceeded: true } },
     { name: "native output limit", result: { code: 0, stdout: verifiedFixture, stderr: "secret@example.test", outputLimitExceeded: true } }
   ]) {
-    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => native.result, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT });
+    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => native.result, fileExists: async (path) => path === OWNED_OPENCLAW_DELETE_SCRIPT, ownedDeleteScriptIsTrusted: async () => true });
     const result = await capabilityDelete(adapter, "openai:helper-2");
     assert.equal(result.code, 2, native.name);
     const payload = result.mutation as unknown as { applied: boolean; verification: { kind: string }; reason: string };

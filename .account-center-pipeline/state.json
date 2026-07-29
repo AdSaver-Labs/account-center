@@ -1,17 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06-R2",
-  "state": "READY_TO_MERGE",
-  "updatedAt": "2026-07-29T20:58:10Z",
-  "candidate": "main at d893044; AC-06 receipt integration preserved while bounded transport/integrity remediation executes.",
+  "activeCheckpoint": "AC-06-R3",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-29T20:59:54Z",
+  "candidate": "3f59a82 retained; CI fixture portability remediation in progress.",
   "blockerResolutionPlan": {
-    "kind": "ac06-opaque-transport-helper-integrity-r2",
+    "kind": "ac06-ci-fixture-portability-r3",
     "boundedSteps": [
-      "Preserve the candidate and never execute the native helper or a live delete.",
-      "Make malformed Dexter delete transport output use the existing canonical opaque UNPROVEN contract and fixture-test it.",
-      "Require owner-only non-symlink regular-file plus recorded SHA-256 evidence for the owned helper before runner invocation; fixture-test every failed evidence case.",
-      "Put every Hermes plugin fixture suite in npm test; then run deterministic QA, review, and static compilation.",
-      "Keep PLANNED and write a materially different bounded plan if any internal issue appears; advance only after spec, quality, and QA pass."
+      "Preserve production helper validation and the prior candidate.",
+      "Inject trusted helper evidence only in existing fixture adapters, never production configuration.",
+      "Run full local QA and static compilation, push the narrow correction, and verify GitHub Actions.",
+      "Do not execute owned helper or live deletion; do not advance release gate unless CI is green."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -27,15 +26,5 @@
     "branch": "main",
     "verified": true,
     "scope": "CP-04 opaque public connection-reference release-gate record remote-verified; no live runtime operation."
-  },
-  "review": {
-    "spec": "passed",
-    "quality": "passed",
-    "qa": "passed",
-    "evidence": [
-      "Spec: malformed Dexter delete tokenization now returns the exact opaque UNPROVEN delete contract used by Hermes; applied output remains the existing opaque-owned-delete contract.",
-      "Quality: Account Center validates the owned local helper as current-user-owned, non-symlink regular file with no group/other permissions and recorded SHA-256 before invoking the runner; fixture cases prove failure blocks prior to runner invocation.",
-      "QA: npm test passed 253 Node fixture/mock tests and all 18 Hermes Python fixtures; npm run qa:security passed typecheck/build, 15 Playwright/axe tests, 137-file secret scan, and high-severity audit (0 vulnerabilities). Static py_compile passed. No native helper or live deletion executed."
-    ]
   }
 }
