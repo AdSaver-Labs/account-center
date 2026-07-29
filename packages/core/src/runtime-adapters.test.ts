@@ -367,6 +367,30 @@ test("OpenClaw executor-confirmed account delete uses the owned exact-account tr
   assert.equal(JSON.stringify(payload).includes("676ca2b8db45302e"), false);
 });
 
+test("OpenClaw account delete blocks untrusted owned-helper evidence before runner invocation", async () => {
+  const workspace = await openClawWorkspace();
+  for (const evidence of ["absent", "symlink", "shared_mode", "wrong_owner", "hash_mismatch"]) {
+    let runnerCalled = false;
+    const adapter = new OpenClawRuntimeAdapter({
+      workspace: workspace.root,
+      cli: workspace.cli,
+      fileExists: async () => true,
+      ownedDeleteScriptIsTrusted: async () => false,
+      runner: async () => {
+        runnerCalled = true;
+        return { code: 0, stdout: await ownedDeleteFixture("verified.json"), stderr: "" };
+      },
+    });
+    const result = await capabilityDelete(adapter, "openai:helper-2");
+    const payload = result.mutation as unknown as { applied: boolean; reason: string; verification: { kind: string } };
+    assert.equal(result.code, 2, evidence);
+    assert.equal(runnerCalled, false, evidence);
+    assert.equal(payload.applied, false, evidence);
+    assert.equal(payload.reason, "owned_delete_transaction_untrusted", evidence);
+    assert.equal(payload.verification.kind, "unproven", evidence);
+  }
+});
+
 test("OpenClaw account delete privately resolves a case- and whitespace-normalized connected email before the owned transaction", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-delete-email-"));
   const cli = join(workspace, "oauth_routing_cli.py");

@@ -93,6 +93,17 @@ test("Dexter ordinary parsed delete has canonical parity without mutation author
   assert.equal(response.result.content[0].text, DELETE_UNPROVEN_TEXT);
 });
 
+test("Dexter malformed delete transport has the same canonical opaque unproven result as Hermes", () => {
+  const result = spawnSync(process.execPath, [chatops, '/auth delete "unterminated'], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, DELETE_UNPROVEN_TEXT);
+  assert.equal(result.stderr, "");
+  assert.equal(result.stdout.includes("unterminated"), false);
+});
+
 test("Hermes and Dexter share the fixture-only ChatOps delete transport and exact opaque receipt", () => {
   const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-hermes-delete-contract-"));
   const fixtureScripts = resolve(fixtureRoot, "scripts");
@@ -100,7 +111,9 @@ test("Hermes and Dexter share the fixture-only ChatOps delete transport and exac
   const invoked = resolve(fixtureRoot, "invoked.json");
   mkdirSync(resolve(fixtureRoot, "packages/cli/dist"), { recursive: true });
   mkdirSync(fixtureScripts, { recursive: true });
+  mkdirSync(resolve(fixtureRoot, "contracts"), { recursive: true });
   copyFileSync(chatops, fixtureChatops);
+  copyFileSync(resolve(root, "contracts", "owned-delete-receipt.v1.json"), resolve(fixtureRoot, "contracts", "owned-delete-receipt.v1.json"));
   writeFileSync(resolve(fixtureRoot, "package.json"), '{"type":"module"}\n');
   writeFileSync(resolve(fixtureRoot, "packages/cli/dist/auth-bridge.js"), 'export function tokenizeAuthCommand(value) { return value.trim().replace(/^\\/auth\\s*/, "").split(/\\s+/); }\n');
   writeFileSync(resolve(fixtureRoot, "packages/cli/dist/index.js"), 'import { writeFileSync } from "node:fs"; export async function runCli(argv) { writeFileSync(process.env.FIXTURE_INVOKED, JSON.stringify(argv)); return { code: 0, stdout: process.env.FIXTURE_DELETE_OUTPUT, stderr: "" }; }\n');

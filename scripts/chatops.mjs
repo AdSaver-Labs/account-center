@@ -1,8 +1,11 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { runCli } from "../packages/cli/dist/index.js";
 import { tokenizeAuthCommand } from "../packages/cli/dist/auth-bridge.js";
 
 const message = process.argv.slice(2).join(" ").trim();
+const DELETE_UNPROVEN_TEXT = JSON.parse(readFileSync(resolve(import.meta.dirname, "..", "contracts", "owned-delete-receipt.v1.json"), "utf8")).public.unprovenText;
 if (!message) {
   console.error("Usage: node scripts/chatops.mjs '/auth status --json'");
   process.exit(1);
@@ -17,6 +20,13 @@ let tokens;
 try {
   tokens = tokenizeAuthCommand(message);
 } catch {
+  // Tokenization happens before the CLI can classify a malformed delete. Keep
+  // the shared Hermes/Dexter credential-delete boundary at its two canonical,
+  // target-free outcomes even for malformed quoted operands.
+  if (/^\/auth\s+delete(?:\s|$)/i.test(message)) {
+    process.stdout.write(DELETE_UNPROVEN_TEXT);
+    process.exit(2);
+  }
   console.error("Invalid Account Center command.");
   process.exit(1);
 }

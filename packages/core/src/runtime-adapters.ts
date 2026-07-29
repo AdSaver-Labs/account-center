@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, lstat, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -36,6 +36,24 @@ const GENERIC_COMMAND_FAILURE = "Generic command status is unavailable or unprov
 const privateConnectedEmails = new WeakMap<AccountCenterStatus, Map<string, string>>();
 /** The one owned credential-delete implementation; destructive overrides are forbidden. */
 export const OWNED_OPENCLAW_DELETE_SCRIPT = "/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py";
+const OWNED_OPENCLAW_DELETE_SHA256 = "4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37";
+
+/**
+ * The delete implementation intentionally lives with Dexter's owned account
+ * operations. Check its identity and immutable reviewed content immediately
+ * before handing it to Python; any uncertainty blocks the mutation.
+ */
+export async function isTrustedOwnedOpenClawDeleteScript(path: string): Promise<boolean> {
+  try {
+    const metadata = await lstat(path);
+    const owner = process.getuid?.();
+    if (!metadata.isFile() || metadata.isSymbolicLink() || owner === undefined || metadata.uid !== owner || (metadata.mode & 0o077) !== 0) return false;
+    const content = await readFile(path);
+    return createHash("sha256").update(content).digest("hex") === OWNED_OPENCLAW_DELETE_SHA256;
+  } catch {
+    return false;
+  }
+}
 
 export interface RuntimeMutationInput {
   action: AuditAction;
@@ -68,6 +86,8 @@ export interface OpenClawAdapterConfig {
   runner?: CommandRunner;
   /** Test seam only: production defaults to the real filesystem check. */
   fileExists?: (path: string) => Promise<boolean>;
+  /** Test seam only: production validates owner, type, mode, and reviewed hash. */
+  ownedDeleteScriptIsTrusted?: (path: string) => Promise<boolean>;
 }
 
 export interface GenericCommandAdapterConfig {
@@ -111,6 +131,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   private readonly deleteScript: string;
   private readonly runner: CommandRunner;
   private readonly fileExists: (path: string) => Promise<boolean>;
+  private readonly ownedDeleteScriptIsTrusted: (path: string) => Promise<boolean>;
 
   constructor(config: OpenClawAdapterConfig = {}) {
     this.workspace = resolve(config.workspace ?? process.env.ACCOUNT_CENTER_OPENCLAW_WORKSPACE ?? join(homedir(), ".openclaw", "workspace"));
@@ -119,6 +140,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     this.deleteScript = OWNED_OPENCLAW_DELETE_SCRIPT;
     this.runner = config.runner ?? execFileRunner;
     this.fileExists = config.fileExists ?? exists;
+    this.ownedDeleteScriptIsTrusted = config.ownedDeleteScriptIsTrusted ?? isTrustedOwnedOpenClawDeleteScript;
   }
 
   async readStatus(): Promise<AccountCenterStatus> {
@@ -279,6 +301,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     // accepts only a narrow opaque result, never paths, store snapshots, or
     // native diagnostics.
     if (!(await this.fileExists(this.deleteScript))) return this.deleteFailure(requestedTarget, status, "owned_delete_transaction_missing");
+    if (!(await this.ownedDeleteScriptIsTrusted(this.deleteScript))) return this.deleteFailure(requestedTarget, status, "owned_delete_transaction_untrusted");
     let native: CommandResult;
     try {
       native = await this.runner("python3", [this.deleteScript, target, "--apply"], { cwd: this.workspace, timeoutMs: 60_000, maxOutputBytes: 64 * 1024 });
