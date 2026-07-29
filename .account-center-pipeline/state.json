@@ -1,7 +1,7 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
-  "state": "READY_FOR_RELEASE_GATE",
+  "state": "MERGED",
   "updatedAt": "2026-07-29T02:07:45Z",
   "candidate": "main",
   "blockerResolutionPlan": {
@@ -27,5 +27,12 @@
       "QA review: npm run qa and npm run qa:security passed typecheck, build, 15 Playwright/axe tests, secret scan (125 tracked files), and npm audit at high (0 vulnerabilities). The owned helper was not invoked; no live deletion or mutation ran.",
       "Static release review: only executor/adapter fixture contract and pipeline state changed. The exact owned script pin, python3 argv, opaque-owned-delete marker, Sentinel /auth format, and weekly-only policy remain intact."
     ]
+  },
+  "merge": {
+    "integrationCommit": "66bbffc",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": true,
+    "scope": "AC-07 delete adapter capability repair: the owned AC-06 exact-account transaction remains pinned and exposes only opaque-owned-delete; direct adapter bypass is blocked; Sentinel /auth and Hermes/Dexter weekly-only policy preserved"
   }
 }
