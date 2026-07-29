@@ -27,7 +27,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [ ] Every account/model action uses explicit runtime and scope (`openclaw|hermes|codex`, plus agent/profile/session/default/all where supported).
 - [x] Bearer-protected `GET /api/scopes` exposes a versioned, redacted catalog of each observed runtime's supported default scope and declared capabilities; named agent/profile/session and `all` scopes remain unavailable until authoritative runtime scope evidence exists.
 - [ ] Active OpenClaw agent scope changes require a warning/confirmation flow.
-- [ ] Model catalog, requested policy, effective runtime model, fallback, eligibility, and verification state are distinct.
+- [x] Model catalog, requested policy, effective runtime model, fallback, eligibility, and verification state are distinct.
 - [ ] Unsupported, unentitled, read-only, unknown, and `UNPROVEN` states are rendered honestly.
 - [ ] Codex chat/session mutation remains read-only unless a supported safe write surface is detected.
 

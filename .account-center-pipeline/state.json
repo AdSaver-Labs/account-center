@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
-  "state": "READY_TO_MERGE",
-  "updatedAt": "2026-07-29T02:44:27Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-29T02:44:54Z",
   "candidate": "main",
   "blockerResolutionPlan": {
     "kind": "sc03-model-truth-contract-r1",
@@ -26,5 +26,12 @@
       "Quality review: only the shared public model view, CLI renderer, fixture contract test, and pipeline state changed. The owned exact-account delete pin/opaque receipt, Sentinel /auth path, and weekly-only public capacity projection were not changed; git diff --check passed.",
       "QA review: npm run qa and npm run qa:security passed 245 tests, typecheck/build, 15 fixture-only Playwright/axe tests, 125-file secret scan, and npm audit high (0 vulnerabilities). The owned helper was compile-checked only; no provider, native delete, credential, route, session, or service mutation ran."
     ]
+  },
+  "merge": {
+    "integrationCommit": "28b36eb",
+    "branch": "main",
+    "remote": "origin/main",
+    "pushed": true,
+    "scope": "SC-03 model truth contract: CLI and API share the typed redacted model catalog; policy/effective/fallback remain not_reported and verification UNPROVEN; owned delete, Sentinel /auth, and Hermes/Dexter weekly-only policy preserved"
   }
 }
