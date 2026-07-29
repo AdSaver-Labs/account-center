@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-05",
   "state": "MERGED",
-  "updatedAt": "2026-07-29T19:11:45Z",
+  "updatedAt": "2026-07-29T19:12:55Z",
   "candidate": "main after AC-08 remote merge; reconcile the release gate against the now-direct Hermes owned-delete receipt fixture while preserving the single AC-06 transaction and locked operational policies.",
   "blockerResolutionPlan": {
     "kind": "sc05-release-gate-reconciliation-r2-after-ac08",
@@ -39,9 +39,9 @@
     "scope": "Direct Hermes owned-delete receipt fixture merged and remote-verified; no live credential deletion executed."
   },
   "merge": {
-    "commit": "PENDING",
+    "commit": "73f58f3ccee0b7d20ff5d81d413e8f72208b058c",
     "branch": "main",
     "scope": "SC-05 release-gate reconciliation: documentation contract fixture and AC-08 direct Hermes fixture verified without live operations.",
-    "recordedBy": "local review complete; commit and remote verification pending"
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
