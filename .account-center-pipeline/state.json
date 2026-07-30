@@ -38,10 +38,10 @@
     "evidence": "npm run test: 260 Node fixture/mock tests and 19 Hermes-plugin tests; npm run qa:security: typecheck/build, 15 Playwright/axe checks, 145-file secret scan, npm audit 0 vulnerabilities."
   },
   "merge": {
-    "commit": "pending-amend",
+    "commit": "8f7108b5c633262e09e9aa64e796ea7061f577ee",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "AC-06 receipt-contract integrity: fixed public bytes enforced across CLI, Dexter ChatOps, MCP, and Hermes; fixture-only tamper tests; owned transaction retained and not invoked.",
-    "recordedBy": "local merge candidate pending remote verification"
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
