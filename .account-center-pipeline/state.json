@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-04-R1",
-  "state": "MERGED",
-  "updatedAt": "2026-07-30T09:43:00Z",
-  "candidate": "AC-04-R1 reauth replay receipt fidelity: closed-schema fixture-only persistence/replay hardening preserves verified and unproven historical categories without adapter re-invocation.",
+  "activeCheckpoint": "AC-04-R9",
+  "state": "REVIEWED",
+  "updatedAt": "2026-07-30T12:28:05Z",
+  "candidate": "AC-04-R9 fixture-only reauth completion-evidence boundary: bind the existing fresh target-free proof validator to explicit readiness without any native login, credential write, route operation, or terminal completion claim.",
   "blockerResolutionPlan": {
-    "kind": "ac04-r1-replay-receipt-fidelity",
+    "kind": "ac04-r9-reauth-completion-evidence-boundary",
     "boundedSteps": [
-      "Inspect only reauth mutation persistence/replay.",
-      "Add adversarial fixture replay coverage.",
-      "Reject unsafe evidence and retain fixed outcome categories.",
-      "Run focused and full fixture-only QA before review/merge."
+      "Inspect only the bounded reauth proof/export boundary.",
+      "Add a pure target-free readiness result and adversarial fixtures.",
+      "Keep all native/runtime mutation paths disconnected.",
+      "Run focused and full deterministic QA/security before review."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -21,13 +21,6 @@
     "preserveDexterAuthDeleteCommand": true
   },
   "previousMerge": {
-    "commit": "81fcaea87449a79695d81b62e75266c20903bdc8",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-04-R1 closed-schema replay evidence hardening, fixture review, and QA; next release gate may proceed.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
-  },
-  "merge": {
     "commit": "81fcaea87449a79695d81b62e75266c20903bdc8",
     "branch": "main",
     "verified": true,
