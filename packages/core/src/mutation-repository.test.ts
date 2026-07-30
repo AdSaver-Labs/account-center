@@ -52,6 +52,38 @@ test("completed operation links only a redacted adapter receipt reference and ve
   assert.doesNotMatch(raw, /helper-2|private@example/);
 });
 
+test("fixture replays retain terminal verification categories without an adapter or target-bearing evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-reauth-replay-fixture-"));
+  const repository = new MutationRepository(root, { operationId: () => "op_reauth_fixture" });
+  const claim = await repository.claim(input);
+  if (claim.kind !== "execute") throw new Error("expected executable fixture operation");
+  await repository.complete({ operationId: claim.operationId, outcome: "failed", warningCodes: ["runtime_result_unproven"], evidence: { receiptId: "evt_reauth_unproven", verification: "unproven", liveRuntimeMutation: true } });
+
+  const replay = await new MutationRepository(root).claim(input);
+  assert.equal(replay.kind, "replay");
+  if (replay.kind !== "replay") throw new Error("expected replay");
+  assert.equal(replay.outcome, "failed");
+  assert.equal(replay.receipt.evidence?.verification, "unproven");
+  assert.equal(replay.receipt.evidence?.liveRuntimeMutation, true);
+  assert.doesNotMatch(JSON.stringify(replay.receipt.evidence), /@|target|token|secret/i);
+});
+
+test("fixture rejects target-bearing, credential-bearing, and unsupported persisted evidence before replay", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-reauth-replay-reject-"));
+  const statePath = join(root, "mutation-repository.v1.json");
+  const receipt = {
+    schemaVersion: "account-center.mutation-receipt.v1", operationId: "op_reauth_fixture", requestDigest: "a".repeat(64), idempotencyKeyDigest: "b".repeat(64), state: "completed", outcome: "failed", createdAt: "2026-07-30T00:00:00.000Z", completedAt: "2026-07-30T00:00:01.000Z",
+    audit: { ...input.audit, warningCodes: ["runtime_result_unproven"] }
+  };
+  const persist = async (evidence: Record<string, unknown>) => writeFile(statePath, JSON.stringify({ schemaVersion: "account-center.mutation-repository.v1", operations: [{ receipt: { ...receipt, evidence } }] }), { mode: 0o600 });
+  await persist({ receiptId: "evt_reauth_unproven", verification: "unproven", target: "private@example.test" });
+  await chmod(root, 0o700);
+  await assert.rejects(() => new MutationRepository(root).claim(input), /repository_corrupt/);
+
+  await persist({ receiptId: "evt_reauth_unproven", verification: "unproven", token: "credential-not-allowed" });
+  await assert.rejects(() => new MutationRepository(root).claim(input), /repository_corrupt/);
+});
+
 test("mutation repository rejects malformed persisted operations before a redacted history view can expose them", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-mutations-corrupt-"));
   const statePath = join(root, "mutation-repository.v1.json");

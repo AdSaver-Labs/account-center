@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06-R4",
-  "state": "MERGED",
-  "updatedAt": "2026-07-29T23:23:51Z",
-  "candidate": "AC-06-R4 verifies the already-integrated owned exact-account delete path and its single opaque receipt contract across Account Center, ChatOps/MCP, and Hermes using fixtures only; no native transaction is launched.",
+  "activeCheckpoint": "AC-04-R1",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-30T09:04:58Z",
+  "candidate": "AC-04-R1 reauth replay receipt fidelity: preserve merged owned delete integration; fixture-only restoration of truthful credential-blind replay evidence.",
   "blockerResolutionPlan": {
-    "kind": "ac06-r4-owned-delete-contract-review-qa",
+    "kind": "ac04-r1-replay-receipt-fidelity",
     "boundedSteps": [
-      "Preserve the candidate and the locked owned helper, Sentinel /auth format, Dexter /auth delete command, and Hermes/Dexter weekly-only policy.",
-      "Inspect the shared receipt contract and adapter/ChatOps/Hermes boundaries for canonical allow-listed applied and UNPROVEN results only.",
-      "Run fixture-only Node and Hermes tests, then full quality and security QA; native helper execution, live deletion, login, provider access, credential/store writes, routing mutation, and service operations are forbidden.",
-      "Record review evidence and advance only the AC-06 release-gate decision if all gates pass."
+      "Inspect only reauth mutation persistence/replay.",
+      "Add adversarial fixture replay coverage.",
+      "Reject unsafe evidence and retain fixed outcome categories.",
+      "Run focused and full fixture-only QA before review/merge."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -18,24 +18,13 @@
     "preserveSentinelAuthFormat": true,
     "preserveOwnedDeleteTransaction": true,
     "preserveOpaqueNativeDeleteReceiptContract": true,
-    "preserveDexterAuthDeleteCommand": true,
-    "review": {
-      "spec": "passed",
-      "quality": "approved",
-      "qa": "passed",
-      "evidence": [
-        "Review: the fixed owned exact-account helper is invoked only after shared executor capability, exact connected-target resolution, and owner/type/mode/hash trust validation. Its private backup/verification receipt is reduced to the fixed opaque contract; helper paths, target digest, target, and native diagnostics are not exported.",
-        "Contract review: contracts/owned-delete-receipt.v1.json supplies the two target-free canonical public outcomes. Account Center ChatOps/MCP and Hermes allow-list exactly those bytes and fail closed to UNPROVEN for malformed, failed, or injected transport output.",
-        "QA: npm test passed 255 Node fixture/mock tests plus 18 Hermes plugin tests. qa and qa:security passed including typecheck/build, 15 Chromium/axe checks, secret scan of 141 tracked files, and npm audit --audit-level=high with 0 vulnerabilities. No owned helper, live deletion, login, provider access, credential/store write, routing mutation, or service operation ran."
-      ]
-    }
+    "preserveDexterAuthDeleteCommand": true
   },
   "previousMerge": {
-    "checkpoint": "AC-04-R8",
-    "commit": "75463ecb9d3d46c3debb1aedb9b1eded2167cb3c",
+    "commit": "eed7d91",
     "branch": "main",
-    "verified": true,
-    "scope": "Bounded target-free reauth-proof validator remote-verified after fixture-only review/QA; no runtime mutation. Parent AC-04 transaction remains open."
+    "scope": "AC-06-R4 fixture-only owned delete receipt-contract review/QA record; the next release gate may proceed.",
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   },
   "merge": {
     "commit": "eed7d91",

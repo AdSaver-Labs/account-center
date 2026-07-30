@@ -196,13 +196,20 @@ function validateEvidence(value: MutationReceipt["evidence"]): MutationReceipt["
 function isEvidence(value: unknown): value is MutationEvidence {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Partial<MutationEvidence>;
+  // Evidence is a narrow persisted boundary. Do not silently retain fields
+  // that could be target- or credential-bearing merely because readers do not
+  // currently render them.
+  if (!hasOnlyKeys(item, ["receiptId", "verification", "liveRuntimeMutation", "proof"])) return false;
   if (!/^evt_[A-Za-z0-9_-]{1,100}$/.test(item.receiptId ?? "") || (item.verification !== "verified" && item.verification !== "unproven") || (item.liveRuntimeMutation !== undefined && typeof item.liveRuntimeMutation !== "boolean")) return false;
   if (item.proof === undefined) return true;
   const proof = item.proof;
-  return isProofAction(proof.nativeEvent?.action) && isProofIdentifier(proof.nativeEvent?.scopeId) && isProofIdentifier(proof.nativeEvent?.targetId) && proof.nativeEvent?.status === "verified" && proof.verification?.scopeId === proof.nativeEvent.scopeId && isRouteScopeEvidence(proof.verification.before) && isRouteScopeEvidence(proof.verification.after);
+  return hasOnlyKeys(proof, ["nativeEvent", "verification"]) &&
+    !!proof.nativeEvent && hasOnlyKeys(proof.nativeEvent, ["action", "scopeId", "targetId", "status"]) &&
+    !!proof.verification && hasOnlyKeys(proof.verification, ["scopeId", "before", "after"]) &&
+    isProofAction(proof.nativeEvent.action) && isProofIdentifier(proof.nativeEvent.scopeId) && isProofIdentifier(proof.nativeEvent.targetId) && proof.nativeEvent.status === "verified" && proof.verification.scopeId === proof.nativeEvent.scopeId && isRouteScopeEvidence(proof.verification.before) && isRouteScopeEvidence(proof.verification.after);
 }
 function cloneScopeEvidence(value: RouteScopeEvidence): RouteScopeEvidence { return { status: value.status, ...(value.activeTargetId ? { activeTargetId: value.activeTargetId } : {}), orderTargetIds: [...value.orderTargetIds] }; }
-function isRouteScopeEvidence(value: unknown): value is RouteScopeEvidence { return !!value && typeof value === "object" && !Array.isArray(value) && ((value as RouteScopeEvidence).status === "observed" || (value as RouteScopeEvidence).status === "absent") && (typeof (value as RouteScopeEvidence).activeTargetId === "undefined" || isProofIdentifier((value as RouteScopeEvidence).activeTargetId)) && Array.isArray((value as RouteScopeEvidence).orderTargetIds) && (value as RouteScopeEvidence).orderTargetIds.length <= 10 && (value as RouteScopeEvidence).orderTargetIds.every(isProofIdentifier); }
+function isRouteScopeEvidence(value: unknown): value is RouteScopeEvidence { return !!value && typeof value === "object" && !Array.isArray(value) && hasOnlyKeys(value, ["status", "activeTargetId", "orderTargetIds"]) && ((value as RouteScopeEvidence).status === "observed" || (value as RouteScopeEvidence).status === "absent") && (typeof (value as RouteScopeEvidence).activeTargetId === "undefined" || isProofIdentifier((value as RouteScopeEvidence).activeTargetId)) && Array.isArray((value as RouteScopeEvidence).orderTargetIds) && (value as RouteScopeEvidence).orderTargetIds.length <= 10 && (value as RouteScopeEvidence).orderTargetIds.every(isProofIdentifier); }
 function isProofIdentifier(value: unknown): value is string { return typeof value === "string" && /^id_[a-f0-9]{24}$/.test(value); }
 function isProofAction(value: unknown): value is string { return value === "route.auto" || value === "route.use" || value === "route.remove"; }
 function isAudit(value: unknown): value is MutationAudit {
@@ -221,3 +228,4 @@ function isTimestamp(value: unknown): value is string { return typeof value === 
 function isOutcome(value: unknown): value is MutationOutcome { return value === "applied" || value === "not_applied" || value === "blocked" || value === "failed"; }
 function isScopeKind(value: unknown): value is MutationScopeKind { return value === "agent" || value === "profile" || value === "session" || value === "default" || value === "all"; }
 function isAuditIdentifier(value: unknown): value is string { return typeof value === "string" && /^[a-z][a-z0-9._-]{0,63}$/.test(value); }
+function hasOnlyKeys(value: object, allowed: readonly string[]): boolean { return Object.keys(value).every((key) => allowed.includes(key)); }
