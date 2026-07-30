@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
-  "state": "REVIEWED",
-  "updatedAt": "2026-07-30T15:13:31Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-30T15:14:05Z",
   "candidate": "AC-06 exact-account credential-delete release gate: Account Center and Hermes consume Dexter's owned transaction through one versioned, target-free opaque receipt contract; all evidence is fixture-only and no live deletion is invoked.",
   "blockerResolutionPlan": {
     "kind": "ac06-owned-delete-transaction-receipt-contract",
@@ -22,17 +22,17 @@
     "noLiveRouteMutation": true
   },
   "previousMerge": {
-    "commit": "77efff01df0fbd595da753bf5931c7004c9df4ce",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-04-R9 target-free reauth completion-evidence boundary, adversarial fixture review, and deterministic QA/security; no native reauth transaction was invoked.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
-  },
-  "merge": {
     "commit": "51489fc9e8b8b66a562e2d740743dd35a6e65916",
     "branch": "main",
     "verified": true,
     "scope": "AC-05 route-only removal release review: exact scoped native contract and fresh proof fixtures, full deterministic QA/security, and preserved AC-06 owned-delete/Hermes receipt boundary.",
+    "recordedBy": "pushed to origin/main and verified against remote ref"
+  },
+  "merge": {
+    "commit": "ae7a17f02afa9d268a2aae0796567b77efa24407",
+    "branch": "main",
+    "verified": true,
+    "scope": "AC-06 owned exact-account delete transaction parity: shared opaque receipt contract, fixture-only Account Center/Hermes/Dexter coverage, and QA/security review; no native deletion was invoked.",
     "recordedBy": "pushed to origin/main and verified against remote ref"
   },
   "review": {
