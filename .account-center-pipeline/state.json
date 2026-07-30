@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-05",
-  "state": "REVIEWED",
-  "updatedAt": "2026-07-30T14:07:23Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-30T14:08:18Z",
   "candidate": "AC-05 route-only removal release gate: preserve the existing guarded implementation, verify its exact scoped native invocation and fresh route proof with fixtures, and merge only review/QA evidence without a credential-delete or live runtime operation.",
   "blockerResolutionPlan": {
     "kind": "ac05-route-only-release-gate",
@@ -22,17 +22,17 @@
     "noLiveRouteMutation": true
   },
   "previousMerge": {
-    "commit": "81fcaea87449a79695d81b62e75266c20903bdc8",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-04-R1 closed-schema replay evidence hardening, fixture review, and QA; next release gate may proceed.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
-  },
-  "merge": {
     "commit": "77efff01df0fbd595da753bf5931c7004c9df4ce",
     "branch": "main",
     "verified": true,
     "scope": "AC-04-R9 target-free reauth completion-evidence boundary, adversarial fixture review, and deterministic QA/security; no native reauth transaction was invoked.",
+    "recordedBy": "pushed to origin/main and verified against remote ref"
+  },
+  "merge": {
+    "commit": "51489fc9e8b8b66a562e2d740743dd35a6e65916",
+    "branch": "main",
+    "verified": true,
+    "scope": "AC-05 route-only removal release review: exact scoped native contract and fresh proof fixtures, full deterministic QA/security, and preserved AC-06 owned-delete/Hermes receipt boundary.",
     "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
