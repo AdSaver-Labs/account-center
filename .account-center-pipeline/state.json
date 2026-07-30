@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-04-R9",
-  "state": "REVIEWED",
-  "updatedAt": "2026-07-30T12:28:05Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-30T12:28:23Z",
   "candidate": "AC-04-R9 fixture-only reauth completion-evidence boundary: bind the existing fresh target-free proof validator to explicit readiness without any native login, credential write, route operation, or terminal completion claim.",
   "blockerResolutionPlan": {
     "kind": "ac04-r9-reauth-completion-evidence-boundary",
@@ -25,6 +25,13 @@
     "branch": "main",
     "verified": true,
     "scope": "AC-04-R1 closed-schema replay evidence hardening, fixture review, and QA; next release gate may proceed.",
+    "recordedBy": "pushed to origin/main and verified against remote ref"
+  },
+  "merge": {
+    "commit": "77efff01df0fbd595da753bf5931c7004c9df4ce",
+    "branch": "main",
+    "verified": true,
+    "scope": "AC-04-R9 target-free reauth completion-evidence boundary, adversarial fixture review, and deterministic QA/security; no native reauth transaction was invoked.",
     "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
