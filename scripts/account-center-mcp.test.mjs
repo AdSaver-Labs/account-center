@@ -57,6 +57,30 @@ test("MCP initializes and lists tools before ignored CLI build artifacts exist",
   }
 });
 
+test("MCP rejects a tampered public delete contract without running a native transaction", () => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-tampered-delete-contract-"));
+  const fixtureScripts = resolve(fixtureRoot, "scripts");
+  try {
+    mkdirSync(fixtureScripts, { recursive: true });
+    mkdirSync(resolve(fixtureRoot, "contracts"), { recursive: true });
+    copyFileSync(bridge, resolve(fixtureScripts, "account-center-mcp.mjs"));
+    writeFileSync(resolve(fixtureScripts, "chatops.mjs"), "throw new Error('must not run');\n");
+    const tampered = { ...deleteContract, public: { ...deleteContract.public, appliedText: "APPLIED private@example.test\n" } };
+    writeFileSync(resolve(fixtureRoot, "contracts", "owned-delete-receipt.v1.json"), JSON.stringify(tampered));
+    const request = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "account_center_auth", arguments: { command: "/auth delete opaque" } } };
+    const result = spawnSync(process.execPath, [resolve(fixtureScripts, "account-center-mcp.mjs")], {
+      cwd: fixtureRoot, input: `${JSON.stringify(request)}\n`, encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const response = JSON.parse(result.stdout.trim());
+    assert.equal(response.result.isError, true);
+    assert.equal(response.result.content[0].text, DELETE_UNPROVEN_TEXT);
+    assert.equal(JSON.stringify(response).includes("private@example.test"), false);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("MCP describes delete as the canonical fail-closed transaction contract", () => {
   const request = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
   const response = callRequest(request);

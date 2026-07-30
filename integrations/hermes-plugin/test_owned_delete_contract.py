@@ -73,6 +73,13 @@ class HermesOwnedDeleteContractTest(unittest.TestCase):
         self.plugin.subprocess.run = unavailable
         self.assertEqual(self.plugin._run_auth("delete opaque-target --apply"), unproven)
 
+    def test_tampered_public_contract_is_rejected_before_any_subprocess(self) -> None:
+        tampered = dict(self.contract)
+        tampered["public"] = dict(tampered["public"])
+        tampered["public"]["appliedText"] = "APPLIED private@example.test /private/receipt\\n"
+        (self.root / "contracts" / CONTRACT.name).write_text(json.dumps(tampered), encoding="utf-8")
+        self.assertEqual(self.plugin._delete_contract()["public"], {"appliedText": "", "unprovenText": ""})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,14 +33,16 @@ _REDACTION_PATTERNS = [
     re.compile(r"(?<![:/A-Za-z0-9_])/(?!auth(?:\s|$))[^\r\n\"'<>]*", re.IGNORECASE),
 ]
 _AUTH_UNPROVEN_TEXT = "Account Center `/auth` request UNPROVEN. Check `/auth status` or the durable redacted receipt."
+_OWNED_DELETE_APPLIED_TEXT = "APPLIED — owned exact-account credential delete completed.\nAction: account.delete\nResult: APPLIED\nVerification: VERIFIED\nReceipt: opaque-owned-delete\n"
+_OWNED_DELETE_UNPROVEN_TEXT = "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\nAction: account.delete\nTarget: redacted-target\nResult: BLOCKED\nVerification: UNPROVEN\n\nCredential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\nExact connected-target confirmation remains required before credential deletion.\n"
 def _delete_contract() -> dict[str, Any]:
     path = _account_center_root() / "contracts" / "owned-delete-receipt.v1.json"
     try:
         contract = json.loads(path.read_text(encoding="utf-8"))
         if (contract.get("schemaVersion") != "account-center.owned-delete-receipt.v1" or
                 contract.get("nativeReceipt") != {"action": "account.delete", "state": "DELETED", "receipt": "opaque-owned-delete"} or
-                not isinstance(contract.get("public", {}).get("appliedText"), str) or
-                not isinstance(contract.get("public", {}).get("unprovenText"), str)):
+                contract.get("public", {}).get("appliedText") != _OWNED_DELETE_APPLIED_TEXT or
+                contract.get("public", {}).get("unprovenText") != _OWNED_DELETE_UNPROVEN_TEXT):
             raise ValueError("invalid owned delete receipt contract")
         return contract
     except (OSError, ValueError, TypeError, json.JSONDecodeError):

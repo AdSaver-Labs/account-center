@@ -5,7 +5,20 @@ import { runCli } from "../packages/cli/dist/index.js";
 import { tokenizeAuthCommand } from "../packages/cli/dist/auth-bridge.js";
 
 const message = process.argv.slice(2).join(" ").trim();
-const DELETE_UNPROVEN_TEXT = JSON.parse(readFileSync(resolve(import.meta.dirname, "..", "contracts", "owned-delete-receipt.v1.json"), "utf8")).public.unprovenText;
+const OWNED_DELETE_UNPROVEN_TEXT = "DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\nAction: account.delete\nTarget: redacted-target\nResult: BLOCKED\nVerification: UNPROVEN\n\nCredential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\nExact connected-target confirmation remains required before credential deletion.\n";
+const OWNED_DELETE_APPLIED_TEXT = "APPLIED — owned exact-account credential delete completed.\nAction: account.delete\nResult: APPLIED\nVerification: VERIFIED\nReceipt: opaque-owned-delete\n";
+function loadDeleteContract() {
+  const contract = JSON.parse(readFileSync(resolve(import.meta.dirname, "..", "contracts", "owned-delete-receipt.v1.json"), "utf8"));
+  if (contract?.schemaVersion !== "account-center.owned-delete-receipt.v1" ||
+      contract?.nativeReceipt?.action !== "account.delete" ||
+      contract?.nativeReceipt?.state !== "DELETED" ||
+      contract?.nativeReceipt?.receipt !== "opaque-owned-delete" ||
+      contract?.public?.appliedText !== OWNED_DELETE_APPLIED_TEXT ||
+      contract?.public?.unprovenText !== OWNED_DELETE_UNPROVEN_TEXT) throw new Error("owned_delete_receipt_contract_invalid");
+  return contract;
+}
+let deleteContractValid = false;
+try { loadDeleteContract(); deleteContractValid = true; } catch { /* fail closed */ }
 if (!message) {
   console.error("Usage: node scripts/chatops.mjs '/auth status --json'");
   process.exit(1);
@@ -16,6 +29,11 @@ if (!message.startsWith("/auth")) {
   process.exit(1);
 }
 
+if (!deleteContractValid && /^\/auth\s+delete(?:\s|$)/i.test(message)) {
+  process.stdout.write(OWNED_DELETE_UNPROVEN_TEXT);
+  process.exit(2);
+}
+
 let tokens;
 try {
   tokens = tokenizeAuthCommand(message);
@@ -24,7 +42,7 @@ try {
   // the shared Hermes/Dexter credential-delete boundary at its two canonical,
   // target-free outcomes even for malformed quoted operands.
   if (/^\/auth\s+delete(?:\s|$)/i.test(message)) {
-    process.stdout.write(DELETE_UNPROVEN_TEXT);
+    process.stdout.write(OWNED_DELETE_UNPROVEN_TEXT);
     process.exit(2);
   }
   console.error("Invalid Account Center command.");

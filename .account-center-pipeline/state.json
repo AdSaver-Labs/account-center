@@ -2,15 +2,16 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-30T15:14:05Z",
-  "candidate": "AC-06 exact-account credential-delete release gate: Account Center and Hermes consume Dexter's owned transaction through one versioned, target-free opaque receipt contract; all evidence is fixture-only and no live deletion is invoked.",
+  "updatedAt": "2026-07-30T15:48:00Z",
+  "candidate": "AC-06 blocker resolution R3: make the versioned opaque receipt contract content-safe and fail closed across CLI, ChatOps, MCP, and Hermes with fixture-only tests; retain the owned Dexter exact-account transaction and do not invoke it.",
   "blockerResolutionPlan": {
-    "kind": "ac06-owned-delete-transaction-receipt-contract",
+    "kind": "ac06-opaque-receipt-contract-integrity-r3",
+    "planRecord": ".account-center-pipeline/AC-06-BLOCKER-RESOLUTION-R3.md",
     "boundedSteps": [
-      "Verify the pinned owned Dexter transaction is a regular owner-only file with the reviewed SHA-256, without invoking it.",
-      "Exercise Account Center fixture adapters for exact canonical identity, trusted owned invocation, opaque receipt acceptance, and fail-closed malformed/native-failure paths.",
-      "Exercise Hermes fixture bridge against the same versioned opaque receipt contract; mock all subprocess execution and prohibit live deletion.",
-      "Run deterministic build, full tests, review/security QA, and preserve Sentinel full /auth formatting and weekly-only capacity policy before merge review."
+      "Reject altered, empty, or unsafe public receipt text while retaining the native sentinel validation.",
+      "Apply the same validation to CLI, ChatOps, MCP, and Hermes delete boundaries.",
+      "Add fixture-only tampered-contract coverage with subprocess execution mocked.",
+      "Run build, tests, security QA, and review before a merge decision."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -28,18 +29,19 @@
     "scope": "AC-05 route-only removal release review: exact scoped native contract and fresh proof fixtures, full deterministic QA/security, and preserved AC-06 owned-delete/Hermes receipt boundary.",
     "recordedBy": "pushed to origin/main and verified against remote ref"
   },
-  "merge": {
-    "commit": "ae7a17f02afa9d268a2aae0796567b77efa24407",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-06 owned exact-account delete transaction parity: shared opaque receipt contract, fixture-only Account Center/Hermes/Dexter coverage, and QA/security review; no native deletion was invoked.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
-  },
   "review": {
     "spec": "passed",
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "ownedTransactionVerified": "regular owner-only file and pinned SHA-256"
+    "ownedTransactionVerified": "regular owner-only file and pinned SHA-256",
+    "evidence": "npm run test: 260 Node fixture/mock tests and 19 Hermes-plugin tests; npm run qa:security: typecheck/build, 15 Playwright/axe checks, 145-file secret scan, npm audit 0 vulnerabilities."
+  },
+  "merge": {
+    "commit": "pending-amend",
+    "branch": "main",
+    "verified": false,
+    "scope": "AC-06 receipt-contract integrity: fixed public bytes enforced across CLI, Dexter ChatOps, MCP, and Hermes; fixture-only tamper tests; owned transaction retained and not invoked.",
+    "recordedBy": "local merge candidate pending remote verification"
   }
 }

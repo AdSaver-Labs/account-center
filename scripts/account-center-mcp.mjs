@@ -12,6 +12,9 @@ const ALLOW_MUTATIONS = process.env.ACCOUNT_CENTER_MCP_ALLOW_MUTATIONS === '1';
 const DEFAULT_SOURCE = process.env.ACCOUNT_CENTER_SOURCE || 'openclaw';
 const MAX_OUTPUT = 12000;
 const OPAQUE_FAILURE_TEXT = 'Account Center request UNPROVEN.\n';
+const OWNED_DELETE_APPLIED_TEXT = 'APPLIED — owned exact-account credential delete completed.\nAction: account.delete\nResult: APPLIED\nVerification: VERIFIED\nReceipt: opaque-owned-delete\n';
+const OWNED_DELETE_UNPROVEN_TEXT = 'DRY RUN — no account was deleted and no live Sentinel/OpenClaw store was changed.\nAction: account.delete\nTarget: redacted-target\nResult: BLOCKED\nVerification: UNPROVEN\n\nCredential deletion is UNPROVEN; the owned exact-account transaction did not produce verified evidence.\nExact connected-target confirmation remains required before credential deletion.\n';
+let deleteContractValid = true;
 const DELETE_CONTRACT_PATH = resolve(ROOT, 'contracts', 'owned-delete-receipt.v1.json');
 const DELETE_CONTRACT = loadDeleteContract();
 const DELETE_UNPROVEN_TEXT = DELETE_CONTRACT.public.unprovenText;
@@ -30,13 +33,14 @@ function loadDeleteContract() {
         contract?.nativeReceipt?.action !== 'account.delete' ||
         contract?.nativeReceipt?.state !== 'DELETED' ||
         contract?.nativeReceipt?.receipt !== 'opaque-owned-delete' ||
-        typeof contract?.public?.appliedText !== 'string' ||
-        typeof contract?.public?.unprovenText !== 'string') throw new Error('invalid');
+        contract?.public?.appliedText !== OWNED_DELETE_APPLIED_TEXT ||
+        contract?.public?.unprovenText !== OWNED_DELETE_UNPROVEN_TEXT) throw new Error('invalid');
     return contract;
   } catch {
+    deleteContractValid = false;
     // MCP must initialize even if a partial checkout is being inspected. Auth
-    // calls remain fail-closed below because no canonical contract is present.
-    return { public: { appliedText: '', unprovenText: '' } };
+    // delete calls remain fail-closed to the built-in fixed UNPROVEN bytes.
+    return { public: { appliedText: OWNED_DELETE_APPLIED_TEXT, unprovenText: OWNED_DELETE_UNPROVEN_TEXT } };
   }
 }
 
@@ -121,6 +125,7 @@ function opaqueFailure(deleteRequest = false) {
 async function runAuth(command) {
   const normalized = normalizeCommand(command);
   const deleteRequest = /^\/auth\s+delete(?:\s|$)/i.test(normalized);
+  if (deleteRequest && !deleteContractValid) return opaqueFailure(true);
   if (deleteRequest && (!DELETE_APPLIED_TEXT || !DELETE_UNPROVEN_TEXT)) return opaqueFailure(false);
   let inspection;
   try {
