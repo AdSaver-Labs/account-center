@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-04-R9",
-  "state": "MERGED",
-  "updatedAt": "2026-07-30T12:28:23Z",
-  "candidate": "AC-04-R9 fixture-only reauth completion-evidence boundary: bind the existing fresh target-free proof validator to explicit readiness without any native login, credential write, route operation, or terminal completion claim.",
+  "activeCheckpoint": "AC-05",
+  "state": "REVIEWED",
+  "updatedAt": "2026-07-30T14:07:23Z",
+  "candidate": "AC-05 route-only removal release gate: preserve the existing guarded implementation, verify its exact scoped native invocation and fresh route proof with fixtures, and merge only review/QA evidence without a credential-delete or live runtime operation.",
   "blockerResolutionPlan": {
-    "kind": "ac04-r9-reauth-completion-evidence-boundary",
+    "kind": "ac05-route-only-release-gate",
     "boundedSteps": [
-      "Inspect only the bounded reauth proof/export boundary.",
-      "Add a pure target-free readiness result and adversarial fixtures.",
-      "Keep all native/runtime mutation paths disconnected.",
-      "Run focused and full deterministic QA/security before review."
+      "Inspect the existing route.remove adapter and shared review/idempotency lifecycle only.",
+      "Exercise fixture runners that prove the exact scoped native remove invocation and fresh post-operation route proof.",
+      "Prove remove cannot invoke the owned credential-delete transaction and keeps public receipts redacted.",
+      "Run deterministic review and full QA/security before recording a merge decision."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -18,7 +18,8 @@
     "preserveSentinelAuthFormat": true,
     "preserveOwnedDeleteTransaction": true,
     "preserveOpaqueNativeDeleteReceiptContract": true,
-    "preserveDexterAuthDeleteCommand": true
+    "preserveDexterAuthDeleteCommand": true,
+    "noLiveRouteMutation": true
   },
   "previousMerge": {
     "commit": "81fcaea87449a79695d81b62e75266c20903bdc8",
