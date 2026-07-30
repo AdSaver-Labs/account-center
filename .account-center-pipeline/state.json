@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-05",
-  "state": "MERGED",
-  "updatedAt": "2026-07-30T14:08:18Z",
-  "candidate": "AC-05 route-only removal release gate: preserve the existing guarded implementation, verify its exact scoped native invocation and fresh route proof with fixtures, and merge only review/QA evidence without a credential-delete or live runtime operation.",
+  "activeCheckpoint": "AC-06",
+  "state": "REVIEWED",
+  "updatedAt": "2026-07-30T15:13:31Z",
+  "candidate": "AC-06 exact-account credential-delete release gate: Account Center and Hermes consume Dexter's owned transaction through one versioned, target-free opaque receipt contract; all evidence is fixture-only and no live deletion is invoked.",
   "blockerResolutionPlan": {
-    "kind": "ac05-route-only-release-gate",
+    "kind": "ac06-owned-delete-transaction-receipt-contract",
     "boundedSteps": [
-      "Inspect the existing route.remove adapter and shared review/idempotency lifecycle only.",
-      "Exercise fixture runners that prove the exact scoped native remove invocation and fresh post-operation route proof.",
-      "Prove remove cannot invoke the owned credential-delete transaction and keeps public receipts redacted.",
-      "Run deterministic review and full QA/security before recording a merge decision."
+      "Verify the pinned owned Dexter transaction is a regular owner-only file with the reviewed SHA-256, without invoking it.",
+      "Exercise Account Center fixture adapters for exact canonical identity, trusted owned invocation, opaque receipt acceptance, and fail-closed malformed/native-failure paths.",
+      "Exercise Hermes fixture bridge against the same versioned opaque receipt contract; mock all subprocess execution and prohibit live deletion.",
+      "Run deterministic build, full tests, review/security QA, and preserve Sentinel full /auth formatting and weekly-only capacity policy before merge review."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -34,5 +34,12 @@
     "verified": true,
     "scope": "AC-05 route-only removal release review: exact scoped native contract and fresh proof fixtures, full deterministic QA/security, and preserved AC-06 owned-delete/Hermes receipt boundary.",
     "recordedBy": "pushed to origin/main and verified against remote ref"
+  },
+  "review": {
+    "spec": "passed",
+    "quality": "passed",
+    "qaSecurity": "passed",
+    "liveDeletionExecuted": false,
+    "ownedTransactionVerified": "regular owner-only file and pinned SHA-256"
   }
 }
