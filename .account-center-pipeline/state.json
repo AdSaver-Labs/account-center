@@ -1,7 +1,7 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
-  "state": "PLANNED",
+  "state": "MERGED",
   "updatedAt": "2026-07-31T15:41:16Z",
   "candidate": "AC-07 R2: repair the invalid locked pipeline JSON record while retaining the R1 shared executor review and AC-06 owned delete/Sentinel/weekly-only invariants.",
   "blockerResolutionPlan": {
@@ -34,13 +34,13 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "AC-07 R1 passed on current main: npm run qa:security completed 261 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, a 152-file tracked secret scan, and npm audit with 0 high vulnerabilities. Static py_compile passed for the owned helper and Hermes bridge. Tests cover the shared review/capability/idempotency lifecycle, direct-adapter forgery rejection, exact owned-helper path, malformed/unverified/mismatched native receipts, and Hermes/Dexter/MCP exact opaque contract parity. No native helper execution, live deletion, interactive login, provider request, credential/store write, route mutation, or runtime operation occurred."
+    "evidence": "AC-07 R2 verified the repaired locked state is canonical JSON. R1's current-revision fixture-only QA remains valid: npm run qa:security passed 261 Node tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, a 152-file secret scan, and npm audit with 0 high vulnerabilities; py_compile passed for the owned helper and Hermes bridge. The owned helper was not executed and no live deletion, login, provider request, credential/store write, route mutation, or runtime operation occurred."
   },
   "merge": {
-    "commit": "pending corrected pipeline evidence",
+    "commit": "ac090dd3fc3c9aabb539fbb76b427a683022f96d",
     "branch": "main",
-    "verified": false,
-    "scope": "AC-07 R2 pipeline-record format repair; no product mutation.",
-    "recordedBy": "pending corrected JSON verification"
+    "verified": true,
+    "scope": "AC-07 R1/R2 fixture-only shared mutation executor and locked-pipeline record release gate; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "AC-07 R2 release evidence; corrected state parsed, was pushed to origin/main, and remote equality was verified."
   }
 }
