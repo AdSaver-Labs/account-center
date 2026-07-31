@@ -157,6 +157,34 @@ test("Hermes and Dexter share the fixture-only ChatOps delete transport and exac
   }
 });
 
+test("Dexter ChatOps fails closed when a mocked successful delete output is not the exact opaque receipt", () => {
+  const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-dexter-delete-boundary-"));
+  const fixtureScripts = resolve(fixtureRoot, "scripts");
+  const fixtureChatops = resolve(fixtureScripts, "chatops.mjs");
+  mkdirSync(resolve(fixtureRoot, "packages/cli/dist"), { recursive: true });
+  mkdirSync(fixtureScripts, { recursive: true });
+  mkdirSync(resolve(fixtureRoot, "contracts"), { recursive: true });
+  copyFileSync(chatops, fixtureChatops);
+  copyFileSync(resolve(root, "contracts", "owned-delete-receipt.v1.json"), resolve(fixtureRoot, "contracts", "owned-delete-receipt.v1.json"));
+  writeFileSync(resolve(fixtureRoot, "package.json"), '{"type":"module"}\n');
+  writeFileSync(resolve(fixtureRoot, "packages/cli/dist/auth-bridge.js"), 'export function tokenizeAuthCommand(value) { return value.trim().replace(/^\\/auth\\s*/, "").split(/\\s+/); }\n');
+  writeFileSync(resolve(fixtureRoot, "packages/cli/dist/index.js"), 'export async function runCli() { return { code: 0, stdout: process.env.FIXTURE_DELETE_OUTPUT, stderr: "private@example.test /private/receipt.json" }; }\n');
+  try {
+    const result = spawnSync(process.execPath, [fixtureChatops, "/auth delete opaque --apply"], {
+      cwd: fixtureRoot,
+      encoding: "utf8",
+      env: { ...process.env, FIXTURE_DELETE_OUTPUT: `${DELETE_APPLIED_TEXT}private@example.test\n` },
+    });
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, DELETE_UNPROVEN_TEXT);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout.includes("private@example.test"), false);
+    assert.equal(result.stdout.includes("private/receipt"), false);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("MCP forwards only the two canonical opaque delete contracts from the shared Dexter wrapper", () => {
   const fixtureRoot = mkdtempSync(resolve(tmpdir(), "account-center-mcp-delete-contract-"));
   const fixtureScripts = resolve(fixtureRoot, "scripts");

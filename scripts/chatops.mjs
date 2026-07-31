@@ -53,10 +53,29 @@ try {
 // adapter/process diagnostic escape that canonical public contract.
 try {
   const result = await runCli(["auth", ...tokens]);
-  if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : `${result.stdout}\n`);
-  if (result.stderr) process.stderr.write(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
-  process.exitCode = result.code;
+  if (tokens[0]?.toLowerCase() === "delete") {
+    // This is the public boundary for the direct Dexter command as well as
+    // Hermes. Never relay a native/process diagnostic, even when it carries a
+    // successful exit code: one exact verified opaque receipt is the sole
+    // applied result; every other outcome is unproven.
+    if (result.code === 0 && result.stdout === OWNED_DELETE_APPLIED_TEXT) {
+      process.stdout.write(OWNED_DELETE_APPLIED_TEXT);
+      process.exitCode = 0;
+    } else {
+      process.stdout.write(OWNED_DELETE_UNPROVEN_TEXT);
+      process.exitCode = 2;
+    }
+  } else {
+    if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : `${result.stdout}\n`);
+    if (result.stderr) process.stderr.write(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
+    process.exitCode = result.code;
+  }
 } catch {
-  console.error("Account Center /auth request UNPROVEN.");
-  process.exitCode = 2;
+  if (tokens[0]?.toLowerCase() === "delete") {
+    process.stdout.write(OWNED_DELETE_UNPROVEN_TEXT);
+    process.exitCode = 2;
+  } else {
+    console.error("Account Center /auth request UNPROVEN.");
+    process.exitCode = 2;
+  }
 }
