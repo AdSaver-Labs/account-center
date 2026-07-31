@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T18:30:56Z",
+  "updatedAt": "2026-07-31T18:31:11Z",
   "candidate": "SC-03: current main model-policy truth contract reconciliation; separate catalog, requested policy, effective runtime selection, fallback, eligibility, and verification without a mutation path.",
   "blockerResolutionPlan": {
     "kind": "sc03-current-revision-model-truth-release-plan",
@@ -43,6 +43,6 @@
     "branch": "main",
     "verified": true,
     "scope": "SC-03 model-truth contract hardening for malformed, stale, contradictory, cross-runtime, and unsupported evidence; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "SC-03 coordinator review; code commit pushed to origin/main and remote equality pending final state-record push."
+    "recordedBy": "SC-03 coordinator review; code and final state-record commits were pushed to origin/main and remote equality was verified."
   }
 }
