@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T13:46:00Z",
+  "updatedAt": "2026-07-31T13:47:00Z",
   "candidate": "AC-06 R8: reconcile the already committed Dexter canonical-output boundary with the Account Center/Hermes owned exact-account transaction and one opaque receipt contract; retain full Sentinel /auth format and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
     "kind": "ac06-release-evidence-reconciliation-r8",
@@ -41,6 +41,7 @@
     "branch": "main",
     "verified": true,
     "scope": "AC-06 R7/R8 release gate: Account Center and Hermes retain the owned exact-account delete transaction and single opaque receipt contract; Dexter /auth delete is sealed to the exact same two canonical outputs; full Sentinel /auth and Hermes/Dexter weekly-only policy retained.",
-    "recordedBy": "fixture-only review/QA passed; boundary commit verified on origin/main before release-evidence reconciliation"
+    "recordedBy": "pushed to origin/main and verified against remote ref; boundary commit and release-evidence record are both on main",
+    "releaseEvidenceCommit": "f86dd447f23a54dcdef8d4f6d53be9d31d446bd3"
   }
 }
