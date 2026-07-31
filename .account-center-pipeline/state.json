@@ -1,17 +1,17 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06",
-  "state": "MERGED",
-  "updatedAt": "2026-07-31T13:47:00Z",
-  "candidate": "AC-06 R8: reconcile the already committed Dexter canonical-output boundary with the Account Center/Hermes owned exact-account transaction and one opaque receipt contract; retain full Sentinel /auth format and Hermes/Dexter weekly-only policy.",
+  "activeCheckpoint": "AC-07",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-31T15:40:09Z",
+  "candidate": "AC-07 R1: current-revision fixture-only reconciliation of the shared mutation executor while preserving the AC-06 owned exact-account delete, one opaque receipt contract, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
   "blockerResolutionPlan": {
-    "kind": "ac06-release-evidence-reconciliation-r8",
-    "planRecord": ".account-center-pipeline/AC-06-BLOCKER-RESOLUTION-R8.md",
+    "kind": "ac07-current-revision-executor-evidence-reconciliation-r1",
+    "planRecord": ".account-center-pipeline/AC-07-BLOCKER-RESOLUTION-R1.md",
     "boundedSteps": [
-      "Preserve the committed candidate and all owned-delete/Sentinel/weekly-only invariants.",
-      "Run only fixture/mock tests and security QA; no native helper execution or live deletion.",
-      "Review diff, clean tree, remote equality, and owned-helper trust pin.",
-      "Record and push only verified pipeline evidence."
+      "Preserve the committed executor and all AC-06/Sentinel/weekly-only invariants.",
+      "Run fixture/mock-only QA-security and static compilation; never execute the native helper or a live mutation.",
+      "Verify contract consumers, owned-helper trust pin, diff, clean tree, and remote equality.",
+      "Record and push only verified pipeline evidence if every check passes."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
