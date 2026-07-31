@@ -1,17 +1,17 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
-  "state": "MERGED",
+  "state": "PLANNED",
   "updatedAt": "2026-07-31T15:41:16Z",
-  "candidate": "AC-07 R1: current-revision fixture-only reconciliation of the shared mutation executor while preserving the AC-06 owned exact-account delete, one opaque receipt contract, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
+  "candidate": "AC-07 R2: repair the invalid locked pipeline JSON record while retaining the R1 shared executor review and AC-06 owned delete/Sentinel/weekly-only invariants.",
   "blockerResolutionPlan": {
-    "kind": "ac07-current-revision-executor-evidence-reconciliation-r1",
-    "planRecord": ".account-center-pipeline/AC-07-BLOCKER-RESOLUTION-R1.md",
+    "kind": "ac07-pipeline-record-format-repair-r2",
+    "planRecord": ".account-center-pipeline/AC-07-BLOCKER-RESOLUTION-R2.md",
     "boundedSteps": [
-      "Preserve the committed executor and all AC-06/Sentinel/weekly-only invariants.",
-      "Run fixture/mock-only QA-security and static compilation; never execute the native helper or a live mutation.",
-      "Verify contract consumers, owned-helper trust pin, diff, clean tree, and remote equality.",
-      "Record and push only verified pipeline evidence if every check passes."
+      "Preserve the reviewed R1 candidate and all AC-06/Sentinel/weekly-only invariants.",
+      "Repair and parse the locked JSON state under exclusive lock.",
+      "Recheck fixture-only evidence, diff, clean tree, and remote equality without native execution or live mutation.",
+      "Commit and push only corrected pipeline evidence if every check passes."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -37,10 +37,10 @@
     "evidence": "AC-07 R1 passed on current main: npm run qa:security completed 261 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, a 152-file tracked secret scan, and npm audit with 0 high vulnerabilities. Static py_compile passed for the owned helper and Hermes bridge. Tests cover the shared review/capability/idempotency lifecycle, direct-adapter forgery rejection, exact owned-helper path, malformed/unverified/mismatched native receipts, and Hermes/Dexter/MCP exact opaque contract parity. No native helper execution, live deletion, interactive login, provider request, credential/store write, route mutation, or runtime operation occurred."
   },
   "merge": {
-    "commit": "pending pipeline evidence commit",
+    "commit": "pending corrected pipeline evidence",
     "branch": "main",
     "verified": false,
-    "scope": "AC-07 R1 fixture-only shared mutation executor release gate; AC-06 owned transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "pending commit/push/remote equality verification"
+    "scope": "AC-07 R2 pipeline-record format repair; no product mutation.",
+    "recordedBy": "pending corrected JSON verification"
   }
-}\n
+}
