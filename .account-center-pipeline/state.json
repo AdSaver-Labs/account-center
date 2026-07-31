@@ -1,17 +1,17 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06",
+  "activeCheckpoint": "AC-03",
   "state": "MERGED",
-  "updatedAt": "2026-07-30T15:48:00Z",
-  "candidate": "AC-06 blocker resolution R3: make the versioned opaque receipt contract content-safe and fail closed across CLI, ChatOps, MCP, and Hermes with fixture-only tests; retain the owned Dexter exact-account transaction and do not invoke it.",
+  "updatedAt": "2026-07-31T03:36:49Z",
+  "candidate": "AC-03 durable guided-auth lifecycle release gate: close start/cancel/expire/complete/verified-failure coverage with fixture-only, redacted lifecycle evidence; preserve the owned AC-06 transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and working Dexter /auth delete command.",
   "blockerResolutionPlan": {
-    "kind": "ac06-opaque-receipt-contract-integrity-r3",
-    "planRecord": ".account-center-pipeline/AC-06-BLOCKER-RESOLUTION-R3.md",
+    "kind": "ac03-durable-guided-auth-lifecycle-release-gate",
+    "planRecord": ".account-center-pipeline/AC-03.md",
     "boundedSteps": [
-      "Reject altered, empty, or unsafe public receipt text while retaining the native sentinel validation.",
-      "Apply the same validation to CLI, ChatOps, MCP, and Hermes delete boundaries.",
-      "Add fixture-only tampered-contract coverage with subprocess execution mocked.",
-      "Run build, tests, security QA, and review before a merge decision."
+      "Inventory fixture-only durable guided-auth lifecycle transitions and public projections.",
+      "Fail closed for malformed, expired, repeated, hostile, terminal, or proof-bearing lifecycle records without retaining raw targets or credentials.",
+      "Add only demonstrated fixture coverage gaps; do not invoke native helpers or live adapters.",
+      "Run focused tests, full QA/security, review, and merge only after every gate is green."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -23,10 +23,10 @@
     "noLiveRouteMutation": true
   },
   "previousMerge": {
-    "commit": "51489fc9e8b8b66a562e2d740743dd35a6e65916",
+    "commit": "8f7108b5c633262e09e9aa64e796ea7061f577ee",
     "branch": "main",
     "verified": true,
-    "scope": "AC-05 route-only removal release review: exact scoped native contract and fresh proof fixtures, full deterministic QA/security, and preserved AC-06 owned-delete/Hermes receipt boundary.",
+    "scope": "AC-06 receipt-contract integrity: fixed public bytes enforced across CLI, Dexter ChatOps, MCP, and Hermes; fixture-only tamper tests; owned transaction retained and not invoked.",
     "recordedBy": "pushed to origin/main and verified against remote ref"
   },
   "review": {
@@ -34,14 +34,14 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "ownedTransactionVerified": "regular owner-only file and pinned SHA-256",
-    "evidence": "npm run test: 260 Node fixture/mock tests and 19 Hermes-plugin tests; npm run qa:security: typecheck/build, 15 Playwright/axe checks, 145-file secret scan, npm audit 0 vulnerabilities."
+    "ac06ReleaseRevalidation": "passed: npm run qa:security (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; diff check clean.",
+    "evidence": "AC-03 fixture-only lifecycle review passed: durable records reject malformed, terminal, proof-bearing, verified, repeated, expired, and unsafe metadata; projections remain target-free. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
   },
   "merge": {
-    "commit": "8f7108b5c633262e09e9aa64e796ea7061f577ee",
+    "commit": "d89a6142bf09b596f788022475add0fff7da4626",
     "branch": "main",
-    "verified": true,
-    "scope": "AC-06 receipt-contract integrity: fixed public bytes enforced across CLI, Dexter ChatOps, MCP, and Hermes; fixture-only tamper tests; owned transaction retained and not invoked.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
+    "verified": false,
+    "scope": "AC-03 durable guided-auth lifecycle gate: fixture-only redacted durable lifecycle review and full QA; AC-06 owned-delete transaction and opaque receipt contract retained.",
+    "recordedBy": "committed locally; origin/main verification pending"
   }
 }
