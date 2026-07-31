@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-31T17:20:33Z",
+  "state": "EXECUTING",
+  "updatedAt": "2026-07-31T18:30:40Z",
   "candidate": "SC-03: current main model-policy truth contract reconciliation; separate catalog, requested policy, effective runtime selection, fallback, eligibility, and verification without a mutation path.",
   "blockerResolutionPlan": {
     "kind": "sc03-current-revision-model-truth-release-plan",

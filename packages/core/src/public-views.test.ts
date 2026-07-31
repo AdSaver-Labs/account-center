@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publicDoctorView, publicRuntimeScopeCatalogView, publicStatusView } from "./public-views.js";
+import { publicDoctorView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView } from "./public-views.js";
 import type { AccountCenterStatus } from "./schemas.js";
 
 const hostileValues = [
@@ -101,4 +101,60 @@ test("public runtime scope catalog omits distinct unknown runtime keys without c
     generatedAt: "2026-07-17T12:00:00.000Z",
     scopes: [{ runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }]
   });
+});
+
+test("model truth remains bounded when catalog evidence is missing, malformed, stale, contradictory, or cross-runtime", () => {
+  const status = {
+    schemaVersion: "account-center.status.v1",
+    generatedAt: "not-a-timestamp",
+    noSecrets: true,
+    source: "fixture",
+    providers: [], runtimes: [], routes: [], leases: [], reauth: [], audit: [], warnings: [],
+    policy: { disabledModels: ["openai/gpt-5.5", "/private/policy-model", 7] },
+    profiles: [
+      // A stale/unreadable Hermes observation is catalog evidence only; it
+      // cannot become selection, eligibility, fallback, or verification.
+      { models: ["openai/gpt-5.5", "private/provider-model"], runtimeCompatibility: ["hermes"], usage: { readable: false, generatedAt: "1999-01-01T00:00:00.000Z" } },
+      // This contradictory OpenClaw entry cannot bleed into Hermes scope.
+      { models: ["openai/gpt-5.3-codex"], runtimeCompatibility: ["openclaw"], usage: { readable: true } },
+      // Adapter-shape failures are ignored rather than rendered or throwing.
+      { models: "openai/gpt-4.1", runtimeCompatibility: "hermes", usage: null }
+    ]
+  } as unknown as AccountCenterStatus;
+
+  assert.deepEqual(publicModelCatalogView(status, "hermes"), {
+    schemaVersion: "account-center.models.v1",
+    generatedAt: "unknown",
+    selection: {
+      requestedPolicy: { state: "not_reported" },
+      effectiveRuntimeModel: { state: "not_reported" },
+      fallbackChain: { state: "not_reported" },
+      verificationState: "UNPROVEN"
+    },
+    models: [{
+      id: "openai/gpt-5.3-codex",
+      selectable: true,
+      observedProfileCount: 0,
+      readableProfileCount: 0,
+      runtimeCompatibility: [],
+      verificationState: "UNPROVEN"
+    }, {
+      id: "openai/gpt-5.5",
+      selectable: false,
+      reason: "disabled_by_policy",
+      observedProfileCount: 1,
+      readableProfileCount: 0,
+      runtimeCompatibility: ["hermes"],
+      verificationState: "UNPROVEN"
+    }]
+  });
+
+  // An unsupported selected runtime is not a license to borrow observations.
+  // The known catalog remains visible, but every scoped observation is empty.
+  const unsupported = publicModelCatalogView(status, "invented-runtime");
+  assert.deepEqual(unsupported.models.map((model) => ({ id: model.id, observed: model.observedProfileCount, compatibility: model.runtimeCompatibility })), [
+    { id: "openai/gpt-5.3-codex", observed: 0, compatibility: [] },
+    { id: "openai/gpt-5.5", observed: 0, compatibility: [] }
+  ]);
+  assert.equal(JSON.stringify(unsupported).match(/private|1999|invented-runtime/i), null);
 });

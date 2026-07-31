@@ -136,9 +136,20 @@ export function publicDoctorView(source: RuntimeSource | string, report: unknown
  * status is schema-valid but still untrusted for public labels.
  */
 export function publicModelCatalogView(status: AccountCenterStatus, runtime?: string): PublicModelCatalogView {
+  // This is deliberately more defensive than the internal status schema. The
+  // projection is consumed by API, CLI, MCP, ChatOps, and the control panel;
+  // an adapter regression must produce a narrow, explicitly unproven catalog
+  // instead of making a protected read endpoint throw or borrowing evidence
+  // from another runtime.
+  const profiles = Array.isArray(status.profiles) ? status.profiles : [];
+  const disabledModels = Array.isArray(status.policy?.disabledModels)
+    ? status.policy.disabledModels.filter((model): model is string => typeof model === "string")
+    : [];
+  const selectedRuntime = isPublicRuntimeScope(runtime) ? runtime : undefined;
+  const runtimeWasRequested = runtime !== undefined;
   const known = new Set([
-    ...status.profiles.flatMap((profile) => profile.models),
-    ...status.policy.disabledModels
+    ...profiles.flatMap((profile) => Array.isArray(profile?.models) ? profile.models.filter((model): model is string => typeof model === "string") : []),
+    ...disabledModels
   ]);
   const models = Array.from(known).filter(isPublicModelId).sort();
   return {
@@ -151,16 +162,19 @@ export function publicModelCatalogView(status: AccountCenterStatus, runtime?: st
       verificationState: "UNPROVEN"
     },
     models: models.map((id) => {
-      const observedProfiles = status.profiles.filter((profile) => profile.models.includes(id) && (!runtime || profile.runtimeCompatibility.includes(runtime as typeof profile.runtimeCompatibility[number])));
-      const disabled = status.policy.disabledModels.includes(id);
+      const observedProfiles = profiles.filter((profile) =>
+        Array.isArray(profile?.models) && profile.models.includes(id) &&
+        (!runtimeWasRequested || (selectedRuntime !== undefined && Array.isArray(profile.runtimeCompatibility) && profile.runtimeCompatibility.includes(selectedRuntime as typeof profile.runtimeCompatibility[number])))
+      );
+      const disabled = disabledModels.includes(id);
       return {
         id,
         selectable: !disabled,
         ...(disabled ? { reason: "disabled_by_policy" } : {}),
         observedProfileCount: observedProfiles.length,
-        readableProfileCount: observedProfiles.filter((profile) => profile.usage.readable === true).length,
+        readableProfileCount: observedProfiles.filter((profile) => profile.usage?.readable === true).length,
         runtimeCompatibility: Array.from(new Set(observedProfiles.flatMap((profile) => profile.runtimeCompatibility)
-          .filter((candidate) => !runtime || candidate === runtime)
+          .filter((candidate) => !runtimeWasRequested || candidate === selectedRuntime)
           .map(publicRuntime))).sort(),
         verificationState: "UNPROVEN"
       };
@@ -219,6 +233,10 @@ export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unkn
       capabilities
     }))
   };
+}
+
+function isPublicRuntimeScope(value: unknown): value is Exclude<PublicRuntime, "custom"> {
+  return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command";
 }
 
 function publicProvider(value: string): PublicProvider {
