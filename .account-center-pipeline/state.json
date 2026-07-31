@@ -1,7 +1,7 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
-  "state": "PLANNED",
+  "state": "MERGED",
   "updatedAt": "2026-07-31T12:20:53Z",
   "candidate": "SC-03 model policy truth contract: independently preserve catalog, requested policy, effective runtime selection, fallback, eligibility, and verification across all redacted public consumers; retain AC-06 owned exact-account deletion, opaque receipt, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
   "blockerResolutionPlan": {
@@ -36,10 +36,10 @@
     "evidence": "SC-03 reviewed against the existing shared model-truth projection: catalog, requested policy, effective runtime model, fallback chain, eligibility, and verification remain independently rendered; missing evidence is not_reported/UNPROVEN. Fixture/mock-only npm run test passed (260 Node tests, 19 Hermes-plugin tests); npm run qa:security passed (typecheck/build, 260 Node tests, 19 Hermes-plugin tests, 15 a11y tests, secret scan, 0 high audit vulnerabilities). Owned helper hash trust pin matched; no native helper execution or live deletion."
   },
   "merge": {
-    "commit": "PENDING",
+    "commit": "f1ff44168cc01f12e9c4f3ee2d1604cd4a879bb9",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "SC-03 model policy truth release gate; retained AC-06 owned exact-account deletion, one opaque receipt contract, full Sentinel /auth format, Hermes/Dexter weekly-only policy, and working Dexter /auth delete.",
-    "recordedBy": "pending force-add of intentionally ignored pipeline evidence"
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   }
 }
