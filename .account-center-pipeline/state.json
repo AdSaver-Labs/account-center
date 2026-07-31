@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-04",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-31T04:44:55Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-31T04:45:12Z",
   "candidate": "AC-04 reauth completion-evidence release gate: validate the existing pure, fixture-only reauth proof readiness boundary and adversarial public contract; preserve AC-06 owned transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and working Dexter /auth delete command.",
   "blockerResolutionPlan": {
-    "kind": "ac04-ignored-release-record-inclusion",
-    "planRecord": ".account-center-pipeline/AC-04-BLOCKER-RESOLUTION.md",
+    "kind": "ac04-reauth-completion-evidence-release-gate",
+    "planRecord": ".account-center-pipeline/AC-04.md",
     "boundedSteps": [
-      "Keep the reviewed fixture-only candidate unchanged.",
-      "Force-add only the ignored AC-04 release records after cached diff validation.",
-      "Push and compare local and origin/main hashes, then write the verified release state under lock."
+      "Inventory the existing pure reauth proof/readiness boundary and public exports without opening runtime mutation paths.",
+      "Verify exact fresh proof binding, hostile-input fail-closed behavior, and target-free terminal readiness serialization through fixtures only.",
+      "Run focused fixture tests, full QA/security, preservation review, and merge only when all gates are green."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -36,5 +36,11 @@
     "ac06ReleaseRevalidation": "passed: Account Center and Hermes retain the owned native exact-account transaction and accept only the versioned opaque receipt contract; fixture transports replaced process execution and no native helper ran.",
     "evidence": "AC-04 fixture-only reauth completion-evidence review passed: only exact fresh proof bound to a pending reauth challenge can yield readiness VERIFIED, which explicitly requires a future native transaction. Absent, malformed, inherited, credential-bearing, stale, future, terminal, mismatched, and throwing inputs return fixed target-free UNPROVEN. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
   },
-  "merge": null
+  "merge": {
+    "commit": "79a832d1039037af9dc2cd1675dedcceda69e9d1",
+    "branch": "main",
+    "verified": true,
+    "scope": "AC-04 fixture-only reauth completion-evidence release gate; AC-06 owned-delete transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete retained.",
+    "recordedBy": "pushed to origin/main and verified against remote ref"
+  }
 }
