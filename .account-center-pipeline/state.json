@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T06:27:02Z",
+  "updatedAt": "2026-07-31T06:27:26Z",
   "candidate": "AC-07 shared mutation executor release gate: verify every supported mutation remains behind the shared lifecycle using fixture/mock evidence; preserve AC-06 owned transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
   "blockerResolutionPlan": {
     "kind": "ac07-shared-mutation-executor-release-gate",
@@ -36,10 +36,10 @@
     "evidence": "AC-07 fixture/mock shared-mutation-executor review passed: supported route and owned-delete applies require exact review, executor capability, durable idempotency, redacted receipt/evidence, and verified postcondition. Missing, replayed, forged, widened, malformed, cross-runtime, unproven, and direct-adapter cases fail closed. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 148-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. The owner-only pinned helper and exact opaque two-result contract were retained. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
   },
   "merge": {
-    "commit": "pending",
+    "commit": "fae6e4d26cf9e58fd93bd5073602432ca193aa64",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "AC-07 shared mutation executor release gate; AC-06 owned-delete transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete retained.",
-    "recordedBy": "pending local release-record commit"
+    "recordedBy": "pushed to origin/main and verified against remote ref; verification record follows the release commit"
   }
 }
