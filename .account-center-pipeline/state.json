@@ -1,17 +1,18 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-07",
-  "state": "MERGED",
-  "updatedAt": "2026-07-31T15:41:16Z",
-  "candidate": "AC-07 R2: repair the invalid locked pipeline JSON record while retaining the R1 shared executor review and AC-06 owned delete/Sentinel/weekly-only invariants.",
+  "activeCheckpoint": "SC-03",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-31T17:20:33Z",
+  "candidate": "SC-03: current main model-policy truth contract reconciliation; separate catalog, requested policy, effective runtime selection, fallback, eligibility, and verification without a mutation path.",
   "blockerResolutionPlan": {
-    "kind": "ac07-pipeline-record-format-repair-r2",
-    "planRecord": ".account-center-pipeline/AC-07-BLOCKER-RESOLUTION-R2.md",
+    "kind": "sc03-current-revision-model-truth-release-plan",
+    "planRecord": ".account-center-pipeline/SC-03.md",
     "boundedSteps": [
-      "Preserve the reviewed R1 candidate and all AC-06/Sentinel/weekly-only invariants.",
-      "Repair and parse the locked JSON state under exclusive lock.",
-      "Recheck fixture-only evidence, diff, clean tree, and remote equality without native execution or live mutation.",
-      "Commit and push only corrected pipeline evidence if every check passes."
+      "Inventory model-truth consumers across CLI, API, MCP, ChatOps, UI, audit, and adapters.",
+      "Exercise hermetic missing, malformed, stale, contradictory, cross-runtime, and unsupported-evidence fixtures before changing a projection.",
+      "Keep catalog, requested policy, effective selection, fallback, eligibility, and verification independently typed and redacted.",
+      "Retain read-only/unsupported Codex mutation boundaries and prevent capacity inference from login text.",
+      "Re-run focused fixtures, full QA/security, browser/a11y, static Python compilation, invariant review, and staged-diff review before any merge."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -20,7 +21,8 @@
     "preserveOwnedDeleteTransaction": true,
     "preserveOpaqueNativeDeleteReceiptContract": true,
     "preserveDexterAuthDeleteCommand": true,
-    "noLiveRouteMutation": true
+    "noLiveRouteMutation": true,
+    "codexMutationReadOnlyUnlessAuthoritativelySupported": true
   },
   "previousMerge": {
     "commit": "79a832d1039037af9dc2cd1675dedcceda69e9d1",
@@ -30,11 +32,11 @@
     "recordedBy": "pushed to origin/main and verified against remote ref"
   },
   "review": {
-    "spec": "passed",
-    "quality": "passed",
-    "qaSecurity": "passed",
+    "spec": "pending",
+    "quality": "pending",
+    "qaSecurity": "pending",
     "liveDeletionExecuted": false,
-    "evidence": "AC-07 R2 verified the repaired locked state is canonical JSON. R1's current-revision fixture-only QA remains valid: npm run qa:security passed 261 Node tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, a 152-file secret scan, and npm audit with 0 high vulnerabilities; py_compile passed for the owned helper and Hermes bridge. The owned helper was not executed and no live deletion, login, provider request, credential/store write, route mutation, or runtime operation occurred."
+    "evidence": "AC-07 current-revision fixture-only review/QA passed immediately before this planned next gate: 261 Node tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, secret scan, npm audit with 0 high vulnerabilities, and static py_compile for the owned helper and Hermes bridge. The owned helper was not executed and no live deletion, login, provider request, credential/store write, route mutation, or runtime operation occurred."
   },
   "merge": {
     "commit": "ac090dd3fc3c9aabb539fbb76b427a683022f96d",
