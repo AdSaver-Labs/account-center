@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-31T13:45:00Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-31T13:46:00Z",
   "candidate": "AC-06 R8: reconcile the already committed Dexter canonical-output boundary with the Account Center/Hermes owned exact-account transaction and one opaque receipt contract; retain full Sentinel /auth format and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
     "kind": "ac06-release-evidence-reconciliation-r8",
@@ -34,13 +34,13 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "SC-03 reviewed against the existing shared model-truth projection: catalog, requested policy, effective runtime model, fallback chain, eligibility, and verification remain independently rendered; missing evidence is not_reported/UNPROVEN. Fixture/mock-only npm run test passed (260 Node tests, 19 Hermes-plugin tests); npm run qa:security passed (typecheck/build, 260 Node tests, 19 Hermes-plugin tests, 15 a11y tests, secret scan, 0 high audit vulnerabilities). Owned helper hash trust pin matched; no native helper execution or live deletion."
+    "evidence": "AC-06 R8 review passed: committed Dexter ChatOps delete boundary accepts only the exact opaque applied receipt and maps every other parsed/throwing result to the exact opaque UNPROVEN receipt. Full fixture/mock-only npm test passed (261 Node tests, 19 Hermes-plugin tests). npm run qa:security passed (typecheck/build, same tests, 15 Playwright/axe tests, 150 tracked-file secret scan, npm audit 0 high vulnerabilities). git diff --check passed, working tree was clean before evidence commit, origin/main equaled 5eaa2ed, and the owned helper SHA-256 trust pin matched. No native helper execution or live deletion."
   },
   "merge": {
-    "commit": "f1ff44168cc01f12e9c4f3ee2d1604cd4a879bb9",
+    "commit": "5eaa2edd39a4aa5e70bf1a3fadd9d0057b29b012",
     "branch": "main",
     "verified": true,
-    "scope": "SC-03 model policy truth release gate; retained AC-06 owned exact-account deletion, one opaque receipt contract, full Sentinel /auth format, Hermes/Dexter weekly-only policy, and working Dexter /auth delete.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
+    "scope": "AC-06 R7/R8 release gate: Account Center and Hermes retain the owned exact-account delete transaction and single opaque receipt contract; Dexter /auth delete is sealed to the exact same two canonical outputs; full Sentinel /auth and Hermes/Dexter weekly-only policy retained.",
+    "recordedBy": "fixture-only review/QA passed; boundary commit verified on origin/main before release-evidence reconciliation"
   }
 }
