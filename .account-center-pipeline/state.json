@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
-  "state": "PLANNED",
-  "updatedAt": "2026-07-31T15:40:09Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-31T15:41:16Z",
   "candidate": "AC-07 R1: current-revision fixture-only reconciliation of the shared mutation executor while preserving the AC-06 owned exact-account delete, one opaque receipt contract, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
   "blockerResolutionPlan": {
     "kind": "ac07-current-revision-executor-evidence-reconciliation-r1",
@@ -34,14 +34,13 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "AC-06 R8 review passed: committed Dexter ChatOps delete boundary accepts only the exact opaque applied receipt and maps every other parsed/throwing result to the exact opaque UNPROVEN receipt. Full fixture/mock-only npm test passed (261 Node tests, 19 Hermes-plugin tests). npm run qa:security passed (typecheck/build, same tests, 15 Playwright/axe tests, 150 tracked-file secret scan, npm audit 0 high vulnerabilities). git diff --check passed, working tree was clean before evidence commit, origin/main equaled 5eaa2ed, and the owned helper SHA-256 trust pin matched. No native helper execution or live deletion."
+    "evidence": "AC-07 R1 passed on current main: npm run qa:security completed 261 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, a 152-file tracked secret scan, and npm audit with 0 high vulnerabilities. Static py_compile passed for the owned helper and Hermes bridge. Tests cover the shared review/capability/idempotency lifecycle, direct-adapter forgery rejection, exact owned-helper path, malformed/unverified/mismatched native receipts, and Hermes/Dexter/MCP exact opaque contract parity. No native helper execution, live deletion, interactive login, provider request, credential/store write, route mutation, or runtime operation occurred."
   },
   "merge": {
-    "commit": "5eaa2edd39a4aa5e70bf1a3fadd9d0057b29b012",
+    "commit": "pending pipeline evidence commit",
     "branch": "main",
-    "verified": true,
-    "scope": "AC-06 R7/R8 release gate: Account Center and Hermes retain the owned exact-account delete transaction and single opaque receipt contract; Dexter /auth delete is sealed to the exact same two canonical outputs; full Sentinel /auth and Hermes/Dexter weekly-only policy retained.",
-    "recordedBy": "pushed to origin/main and verified against remote ref; boundary commit and release-evidence record are both on main",
-    "releaseEvidenceCommit": "f86dd447f23a54dcdef8d4f6d53be9d31d446bd3"
+    "verified": false,
+    "scope": "AC-07 R1 fixture-only shared mutation executor release gate; AC-06 owned transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "pending commit/push/remote equality verification"
   }
-}
+}\n
