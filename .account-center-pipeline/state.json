@@ -1,28 +1,28 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-03",
+  "activeCheckpoint": "CP-01",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T18:31:11Z",
-  "candidate": "SC-03: current main model-policy truth contract reconciliation; separate catalog, requested policy, effective runtime selection, fallback, eligibility, and verification without a mutation path.",
+  "updatedAt": "2026-07-31T23:19:35Z",
+  "candidate": "CP-01: existing reviewed loopback-only, per-launch owner-only token control-plane implementation on current main; reconcile missing locked release evidence without changing protected auth/delete/policy surfaces.",
   "blockerResolutionPlan": {
-    "kind": "sc03-current-revision-model-truth-release-plan",
-    "planRecord": ".account-center-pipeline/SC-03.md",
+    "kind": "cp01-release-evidence-reconciliation-r1",
+    "planRecord": ".account-center-pipeline/CP-01-BLOCKER-RESOLUTION-R1.md",
     "boundedSteps": [
-      "Inventory model-truth consumers across CLI, API, MCP, ChatOps, UI, audit, and adapters.",
-      "Exercise hermetic missing, malformed, stale, contradictory, cross-runtime, and unsupported-evidence fixtures before changing a projection.",
-      "Keep catalog, requested policy, effective selection, fallback, eligibility, and verification independently typed and redacted.",
-      "Retain read-only/unsupported Codex mutation boundaries and prevent capacity inference from login text.",
-      "Re-run focused fixtures, full QA/security, browser/a11y, static Python compilation, invariant review, and staged-diff review before any merge."
+      "Record the existing CP-01 candidate under exclusive lock.",
+      "Run deterministic fixture tests, security QA, browser/a11y proof, static Python compilation, and repository invariants without launching a non-fixture server or native helper.",
+      "Inspect loopback/token and AC-06/Hermes/Dexter contract boundaries for host, token, delete, Sentinel-format, and weekly-only-policy regression.",
+      "Record and push only verified evidence if every gate passes; otherwise retain the candidate as PLANNED."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
+    "fixtureServersOnly": true,
     "preserveWeeklyOnlyPolicy": true,
     "preserveSentinelAuthFormat": true,
     "preserveOwnedDeleteTransaction": true,
     "preserveOpaqueNativeDeleteReceiptContract": true,
     "preserveDexterAuthDeleteCommand": true,
     "noLiveRouteMutation": true,
-    "codexMutationReadOnlyUnlessAuthoritativelySupported": true
+    "noLiveModelMutation": true
   },
   "previousMerge": {
     "commit": "ac090dd3fc3c9aabb539fbb76b427a683022f96d",
@@ -36,13 +36,13 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "SC-03 fixture-only release evidence: npm run test passed 262 Node tests and 19 Hermes-plugin tests; npm run qa:security passed typecheck/build, 15 Playwright/axe tests, 153-file secret scan, and npm audit with 0 high vulnerabilities; static py_compile passed for the owned helper and Hermes bridge; git diff --check passed. The owned helper was not executed and no live deletion, login, provider request, credential/store write, route mutation, or runtime operation occurred."
+    "evidence": "CP-01 R1 release reconciliation: npm run qa:security passed 262 Node fixture/mock tests and 19 Hermes-plugin tests; TypeScript typecheck/build; 15 Playwright/axe tests; 154-file secret scan; and npm audit with 0 high vulnerabilities. Static py_compile passed for the Hermes bridge and owned helper; git diff --check passed. The owned helper was not executed and no live deletion, non-fixture server launch, login, provider request, credential/store write, route/model mutation, runtime or service operation occurred."
   },
   "merge": {
-    "commit": "eb73acb6fa9b0d1aa68cb3f362854283221afed8",
+    "commit": "c7682c5c5b0546baf661331a296014fc2f405d84",
     "branch": "main",
     "verified": true,
-    "scope": "SC-03 model-truth contract hardening for malformed, stale, contradictory, cross-runtime, and unsupported evidence; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "SC-03 coordinator review; code and final state-record commits were pushed to origin/main and remote equality was verified."
+    "scope": "CP-01 loopback-only/per-launch owner-only token release-evidence reconciliation; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "CP-01 R1 coordinator review; the reviewed current main revision was reconciled under the exclusive pipeline lock before narrow evidence commit/push verification."
   }
 }
