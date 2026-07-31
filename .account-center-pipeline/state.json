@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-01",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T23:19:35Z",
+  "updatedAt": "2026-07-31T23:20:00Z",
   "candidate": "CP-01: existing reviewed loopback-only, per-launch owner-only token control-plane implementation on current main; reconcile missing locked release evidence without changing protected auth/delete/policy surfaces.",
   "blockerResolutionPlan": {
     "kind": "cp01-release-evidence-reconciliation-r1",
@@ -39,10 +39,10 @@
     "evidence": "CP-01 R1 release reconciliation: npm run qa:security passed 262 Node fixture/mock tests and 19 Hermes-plugin tests; TypeScript typecheck/build; 15 Playwright/axe tests; 154-file secret scan; and npm audit with 0 high vulnerabilities. Static py_compile passed for the Hermes bridge and owned helper; git diff --check passed. The owned helper was not executed and no live deletion, non-fixture server launch, login, provider request, credential/store write, route/model mutation, runtime or service operation occurred."
   },
   "merge": {
-    "commit": "c7682c5c5b0546baf661331a296014fc2f405d84",
+    "commit": "c7bc543",
     "branch": "main",
     "verified": true,
     "scope": "CP-01 loopback-only/per-launch owner-only token release-evidence reconciliation; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "CP-01 R1 coordinator review; the reviewed current main revision was reconciled under the exclusive pipeline lock before narrow evidence commit/push verification."
+    "recordedBy": "CP-01 R1 coordinator review; the release-evidence commit was pushed to origin/main and remote equality was verified."
   }
 }
