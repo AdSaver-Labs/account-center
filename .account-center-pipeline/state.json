@@ -1,17 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-03",
-  "state": "MERGED",
-  "updatedAt": "2026-07-31T03:37:06Z",
-  "candidate": "AC-03 durable guided-auth lifecycle release gate: close start/cancel/expire/complete/verified-failure coverage with fixture-only, redacted lifecycle evidence; preserve the owned AC-06 transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and working Dexter /auth delete command.",
+  "activeCheckpoint": "AC-04",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-31T04:44:55Z",
+  "candidate": "AC-04 reauth completion-evidence release gate: validate the existing pure, fixture-only reauth proof readiness boundary and adversarial public contract; preserve AC-06 owned transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and working Dexter /auth delete command.",
   "blockerResolutionPlan": {
-    "kind": "ac03-durable-guided-auth-lifecycle-release-gate",
-    "planRecord": ".account-center-pipeline/AC-03.md",
+    "kind": "ac04-ignored-release-record-inclusion",
+    "planRecord": ".account-center-pipeline/AC-04-BLOCKER-RESOLUTION.md",
     "boundedSteps": [
-      "Inventory fixture-only durable guided-auth lifecycle transitions and public projections.",
-      "Fail closed for malformed, expired, repeated, hostile, terminal, or proof-bearing lifecycle records without retaining raw targets or credentials.",
-      "Add only demonstrated fixture coverage gaps; do not invoke native helpers or live adapters.",
-      "Run focused tests, full QA/security, review, and merge only after every gate is green."
+      "Keep the reviewed fixture-only candidate unchanged.",
+      "Force-add only the ignored AC-04 release records after cached diff validation.",
+      "Push and compare local and origin/main hashes, then write the verified release state under lock."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -23,25 +22,19 @@
     "noLiveRouteMutation": true
   },
   "previousMerge": {
-    "commit": "8f7108b5c633262e09e9aa64e796ea7061f577ee",
+    "commit": "fd6743f16afa785f8a37a3e1b6100d73b83fa268",
     "branch": "main",
     "verified": true,
-    "scope": "AC-06 receipt-contract integrity: fixed public bytes enforced across CLI, Dexter ChatOps, MCP, and Hermes; fixture-only tamper tests; owned transaction retained and not invoked.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
+    "scope": "AC-03 durable guided-auth lifecycle gate: fixture-only redacted durable lifecycle review and full QA; AC-06 owned-delete transaction and opaque receipt contract retained.",
+    "recordedBy": "pushed to origin/main and verified against remote ref; verification record follows the release commit"
   },
   "review": {
     "spec": "passed",
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "ac06ReleaseRevalidation": "passed: npm run qa:security (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; diff check clean.",
-    "evidence": "AC-03 fixture-only lifecycle review passed: durable records reject malformed, terminal, proof-bearing, verified, repeated, expired, and unsafe metadata; projections remain target-free. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
+    "ac06ReleaseRevalidation": "passed: Account Center and Hermes retain the owned native exact-account transaction and accept only the versioned opaque receipt contract; fixture transports replaced process execution and no native helper ran.",
+    "evidence": "AC-04 fixture-only reauth completion-evidence review passed: only exact fresh proof bound to a pending reauth challenge can yield readiness VERIFIED, which explicitly requires a future native transaction. Absent, malformed, inherited, credential-bearing, stale, future, terminal, mismatched, and throwing inputs return fixed target-free UNPROVEN. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
   },
-  "merge": {
-    "commit": "fd6743f16afa785f8a37a3e1b6100d73b83fa268",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-03 durable guided-auth lifecycle gate: fixture-only redacted durable lifecycle review and full QA; AC-06 owned-delete transaction and opaque receipt contract retained.",
-    "recordedBy": "pushed to origin/main and verified against remote ref; verification record follows the release commit"
-  }
+  "merge": null
 }
