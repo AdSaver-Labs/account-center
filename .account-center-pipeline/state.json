@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-01",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T10:43:18Z",
+  "updatedAt": "2026-07-31T10:43:38Z",
   "candidate": "SC-01 explicit runtime/scope release gate: close every public account/model mutation request over the authoritative runtime/scope contract, reject missing, widened, malformed, and cross-runtime scopes before adapters, and retain AC-06 owned exact-account deletion, opaque receipt contract, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
   "blockerResolutionPlan": {
     "kind": "sc01-explicit-runtime-scope-release-gate",
@@ -36,10 +36,10 @@
     "evidence": "SC-01 fixture/mock-only review passed: explicit observed runtime/scope executor boundaries fail closed before adapter mutation; AC-06 owned transaction, opaque receipt consumers, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete retained. npm run qa:security passed 2026-07-31."
   },
   "merge": {
-    "commit": "94bc92c36bdb4cb6faa9fe3fe772231a6e3dc7cb",
+    "commit": "929f7999122328c0a52b5c3f2cf67a2bb395aa9b",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "SC-01 explicit observed runtime/scope release gate; AC-06 owned exact-account deletion, opaque receipt, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete retained.",
-    "recordedBy": "local release verification committed; remote verification pending push"
+    "recordedBy": "pushed to origin/main and verified against remote ref; verification record follows the release commit"
   }
 }
