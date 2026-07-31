@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-03",
-  "state": "EXECUTING",
-  "updatedAt": "2026-07-31T18:30:40Z",
+  "state": "MERGED",
+  "updatedAt": "2026-07-31T18:30:56Z",
   "candidate": "SC-03: current main model-policy truth contract reconciliation; separate catalog, requested policy, effective runtime selection, fallback, eligibility, and verification without a mutation path.",
   "blockerResolutionPlan": {
     "kind": "sc03-current-revision-model-truth-release-plan",
@@ -25,24 +25,24 @@
     "codexMutationReadOnlyUnlessAuthoritativelySupported": true
   },
   "previousMerge": {
-    "commit": "79a832d1039037af9dc2cd1675dedcceda69e9d1",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-04 fixture-only reauth completion-evidence release gate; AC-06 owned-delete transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete retained.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
-  },
-  "review": {
-    "spec": "pending",
-    "quality": "pending",
-    "qaSecurity": "pending",
-    "liveDeletionExecuted": false,
-    "evidence": "AC-07 current-revision fixture-only review/QA passed immediately before this planned next gate: 261 Node tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, secret scan, npm audit with 0 high vulnerabilities, and static py_compile for the owned helper and Hermes bridge. The owned helper was not executed and no live deletion, login, provider request, credential/store write, route mutation, or runtime operation occurred."
-  },
-  "merge": {
     "commit": "ac090dd3fc3c9aabb539fbb76b427a683022f96d",
     "branch": "main",
     "verified": true,
     "scope": "AC-07 R1/R2 fixture-only shared mutation executor and locked-pipeline record release gate; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
     "recordedBy": "AC-07 R2 release evidence; corrected state parsed, was pushed to origin/main, and remote equality was verified."
+  },
+  "review": {
+    "spec": "passed",
+    "quality": "passed",
+    "qaSecurity": "passed",
+    "liveDeletionExecuted": false,
+    "evidence": "SC-03 fixture-only release evidence: npm run test passed 262 Node tests and 19 Hermes-plugin tests; npm run qa:security passed typecheck/build, 15 Playwright/axe tests, 153-file secret scan, and npm audit with 0 high vulnerabilities; static py_compile passed for the owned helper and Hermes bridge; git diff --check passed. The owned helper was not executed and no live deletion, login, provider request, credential/store write, route mutation, or runtime operation occurred."
+  },
+  "merge": {
+    "commit": "eb73acb6fa9b0d1aa68cb3f362854283221afed8",
+    "branch": "main",
+    "verified": true,
+    "scope": "SC-03 model-truth contract hardening for malformed, stale, contradictory, cross-runtime, and unsupported evidence; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "SC-03 coordinator review; code commit pushed to origin/main and remote equality pending final state-record push."
   }
 }
