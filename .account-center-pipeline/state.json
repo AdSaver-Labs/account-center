@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-04",
+  "activeCheckpoint": "AC-07",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T04:45:12Z",
-  "candidate": "AC-04 reauth completion-evidence release gate: validate the existing pure, fixture-only reauth proof readiness boundary and adversarial public contract; preserve AC-06 owned transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and working Dexter /auth delete command.",
+  "updatedAt": "2026-07-31T06:27:02Z",
+  "candidate": "AC-07 shared mutation executor release gate: verify every supported mutation remains behind the shared lifecycle using fixture/mock evidence; preserve AC-06 owned transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
   "blockerResolutionPlan": {
-    "kind": "ac04-reauth-completion-evidence-release-gate",
-    "planRecord": ".account-center-pipeline/AC-04.md",
+    "kind": "ac07-shared-mutation-executor-release-gate",
+    "planRecord": ".account-center-pipeline/AC-07.md",
     "boundedSteps": [
-      "Inventory the existing pure reauth proof/readiness boundary and public exports without opening runtime mutation paths.",
-      "Verify exact fresh proof binding, hostile-input fail-closed behavior, and target-free terminal readiness serialization through fixtures only.",
-      "Run focused fixture tests, full QA/security, preservation review, and merge only when all gates are green."
+      "Inventory each supported mutation apply path for shared executor lifecycle mediation.",
+      "Exercise fixture/mock authorization, idempotency, adapter-failure, and unproven-verification fail-closed cases without native process execution.",
+      "Revalidate owned-delete receipt consumers, full QA/security, static compilation, and preservation review before merge."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -22,25 +22,24 @@
     "noLiveRouteMutation": true
   },
   "previousMerge": {
-    "commit": "fd6743f16afa785f8a37a3e1b6100d73b83fa268",
+    "commit": "79a832d1039037af9dc2cd1675dedcceda69e9d1",
     "branch": "main",
     "verified": true,
-    "scope": "AC-03 durable guided-auth lifecycle gate: fixture-only redacted durable lifecycle review and full QA; AC-06 owned-delete transaction and opaque receipt contract retained.",
-    "recordedBy": "pushed to origin/main and verified against remote ref; verification record follows the release commit"
+    "scope": "AC-04 fixture-only reauth completion-evidence release gate; AC-06 owned-delete transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete retained.",
+    "recordedBy": "pushed to origin/main and verified against remote ref"
   },
   "review": {
     "spec": "passed",
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "ac06ReleaseRevalidation": "passed: Account Center and Hermes retain the owned native exact-account transaction and accept only the versioned opaque receipt contract; fixture transports replaced process execution and no native helper ran.",
-    "evidence": "AC-04 fixture-only reauth completion-evidence review passed: only exact fresh proof bound to a pending reauth challenge can yield readiness VERIFIED, which explicitly requires a future native transaction. Absent, malformed, inherited, credential-bearing, stale, future, terminal, mismatched, and throwing inputs return fixed target-free UNPROVEN. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
+    "evidence": "AC-07 fixture/mock shared-mutation-executor review passed: supported route and owned-delete applies require exact review, executor capability, durable idempotency, redacted receipt/evidence, and verified postcondition. Missing, replayed, forged, widened, malformed, cross-runtime, unproven, and direct-adapter cases fail closed. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 148-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. The owner-only pinned helper and exact opaque two-result contract were retained. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
   },
   "merge": {
-    "commit": "79a832d1039037af9dc2cd1675dedcceda69e9d1",
+    "commit": "pending",
     "branch": "main",
-    "verified": true,
-    "scope": "AC-04 fixture-only reauth completion-evidence release gate; AC-06 owned-delete transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete retained.",
-    "recordedBy": "pushed to origin/main and verified against remote ref"
+    "verified": false,
+    "scope": "AC-07 shared mutation executor release gate; AC-06 owned-delete transaction, opaque receipt, Sentinel /auth, weekly-only policy, and Dexter /auth delete retained.",
+    "recordedBy": "pending local release-record commit"
   }
 }
