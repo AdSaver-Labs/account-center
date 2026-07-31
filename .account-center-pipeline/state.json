@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-03",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T03:36:49Z",
+  "updatedAt": "2026-07-31T03:37:06Z",
   "candidate": "AC-03 durable guided-auth lifecycle release gate: close start/cancel/expire/complete/verified-failure coverage with fixture-only, redacted lifecycle evidence; preserve the owned AC-06 transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and working Dexter /auth delete command.",
   "blockerResolutionPlan": {
     "kind": "ac03-durable-guided-auth-lifecycle-release-gate",
@@ -38,10 +38,10 @@
     "evidence": "AC-03 fixture-only lifecycle review passed: durable records reject malformed, terminal, proof-bearing, verified, repeated, expired, and unsafe metadata; projections remain target-free. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 146-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
   },
   "merge": {
-    "commit": "d89a6142bf09b596f788022475add0fff7da4626",
+    "commit": "fd6743f16afa785f8a37a3e1b6100d73b83fa268",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "AC-03 durable guided-auth lifecycle gate: fixture-only redacted durable lifecycle review and full QA; AC-06 owned-delete transaction and opaque receipt contract retained.",
-    "recordedBy": "committed locally; origin/main verification pending"
+    "recordedBy": "pushed to origin/main and verified against remote ref; verification record follows the release commit"
   }
 }
