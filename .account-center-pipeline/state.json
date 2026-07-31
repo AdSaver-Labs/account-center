@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-07",
-  "state": "MERGED",
-  "updatedAt": "2026-07-31T06:27:26Z",
-  "candidate": "AC-07 shared mutation executor release gate: verify every supported mutation remains behind the shared lifecycle using fixture/mock evidence; preserve AC-06 owned transaction, opaque receipt contract, locked Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
+  "activeCheckpoint": "SC-01",
+  "state": "PLANNED",
+  "updatedAt": "2026-07-31T10:09:19Z",
+  "candidate": "SC-01 explicit runtime/scope release gate: close every public account/model mutation request over the authoritative runtime/scope contract, reject missing, widened, malformed, and cross-runtime scopes before adapters, and retain AC-06 owned exact-account deletion, opaque receipt contract, full Sentinel /auth format, weekly-only policy, and Dexter /auth delete.",
   "blockerResolutionPlan": {
-    "kind": "ac07-shared-mutation-executor-release-gate",
-    "planRecord": ".account-center-pipeline/AC-07.md",
+    "kind": "sc01-explicit-runtime-scope-release-gate",
+    "planRecord": ".account-center-pipeline/SC-01.md",
     "boundedSteps": [
-      "Inventory each supported mutation apply path for shared executor lifecycle mediation.",
-      "Exercise fixture/mock authorization, idempotency, adapter-failure, and unproven-verification fail-closed cases without native process execution.",
-      "Revalidate owned-delete receipt consumers, full QA/security, static compilation, and preservation review before merge."
+      "Inventory each public account/model mutation and guard-route entry point for implicit runtime or scope selection.",
+      "Exercise fixture/mock missing, malformed, widened, stale, and cross-runtime scope inputs and prove they cannot invoke an adapter.",
+      "Preserve and revalidate the owned-delete opaque receipt consumers, full Sentinel /auth rendering, weekly-only policy, and Dexter /auth delete before review and QA."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -29,11 +29,11 @@
     "recordedBy": "pushed to origin/main and verified against remote ref"
   },
   "review": {
-    "spec": "passed",
-    "quality": "passed",
-    "qaSecurity": "passed",
+    "spec": "pending",
+    "quality": "pending",
+    "qaSecurity": "pending",
     "liveDeletionExecuted": false,
-    "evidence": "AC-07 fixture/mock shared-mutation-executor review passed: supported route and owned-delete applies require exact review, executor capability, durable idempotency, redacted receipt/evidence, and verified postcondition. Missing, replayed, forged, widened, malformed, cross-runtime, unproven, and direct-adapter cases fail closed. npm run qa:security passed (260 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe tests, 148-file secret scan, npm audit 0 vulnerabilities); owned helper and Hermes plugin py_compile passed; git diff --check clean. The owner-only pinned helper and exact opaque two-result contract were retained. No native owned transaction, live deletion, credential/store write, routing mutation, provider request, or interactive login was executed."
+    "evidence": "SC-01 planned after AC-07 verified merge; execution is fixture/mock-only and must preserve AC-06 transaction and policy invariants."
   },
   "merge": {
     "commit": "fae6e4d26cf9e58fd93bd5073602432ca193aa64",
