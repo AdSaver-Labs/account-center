@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-07",
-  "state": "MERGED",
-  "updatedAt": "2026-08-01T13:25:00Z",
-  "candidate": "AC-07 R1: prove the current-main shared mutation executor is the sole protected apply boundary while preserving AC-06\u2019s owned transaction, opaque receipt, full Sentinel /auth, Dexter command, and weekly-only policy.",
+  "activeCheckpoint": "AC-08",
+  "state": "REVIEWED",
+  "updatedAt": "2026-08-01T18:27:15Z",
+  "candidate": "AC-08 R1: fixture-only direct Hermes revalidation of Account Center\u2019s existing owned exact-account delete transaction and its shared opaque receipt contract; retain current main and protected formats/policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-07-r3-canonical-pipeline-record-recovery",
-    "planRecord": ".account-center-pipeline/AC-07-BLOCKER-RESOLUTION-R3.md",
+    "kind": "ac-08-r1-direct-hermes-opaque-receipt-revalidation",
+    "planRecord": ".account-center-pipeline/AC-08-R1-EXECUTION-PLAN.md",
     "boundedSteps": [
-      "Atomically rewrite canonical newline-terminated JSON under the exclusive state lock.",
-      "Parse the on-disk state with Python and Node and inspect the exact diff.",
-      "Reconfirm recorded fixture-only QA and static trust evidence without any native or live operation."
+      "Stub Hermes subprocess before every delete fixture and validate only the versioned applied/UNPROVEN texts.",
+      "Run compiled adapter, CLI/Dexter ChatOps, MCP, Hermes, and documentation contract fixtures without invoking the native helper.",
+      "Run security QA, static helper/bridge compilation and trust inspection, then record review only if all pass."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,13 +35,7 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "AC-07 R1 QA passed; R3 repairs only local pipeline JSON serialization before publication. No native helper invocation or live mutation occurred."
-  },
-  "merge": {
-    "commit": "1bc9741",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-07 R1 fixture-only shared mutation executor gate; R3 canonical pipeline-record recovery; protected implementation and policy/format surfaces unchanged.",
-    "recordedBy": "AC-07 R3 coordinator; evidence committed and ready for remote publication."
+    "evidence": "AC-08 R1 direct Hermes fixture revalidation passed: 268 Node, 19 Hermes, 15 Playwright/axe, static trust/compile, and security QA. No native helper or live operation ran.",
+    "record": ".account-center-pipeline/AC-08-R1-REVIEW.md"
   }
 }
