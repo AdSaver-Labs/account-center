@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-08",
-  "state": "REVIEWED",
-  "updatedAt": "2026-08-01T18:27:15Z",
+  "state": "MERGED",
+  "updatedAt": "2026-08-01T18:27:39Z",
   "candidate": "AC-08 R1: fixture-only direct Hermes revalidation of Account Center\u2019s existing owned exact-account delete transaction and its shared opaque receipt contract; retain current main and protected formats/policy.",
   "blockerResolutionPlan": {
     "kind": "ac-08-r1-direct-hermes-opaque-receipt-revalidation",
@@ -37,5 +37,12 @@
     "liveDeletionExecuted": false,
     "evidence": "AC-08 R1 direct Hermes fixture revalidation passed: 268 Node, 19 Hermes, 15 Playwright/axe, static trust/compile, and security QA. No native helper or live operation ran.",
     "record": ".account-center-pipeline/AC-08-R1-REVIEW.md"
+  },
+  "merge": {
+    "commit": "b107cf1",
+    "branch": "main",
+    "verified": true,
+    "scope": "AC-08 R1 fixture-only direct Hermes opaque receipt-contract release gate; owned transaction, Sentinel format, Dexter command, and weekly-only policy unchanged.",
+    "recordedBy": "AC-08 R1 coordinator; review and QA evidence committed."
   }
 }
