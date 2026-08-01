@@ -1,17 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "CP-01",
-  "state": "MERGED",
-  "updatedAt": "2026-08-01T01:27:43Z",
-  "candidate": "CP-01: existing reviewed loopback-only, per-launch owner-only token control-plane implementation on current main; reconcile the internally stale active-checkpoint state without changing protected auth/delete/policy surfaces.",
+  "activeCheckpoint": "CP-02",
+  "state": "READY_TO_MERGE",
+  "updatedAt": "2026-08-01T02:10:00Z",
+  "candidate": "CP-02: harden and fixture-prove the bearer/same-origin/no-store protected API contract without touching live runtime or locked AC-06 policy surfaces.",
   "blockerResolutionPlan": {
-    "kind": "cp01-locked-state-consistency-r2",
-    "planRecord": ".account-center-pipeline/CP-01-BLOCKER-RESOLUTION-R2.md",
+    "kind": "cp02-protected-api-security-contract-r1",
+    "planRecord": ".account-center-pipeline/CP-02.md",
     "boundedSteps": [
-      "Preserve the existing candidate under exclusive lock and mark the sole active CP-01 record PLANNED.",
-      "Verify checked-out/upstream evidence and pipeline JSON invariants; limit changes to coordinator records.",
-      "Run focused owned-delete fixture contracts plus deterministic build/test/security gates without executing the native helper.",
-      "Review, commit, push, and remotely verify only the reconciled pipeline evidence if all gates pass."
+      "Preserve AC-06 owned delete receipt and Sentinel/Hermes-Dexter policy surfaces.",
+      "Add bounded fixture-only adversarial API security proof and minimal response-header hardening.",
+      "Run deterministic review and QA gates; commit/push only on success."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -33,10 +32,10 @@
   },
   "review": {
     "spec": "passed",
-    "quality": "passed",
+    "quality": "approved",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "CP-01 R2 locked-state reconciliation: npm test passed 262 Node fixture/mock tests and 19 Hermes-plugin tests; npm run qa:security passed TypeScript typecheck/build, 15 fixture Playwright/axe tests, 155-file secret scan, and npm audit with 0 high vulnerabilities; a repeat npm run test:a11y passed all 15 browser checks; static py_compile passed for the Hermes bridge and owned native helper; git diff --check passed. AC-06 fixture cases prove the owned exact-account transaction, opaque-only receipt, Hermes/Dexter transport parity, full Sentinel /auth rendering, and weekly-only policy were preserved. The owned helper was not executed; no live deletion, login, provider request, credential/store write, route/model mutation, non-fixture server, or service/runtime operation occurred."
+    "evidence": "CP-02 fixture-only protected API security gate: exact bearer, same-origin mutation, strict JSON, bounded-body, fixed-redacted-error, no-CORS, and response-header tests passed. npm test: 263 Node fixture/mock tests + 19 Hermes plugin tests. npm run qa:security: typecheck/build, 15 Playwright/axe fixture tests, 156-file secret scan, and npm audit with 0 high vulnerabilities. Repeat npm run test:a11y: 15 passed. Owned helper pin SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37, regular 0600, owner Alej uid 1001. No native helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, or runtime service operation."
   },
   "merge": {
     "commit": "4e7f8b42a7f193025401a84e5bbd7775c38dab93",

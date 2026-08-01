@@ -23,7 +23,17 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
       if (!options.challengeStore) return send(response, 503, { error: "challenge_store_unavailable" });
-      const body = await readJsonBody(request);
+      if (!isJsonContentType(request)) {
+        request.resume();
+        return send(response, 415, { error: "json_content_type_required" });
+      }
+      let body: unknown;
+      try {
+        body = await readJsonBody(request);
+      } catch (error) {
+        if (error instanceof RequestBodyError) return send(response, error.status, { error: error.code });
+        throw error;
+      }
       const adapter = createRuntimeAdapter(source as RuntimeSource);
       const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
       if (!status || !isValidGuidedAuthStart(status, body)) return send(response, 400, { error: "invalid_guided_auth_request" });
@@ -476,13 +486,22 @@ function authorized(request: IncomingMessage, token: string): boolean {
 function hasRequestBody(request: IncomingMessage): boolean {
   return request.headers["transfer-encoding"] !== undefined || (request.headers["content-length"] !== undefined && request.headers["content-length"] !== "0");
 }
+function isJsonContentType(request: IncomingMessage): boolean {
+  const value = request.headers["content-type"];
+  // A state-changing endpoint accepts one bounded representation only. In
+  // particular, do not infer JSON from a body or accept multipart/form data.
+  return typeof value === "string" && /^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(value);
+}
+class RequestBodyError extends Error {
+  constructor(readonly status: 413, readonly code: "request_body_too_large") { super(code); }
+}
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += value.length;
-    if (size > 4_096) throw new Error("request_body_too_large");
+    if (size > 4_096) throw new RequestBodyError(413, "request_body_too_large");
     chunks.push(value);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return undefined; }
@@ -494,7 +513,10 @@ function sameOrigin(request: IncomingMessage): boolean {
 function setSafetyHeaders(response: ServerResponse): void {
   response.setHeader("Cache-Control", "no-store");
   response.setHeader("Content-Type", "application/json; charset=utf-8");
-  response.setHeader("Access-Control-Allow-Origin", "null");
+  response.setHeader("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "DENY");
 }
 function send(response: ServerResponse, code: number, body: unknown): void {
   response.statusCode = code;

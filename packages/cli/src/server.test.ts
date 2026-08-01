@@ -42,6 +42,18 @@ async function createChallenge(port: number, token: string, body: unknown, origi
   });
 }
 
+async function rawChallengeRequest(port: number, options: { token?: string; origin?: string; contentType?: string; body?: string }): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/api/auth-challenges`, {
+    method: "POST",
+    headers: {
+      ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
+      ...(options.contentType ? { "content-type": options.contentType } : {})
+    },
+    ...(options.body === undefined ? {} : { body: options.body })
+  });
+}
+
 test("protected guided-auth creation persists distinct redacted add and reauth challenges idempotently", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-guided-auth-"));
   const app = createAccountCenterServer({
@@ -108,6 +120,36 @@ test("local API requires bearer token and returns no-store status", async () => 
     const accepted = await request(address.port, "/api/status", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
+    assert.equal(accepted.headers.get("access-control-allow-origin"), null);
+    assert.equal(accepted.headers.get("content-security-policy"), "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+    assert.equal(accepted.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(accepted.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(accepted.headers.get("x-frame-options"), "DENY");
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected API rejects bearer near-misses and unsafe mutation representations without echoing input", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-api-security-"));
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json")) });
+  const address = await app.listen();
+  const validBody = JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: "private@example.test" });
+  try {
+    for (const token of ["test-token-x", "Test-Token", "test-token-private@example.test"]) {
+      const response = await request(address.port, "/api/status", token);
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), { error: "unauthorized" });
+    }
+    const crossOrigin = await rawChallengeRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body: validBody });
+    assert.equal(crossOrigin.status, 403);
+    assert.deepEqual(await crossOrigin.json(), { error: "origin_forbidden" });
+    const form = await rawChallengeRequest(address.port, { token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/x-www-form-urlencoded", body: validBody });
+    assert.equal(form.status, 415);
+    assert.deepEqual(await form.json(), { error: "json_content_type_required" });
+    const oversized = await rawChallengeRequest(address.port, { token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/json; charset=utf-8", body: `{\"target\":\"${"x".repeat(4_100)}\"}` });
+    assert.equal(oversized.status, 413);
+    assert.deepEqual(await oversized.json(), { error: "request_body_too_large" });
   } finally {
     await app.close();
   }
