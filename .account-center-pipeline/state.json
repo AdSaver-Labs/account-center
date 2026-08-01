@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-04",
-  "state": "PLANNED",
-  "updatedAt": "2026-08-01T06:32:40Z",
+  "state": "MERGED",
+  "updatedAt": "2026-08-01T06:33:17Z",
   "candidate": "CP-04 R4: preserve the R3 verified owned-delete evidence and admit only the intentionally ignored pipeline records with an explicit allowlist; Sentinel /auth, Dexter /auth delete, and weekly-only policy locked.",
   "blockerResolutionPlan": {
     "kind": "cp04-r4-ignored-evidence-admission-correction",
@@ -35,6 +35,13 @@
     "quality": "approved",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "CP-04 R3: corrected a stale preservation-probe path under exclusive lock. The actual runtime-adapters owner pin plus CLI, ChatOps/Dexter, MCP, Hermes, and versioned contract topology passed (six authoritative references). The owned helper is regular owner-Alej uid 1001, mode 0600, SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and compile-checked only. npm run qa:security passed: 268 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 161-file secret scan, and npm audit with 0 high vulnerabilities. Review found only CP-04 R3 evidence and pipeline state changed; Sentinel /auth, Dexter /auth delete, the exact target transaction, opaque receipt contract, and Hermes/Dexter weekly-only policy are unchanged. No helper invocation, live delete, login, provider request, credential/store write, route/model mutation, browser action, or service operation occurred."
+    "evidence": "CP-04 R3/R4: stale probe path corrected to runtime-adapters.ts; six authoritative owner/consumer receipt references passed. Owned helper verified regular owner-Alej uid 1001, mode 0600, SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and compile-checked only. npm run qa:security passed: 268 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 161-file secret scan, and npm audit with 0 high vulnerabilities. Review found only pipeline evidence changed; protected Sentinel /auth, Dexter /auth delete, exact target transaction, opaque receipt, and Hermes/Dexter weekly-only policy unchanged. No helper invocation, live delete, login, provider request, credential/store write, route/model mutation, browser action, or service operation occurred."
+  },
+  "merge": {
+    "commit": "1662eeb",
+    "branch": "main",
+    "verified": true,
+    "scope": "CP-04 R3/R4 release-evidence correction: actual owned-delete topology revalidated and intentionally ignored evidence admitted; protected owned-delete, Sentinel, Dexter, and weekly-only boundaries unchanged.",
+    "recordedBy": "CP-04 R4 coordinator review; 1662eeb was pushed and exact origin/main equality verified."
   }
 }
