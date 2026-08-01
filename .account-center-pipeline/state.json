@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-02",
-  "state": "READY_TO_MERGE",
-  "updatedAt": "2026-08-01T02:10:00Z",
+  "state": "MERGED",
+  "updatedAt": "2026-08-01T02:15:00Z",
   "candidate": "CP-02: harden and fixture-prove the bearer/same-origin/no-store protected API contract without touching live runtime or locked AC-06 policy surfaces.",
   "blockerResolutionPlan": {
     "kind": "cp02-protected-api-security-contract-r1",
@@ -38,10 +38,10 @@
     "evidence": "CP-02 fixture-only protected API security gate: exact bearer, same-origin mutation, strict JSON, bounded-body, fixed-redacted-error, no-CORS, and response-header tests passed. npm test: 263 Node fixture/mock tests + 19 Hermes plugin tests. npm run qa:security: typecheck/build, 15 Playwright/axe fixture tests, 156-file secret scan, and npm audit with 0 high vulnerabilities. Repeat npm run test:a11y: 15 passed. Owned helper pin SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37, regular 0600, owner Alej uid 1001. No native helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, or runtime service operation."
   },
   "merge": {
-    "commit": "4e7f8b42a7f193025401a84e5bbd7775c38dab93",
+    "commit": "294a17b",
     "branch": "main",
     "verified": true,
-    "scope": "CP-01 R2 locked coordinator-state consistency reconciliation; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "CP-01 R2 coordinator review; evidence record was pushed to origin/main and remote equality was verified."
+    "scope": "CP-02 protected API contract: exact bearer, same-origin state changes, strict bounded JSON, fixed security headers, no CORS allowance, and redacted fixture-only errors; AC-06 owned transaction/opaque receipt, Sentinel full /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "CP-02 coordinator review; release commit was pushed and origin/main equality was verified before merge record."
   }
 }
