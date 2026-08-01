@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-04",
-  "state": "MERGED",
-  "updatedAt": "2026-08-01T05:58:11Z",
-  "candidate": "CP-04 R2: preserve the merged AC-06 owned native exact-account delete bridge and reconcile the internally inconsistent active MERGED release record through fixture-only contract evidence; Sentinel /auth, Dexter /auth delete, and Hermes/Dexter weekly-only policy locked.",
+  "state": "PLANNED",
+  "updatedAt": "2026-08-01T06:32:40Z",
+  "candidate": "CP-04 R4: preserve the R3 verified owned-delete evidence and admit only the intentionally ignored pipeline records with an explicit allowlist; Sentinel /auth, Dexter /auth delete, and weekly-only policy locked.",
   "blockerResolutionPlan": {
-    "kind": "cp04-r2-release-evidence-reconciliation",
-    "planRecord": ".account-center-pipeline/CP-04-R2.md",
+    "kind": "cp04-r4-ignored-evidence-admission-correction",
+    "planRecord": ".account-center-pipeline/CP-04-R4.md",
     "boundedSteps": [
-      "Inspect the Account Center adapter, receipt loader, Dexter transports, and Hermes plugin for the single owned transaction and opaque receipt contract.",
-      "Compile-check only the installed owner-only helper and run focused hermetic fixture tests; no helper invocation or live account operation.",
-      "Run deterministic security QA and independently review protected Sentinel, Dexter, exact-target, and weekly-only invariants before recording the gate."
+      "Force-add only the reviewed pipeline state and R4 record after confirming the fixed allowlist.",
+      "Commit, push, and verify origin/main equality; re-read the committed record.",
+      "Reuse R3 fixture-only validation evidence; do not invoke any helper or live operation."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,13 +35,6 @@
     "quality": "approved",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "CP-04 R2: the installed owned helper was verified regular owner-Alej uid 1001, mode 0600, SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and compile-checked only. Focused hermetic AC-06 fixture gate passed: build, 34 Account Center/Dexter/MCP contract tests, and 19 direct Hermes-plugin tests. Full npm run qa:security passed: 268 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 160-file secret scan, and npm audit with 0 high vulnerabilities. Review found only this pipeline evidence changed; adapter uses the owned helper and ChatOps/Hermes use the same canonical opaque contract. No helper invocation, live delete, login, provider request, credential/store write, route/model mutation, browser action, or service operation occurred."
-  },
-  "merge": {
-    "commit": "61fef635db3cb4e2809fb4e1501b1354d6ebe968",
-    "branch": "main",
-    "verified": true,
-    "scope": "CP-04 R2 release-evidence reconciliation: fixture-only AC-06 owned helper and one opaque receipt contract revalidated; protected Sentinel /auth, Dexter /auth delete, and weekly-only policy unchanged.",
-    "recordedBy": "CP-04 R2 coordinator review; evidence commit was pushed and origin/main equality verified."
+    "evidence": "CP-04 R3: corrected a stale preservation-probe path under exclusive lock. The actual runtime-adapters owner pin plus CLI, ChatOps/Dexter, MCP, Hermes, and versioned contract topology passed (six authoritative references). The owned helper is regular owner-Alej uid 1001, mode 0600, SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and compile-checked only. npm run qa:security passed: 268 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 161-file secret scan, and npm audit with 0 high vulnerabilities. Review found only CP-04 R3 evidence and pipeline state changed; Sentinel /auth, Dexter /auth delete, the exact target transaction, opaque receipt contract, and Hermes/Dexter weekly-only policy are unchanged. No helper invocation, live delete, login, provider request, credential/store write, route/model mutation, browser action, or service operation occurred."
   }
 }
