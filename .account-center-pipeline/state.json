@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "UI-02",
+  "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-08-01T09:49:44Z",
-  "candidate": "UI-02: fixture-only accessible action UI verification completed against c01fa3d; AC-06 owned transaction, one opaque receipt contract, full Sentinel /auth, working Dexter /auth delete, and Hermes/Dexter weekly-only policy remain locked.",
+  "updatedAt": "2026-08-01T10:23:53Z",
+  "candidate": "AC-06 R9: current-main fixture-only revalidation passed; owned transaction, one opaque receipt contract, full Sentinel /auth, working Dexter /auth delete, and Hermes/Dexter weekly-only policy remain locked.",
   "blockerResolutionPlan": {
-    "kind": "ui-02-complete-accessible-action-ui",
-    "planRecord": ".account-center-pipeline/UI-02.md",
+    "kind": "ac-06-r9-owned-delete-release-gate-revalidation",
+    "planRecord": ".account-center-pipeline/AC-06-BLOCKER-RESOLUTION-R9.md",
     "boundedSteps": [
-      "Inventory native UI actions and protected API contracts without accessing live runtime state.",
-      "Add fixture-server accessibility coverage and minimum UI-only truthful-state changes.",
-      "Run independent preservation review, helper compile-only validation, and full fixture/mock QA-security before merge."
+      "Inventory the committed Account Center, Hermes, Dexter, contract, and local-helper trust boundary without invoking any native transaction.",
+      "Run targeted hermetic owned-delete fixtures and the complete fixture/mock security QA suite.",
+      "Review protected policy/format surfaces, repository and remote equality; publish release evidence only if all checks pass."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,13 +35,13 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "UI-02: existing fixture-only control-panel UI behavior was independently reviewed for truthful state, keyboard/focus behavior, redaction, and absence of native delete authority. Focused adapter/CLI/MCP/owned-delete documentation fixtures passed (110 tests) and Hermes plugin fixtures passed (19). npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests, a 166-file secret scan, and npm audit with 0 high vulnerabilities. The owned helper was py_compile-checked only and verified Alej-owned mode 0600 with adapter-pinned SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37. Fetched c01fa3d equaled origin/main before the coordinator-only release record, and protected receipt/adapter/ChatOps/MCP files were unchanged. No helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, live browser action, or service operation occurred."
+    "evidence": "AC-06 R9: current-main review verified Account Center calls only the pinned Alej-owned mode-0600 exact-account helper and exports only opaque-owned-delete; Hermes and Dexter ChatOps accept the same two fixed public outcomes. The helper was stat/hash/py_compile checked only (SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37). Focused fixture suites passed (97 Node, 19 Hermes). npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes fixtures, 15 Playwright/axe fixture-browser tests, 167-file secret scan, and npm audit with 0 high vulnerabilities. No helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, service operation, or live browser action occurred."
   },
   "merge": {
-    "commit": "910c3b7",
+    "commit": "PENDING_PIPELINE_RECORD",
     "branch": "main",
-    "verified": true,
-    "scope": "UI-02 fixture-only accessible action UI review and release evidence; no runtime implementation, native helper invocation, or policy/format change.",
-    "recordedBy": "UI-02 coordinator; coordinator publication record follows and origin/main equality is verified after push."
+    "verified": false,
+    "scope": "AC-06 R9 fixture-only owned-delete release-gate review; policy/format/runtime implementation unchanged.",
+    "recordedBy": "AC-06 R9 coordinator; commit and origin/main equality will be recorded after publication."
   }
 }
