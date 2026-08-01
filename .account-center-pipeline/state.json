@@ -1,7 +1,7 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-03",
-  "state": "REVIEWED",
+  "state": "MERGED",
   "updatedAt": "2026-08-01T23:17:02Z",
   "candidate": "AC-03 R2: fixture-only durable guided-auth terminal-evidence completion; preserve the AC-09-owned exact-account delete transaction, one opaque receipt contract, Sentinel format, Dexter command, and weekly-only policy.",
   "blockerResolutionPlan": {
@@ -24,11 +24,11 @@
     "noLiveModelMutation": true
   },
   "previousMerge": {
-    "commit": "c01fa3d",
+    "commit": "d559790",
     "branch": "main",
     "verified": true,
-    "scope": "UI-01 R3 factual release-record repair; origin/main equality, fixture-only QA, exact owned transaction, opaque contract, Sentinel format, Dexter command, and weekly-only policy verified.",
-    "recordedBy": "UI-01 R3 coordinator."
+    "scope": "AC-03 R2 fixture-only sealed guided-auth terminal evidence; exact owned delete transaction, one opaque receipt contract, Sentinel format, Dexter command, and weekly-only policy unchanged.",
+    "recordedBy": "AC-03 R2 coordinator; review and QA evidence committed."
   },
   "review": {
     "spec": "passed",
@@ -37,5 +37,12 @@
     "liveDeletionExecuted": false,
     "evidence": "AC-03 R2 fixture-only durable terminal-evidence review passed: 271 Node fixture/mock tests, 19 Hermes-plugin fixtures, 15 Playwright/axe tests, secret scan, and zero high-severity audit findings. Native helper and all live operations were not invoked.",
     "record": ".account-center-pipeline/AC-03-R2-REVIEW.md"
+  },
+  "merge": {
+    "commit": "d559790",
+    "branch": "main",
+    "verified": true,
+    "scope": "AC-03 R2 fixture-only terminal lifecycle completion gate; no native helper or live operation ran.",
+    "recordedBy": "AC-03 R2 release publisher."
   }
 }
