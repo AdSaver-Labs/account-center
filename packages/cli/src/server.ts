@@ -1,7 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { createHash } from "node:crypto";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, honestOperationState, isValidGuidedAuthStart, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthCancel, executeGuidedAuthStart, honestOperationState, isValidGuidedAuthStart, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 
 export interface AccountCenterServerOptions {
   token: string;
@@ -37,11 +36,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const adapter = createRuntimeAdapter(source as RuntimeSource);
       const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
       if (!status || !isValidGuidedAuthStart(status, body)) return send(response, 400, { error: "invalid_guided_auth_request" });
-      const result = await options.challengeStore.createWithResult(body);
-      return send(response, result.created ? 201 : 200, {
+      const result = await executeGuidedAuthStart(body, { challengeStore: options.challengeStore });
+      return send(response, result.kind === "created" ? 201 : 200, {
         schemaVersion: "account-center.auth-challenge-start.v1",
         generatedAt: new Date().toISOString(),
-        idempotent: !result.created,
+        idempotent: result.kind === "reused",
         verificationState: "UNPROVEN",
         challenge: authChallengeView(result.challenge)
       });
@@ -53,33 +52,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
-      // Cancellation changes durable lifecycle state. Refuse the change rather than
-      // creating an unaudited mutation when its durable evidence store is absent.
-      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
-      // Validate the evidence store before changing the challenge. A corrupt
-      // audit store must not turn a successful lifecycle mutation into an
-      // unverifiable 500 response after its state has already been persisted.
-      try {
-        await options.auditStore.list({ limit: 1 });
-      } catch {
-        return send(response, 503, { error: "audit_unavailable" });
-      }
-      const cancellation = options.challengeStore ? await options.challengeStore.cancelWithResult(cancelId) : undefined;
-      if (!cancellation) return send(response, 404, { error: "not_found" });
-      const { challenge } = cancellation;
-      if (cancellation.changed) {
-        await options.auditStore.append({
-          action: "guided_auth.cancel",
-          outcome: "applied",
-          proofState: "verified",
-          requestDigest: createHash("sha256").update(`guided_auth.cancel\0${challenge.id}`).digest("hex"),
-          summary: "Local guided-auth challenge cancelled.",
-          warnings: [],
-          runtime: challenge.runtime,
-          ...(auditScopeKind(challenge.scope) ? { scopeKind: auditScopeKind(challenge.scope) } : {})
-        });
-      }
-      return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
+      const cancellation = await executeGuidedAuthCancel(cancelId, { challengeStore: options.challengeStore, auditStore: options.auditStore });
+      if (cancellation.kind === "audit_unavailable") return send(response, 503, { error: "audit_unavailable" });
+      if (cancellation.kind === "not_found" || !cancellation.challenge) return send(response, 404, { error: "not_found" });
+      return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(cancellation.challenge) });
     }
     const allowedMethods = endpointMethods(request.url);
     if (allowedMethods && !allowedMethods.includes(request.method ?? "")) {
@@ -158,7 +134,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     }
     const challengeId = authChallengeId(request.url);
     if (challengeId) {
-      const challenge = options.challengeStore ? await options.challengeStore.get(challengeId) : undefined;
+      const challenge = options.challengeStore ? await options.challengeStore.getReadOnly(challengeId) : undefined;
       if (!challenge) return send(response, 404, { error: "not_found" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
@@ -191,7 +167,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
 interface AuthChallengeInventoryQuery extends RuntimeInventoryQuery { limit: number; scope?: string; cursor?: string; }
 
 async function authChallengeInventory(store: AuthChallengeStore | undefined, query: AuthChallengeInventoryQuery): Promise<unknown> {
-  const matching = store ? (await store.list()).slice().reverse().filter((challenge) =>
+  const matching = store ? (await store.listReadOnly()).slice().reverse().filter((challenge) =>
     (!query.runtime || challenge.runtime === query.runtime) && (!query.scope || challenge.scope === query.scope)
   ) : [];
   const cursorIndex = query.cursor ? matching.findIndex((challenge) => challenge.id === query.cursor) : -1;

@@ -58,6 +58,16 @@ test("challenge store expires elapsed pending challenges durably when read", asy
   assert.equal(JSON.parse(await readFile(path, "utf8"))[0].status, "expired");
 });
 
+test("read-only challenge projection expires in memory without changing durable lifecycle bytes", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
+  const durable = JSON.stringify([{ id: "auth_expired", key: "key", mode: "add", status: "pending", provider: "openai", runtime: "openclaw", scope: "agent:main", expiresAt: "2020-01-01T00:00:00.000Z", createdAt: "2019-12-31T00:00:00.000Z", updatedAt: "2019-12-31T00:00:00.000Z" }]);
+  await writeFile(path, durable);
+  const store = new AuthChallengeStore(path);
+  assert.equal((await store.listReadOnly())[0]?.status, "expired");
+  assert.equal((await store.getReadOnly("auth_expired"))?.status, "expired");
+  assert.equal(await readFile(path, "utf8"), durable);
+});
+
 test("challenge store fails closed when a durable lifecycle record has an unknown status", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "account-center-challenges-")), "challenges.json");
   await writeFile(path, JSON.stringify([{

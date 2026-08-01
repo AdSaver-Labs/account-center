@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1373,6 +1373,26 @@ test("guided-auth cancellation rejects request bodies before changing local chal
     assert.equal(rejected.status, 413);
     assert.deepEqual(await rejected.json(), { error: "request_body_not_allowed" });
     assert.equal((await challenges.get(challenge.id))?.status, "pending");
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected guided-auth GET routes retain executor-validated context and never persist expiry", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const path = join(root, "challenges.json");
+  const durable = JSON.stringify([{ id: "auth_00000000-0000-4000-8000-000000000000", key: "key", mode: "add", status: "pending", provider: "openai", runtime: "openclaw", scope: "default", expiresAt: "2020-01-01T00:00:00.000Z", createdAt: "2019-12-31T00:00:00.000Z", updatedAt: "2019-12-31T00:00:00.000Z" }]);
+  await writeFile(path, durable);
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: new AuthChallengeStore(path) });
+  const address = await app.listen();
+  try {
+    const inventory = await request(address.port, "/api/auth-challenges?runtime=openclaw&scope=default", "test-token");
+    assert.equal(inventory.status, 200);
+    assert.equal((await inventory.json() as { challenges: Array<{ status: string }> }).challenges[0]?.status, "expired");
+    const detail = await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", "test-token");
+    assert.equal(detail.status, 200);
+    assert.equal((await detail.json() as { challenge: { status: string } }).challenge.status, "expired");
+    assert.equal(await readFile(path, "utf8"), durable);
   } finally {
     await app.close();
   }

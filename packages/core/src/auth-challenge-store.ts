@@ -25,6 +25,23 @@ export class AuthChallengeStore {
 
   async list(): Promise<AuthChallenge[]> { return this.withLock(() => this.listUnsafe()); }
 
+  /**
+   * Public history/detail endpoints must not turn a GET into durable lifecycle
+   * maintenance. This validates and redacts the same bounded record shape as
+   * list(), but projects elapsed challenges in memory only. Explicit lifecycle
+   * operations remain responsible for any durable expiry transition.
+   */
+  async listReadOnly(): Promise<AuthChallenge[]> {
+    try {
+      const value: unknown = JSON.parse(await readFile(this.path, "utf8"));
+      assertDurableChallenges(value, "challenge_store_corrupt", true);
+      return value.map(redactChallenge).map((challenge) => expireAuthChallenge(challenge));
+    } catch (error: unknown) {
+      if (isMissing(error)) return [];
+      throw error;
+    }
+  }
+
   private async listUnsafe(): Promise<AuthChallenge[]> {
     try {
       const value: unknown = JSON.parse(await readFile(this.path, "utf8"));
@@ -45,6 +62,9 @@ export class AuthChallengeStore {
   }
 
   async get(id: string): Promise<AuthChallenge | undefined> { return getAuthChallenge(await this.list(), id); }
+
+  /** See listReadOnly(): never acquire a lifecycle lock or write from a GET. */
+  async getReadOnly(id: string): Promise<AuthChallenge | undefined> { return getAuthChallenge(await this.listReadOnly(), id); }
 
   async cancel(id: string): Promise<AuthChallenge | undefined> {
     return (await this.cancelWithResult(id))?.challenge;
