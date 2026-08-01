@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-07",
-  "state": "PLANNED",
-  "updatedAt": "2026-08-01T13:22:00Z",
+  "state": "MERGED",
+  "updatedAt": "2026-08-01T13:25:00Z",
   "candidate": "AC-07 R1: prove the current-main shared mutation executor is the sole protected apply boundary while preserving AC-06\u2019s owned transaction, opaque receipt, full Sentinel /auth, Dexter command, and weekly-only policy.",
   "blockerResolutionPlan": {
     "kind": "ac-07-r3-canonical-pipeline-record-recovery",
@@ -38,10 +38,10 @@
     "evidence": "AC-07 R1 QA passed; R3 repairs only local pipeline JSON serialization before publication. No native helper invocation or live mutation occurred."
   },
   "merge": {
-    "commit": "PENDING_PIPELINE_RECORD",
+    "commit": "1bc9741",
     "branch": "main",
-    "verified": false,
-    "scope": "AC-07 R3 canonical pipeline-record recovery after fixture-only AC-07 R1 review.",
-    "recordedBy": "AC-07 R3 coordinator; pending canonical JSON verification."
+    "verified": true,
+    "scope": "AC-07 R1 fixture-only shared mutation executor gate; R3 canonical pipeline-record recovery; protected implementation and policy/format surfaces unchanged.",
+    "recordedBy": "AC-07 R3 coordinator; evidence committed and ready for remote publication."
   }
 }
