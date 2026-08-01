@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-01",
   "state": "MERGED",
-  "updatedAt": "2026-08-01T01:27:26Z",
+  "updatedAt": "2026-08-01T01:27:43Z",
   "candidate": "CP-01: existing reviewed loopback-only, per-launch owner-only token control-plane implementation on current main; reconcile the internally stale active-checkpoint state without changing protected auth/delete/policy surfaces.",
   "blockerResolutionPlan": {
     "kind": "cp01-locked-state-consistency-r2",
@@ -39,10 +39,10 @@
     "evidence": "CP-01 R2 locked-state reconciliation: npm test passed 262 Node fixture/mock tests and 19 Hermes-plugin tests; npm run qa:security passed TypeScript typecheck/build, 15 fixture Playwright/axe tests, 155-file secret scan, and npm audit with 0 high vulnerabilities; a repeat npm run test:a11y passed all 15 browser checks; static py_compile passed for the Hermes bridge and owned native helper; git diff --check passed. AC-06 fixture cases prove the owned exact-account transaction, opaque-only receipt, Hermes/Dexter transport parity, full Sentinel /auth rendering, and weekly-only policy were preserved. The owned helper was not executed; no live deletion, login, provider request, credential/store write, route/model mutation, non-fixture server, or service/runtime operation occurred."
   },
   "merge": {
-    "commit": "pending-record-commit",
+    "commit": "4e7f8b42a7f193025401a84e5bbd7775c38dab93",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "CP-01 R2 locked coordinator-state consistency reconciliation; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "CP-01 R2 coordinator review; awaiting narrow evidence-record commit and origin/main equality verification."
+    "recordedBy": "CP-01 R2 coordinator review; evidence record was pushed to origin/main and remote equality was verified."
   }
 }
