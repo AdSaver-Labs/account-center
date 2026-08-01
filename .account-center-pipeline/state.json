@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "MERGED",
-  "updatedAt": "2026-08-01T10:23:53Z",
+  "updatedAt": "2026-08-01T10:24:04Z",
   "candidate": "AC-06 R9: current-main fixture-only revalidation passed; owned transaction, one opaque receipt contract, full Sentinel /auth, working Dexter /auth delete, and Hermes/Dexter weekly-only policy remain locked.",
   "blockerResolutionPlan": {
     "kind": "ac-06-r9-owned-delete-release-gate-revalidation",
@@ -38,10 +38,10 @@
     "evidence": "AC-06 R9: current-main review verified Account Center calls only the pinned Alej-owned mode-0600 exact-account helper and exports only opaque-owned-delete; Hermes and Dexter ChatOps accept the same two fixed public outcomes. The helper was stat/hash/py_compile checked only (SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37). Focused fixture suites passed (97 Node, 19 Hermes). npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes fixtures, 15 Playwright/axe fixture-browser tests, 167-file secret scan, and npm audit with 0 high vulnerabilities. No helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, service operation, or live browser action occurred."
   },
   "merge": {
-    "commit": "PENDING_PIPELINE_RECORD",
+    "commit": "9573fef",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "AC-06 R9 fixture-only owned-delete release-gate review; policy/format/runtime implementation unchanged.",
-    "recordedBy": "AC-06 R9 coordinator; commit and origin/main equality will be recorded after publication."
+    "recordedBy": "AC-06 R9 coordinator; published to origin/main and remote equality verified after release-record commit."
   }
 }
