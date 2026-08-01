@@ -2,16 +2,16 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-01",
   "state": "MERGED",
-  "updatedAt": "2026-07-31T23:20:00Z",
-  "candidate": "CP-01: existing reviewed loopback-only, per-launch owner-only token control-plane implementation on current main; reconcile missing locked release evidence without changing protected auth/delete/policy surfaces.",
+  "updatedAt": "2026-08-01T01:27:26Z",
+  "candidate": "CP-01: existing reviewed loopback-only, per-launch owner-only token control-plane implementation on current main; reconcile the internally stale active-checkpoint state without changing protected auth/delete/policy surfaces.",
   "blockerResolutionPlan": {
-    "kind": "cp01-release-evidence-reconciliation-r1",
-    "planRecord": ".account-center-pipeline/CP-01-BLOCKER-RESOLUTION-R1.md",
+    "kind": "cp01-locked-state-consistency-r2",
+    "planRecord": ".account-center-pipeline/CP-01-BLOCKER-RESOLUTION-R2.md",
     "boundedSteps": [
-      "Record the existing CP-01 candidate under exclusive lock.",
-      "Run deterministic fixture tests, security QA, browser/a11y proof, static Python compilation, and repository invariants without launching a non-fixture server or native helper.",
-      "Inspect loopback/token and AC-06/Hermes/Dexter contract boundaries for host, token, delete, Sentinel-format, and weekly-only-policy regression.",
-      "Record and push only verified evidence if every gate passes; otherwise retain the candidate as PLANNED."
+      "Preserve the existing candidate under exclusive lock and mark the sole active CP-01 record PLANNED.",
+      "Verify checked-out/upstream evidence and pipeline JSON invariants; limit changes to coordinator records.",
+      "Run focused owned-delete fixture contracts plus deterministic build/test/security gates without executing the native helper.",
+      "Review, commit, push, and remotely verify only the reconciled pipeline evidence if all gates pass."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -36,13 +36,13 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "CP-01 R1 release reconciliation: npm run qa:security passed 262 Node fixture/mock tests and 19 Hermes-plugin tests; TypeScript typecheck/build; 15 Playwright/axe tests; 154-file secret scan; and npm audit with 0 high vulnerabilities. Static py_compile passed for the Hermes bridge and owned helper; git diff --check passed. The owned helper was not executed and no live deletion, non-fixture server launch, login, provider request, credential/store write, route/model mutation, runtime or service operation occurred."
+    "evidence": "CP-01 R2 locked-state reconciliation: npm test passed 262 Node fixture/mock tests and 19 Hermes-plugin tests; npm run qa:security passed TypeScript typecheck/build, 15 fixture Playwright/axe tests, 155-file secret scan, and npm audit with 0 high vulnerabilities; a repeat npm run test:a11y passed all 15 browser checks; static py_compile passed for the Hermes bridge and owned native helper; git diff --check passed. AC-06 fixture cases prove the owned exact-account transaction, opaque-only receipt, Hermes/Dexter transport parity, full Sentinel /auth rendering, and weekly-only policy were preserved. The owned helper was not executed; no live deletion, login, provider request, credential/store write, route/model mutation, non-fixture server, or service/runtime operation occurred."
   },
   "merge": {
-    "commit": "c7bc543",
+    "commit": "pending-record-commit",
     "branch": "main",
-    "verified": true,
-    "scope": "CP-01 loopback-only/per-launch owner-only token release-evidence reconciliation; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "CP-01 R1 coordinator review; the release-evidence commit was pushed to origin/main and remote equality was verified."
+    "verified": false,
+    "scope": "CP-01 R2 locked coordinator-state consistency reconciliation; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "CP-01 R2 coordinator review; awaiting narrow evidence-record commit and origin/main equality verification."
   }
 }
