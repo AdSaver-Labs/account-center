@@ -38,10 +38,10 @@
     "evidence": "CP-04 R2: the installed owned helper was verified regular owner-Alej uid 1001, mode 0600, SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and compile-checked only. Focused hermetic AC-06 fixture gate passed: build, 34 Account Center/Dexter/MCP contract tests, and 19 direct Hermes-plugin tests. Full npm run qa:security passed: 268 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 160-file secret scan, and npm audit with 0 high vulnerabilities. Review found only this pipeline evidence changed; adapter uses the owned helper and ChatOps/Hermes use the same canonical opaque contract. No helper invocation, live delete, login, provider request, credential/store write, route/model mutation, browser action, or service operation occurred."
   },
   "merge": {
-    "commit": "pending",
+    "commit": "61fef635db3cb4e2809fb4e1501b1354d6ebe968",
     "branch": "main",
-    "verified": false,
+    "verified": true,
     "scope": "CP-04 R2 release-evidence reconciliation: fixture-only AC-06 owned helper and one opaque receipt contract revalidated; protected Sentinel /auth, Dexter /auth delete, and weekly-only policy unchanged.",
-    "recordedBy": "CP-04 R2 coordinator review pending committed revision and origin/main verification."
+    "recordedBy": "CP-04 R2 coordinator review; evidence commit was pushed and origin/main equality verified."
   }
 }
