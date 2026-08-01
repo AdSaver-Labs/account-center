@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-09",
-  "state": "MERGED",
-  "updatedAt": "2026-08-01T21:37:07Z",
-  "candidate": "AC-09 R1: fixture-only cross-consumer drift review of the existing owned exact-account delete transaction and its single opaque receipt contract; retain protected main and all locked policy/format surfaces.",
+  "activeCheckpoint": "AC-03",
+  "state": "REVIEWED",
+  "updatedAt": "2026-08-01T23:17:02Z",
+  "candidate": "AC-03 R2: fixture-only durable guided-auth terminal-evidence completion; preserve the AC-09-owned exact-account delete transaction, one opaque receipt contract, Sentinel format, Dexter command, and weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-09-r1-cross-consumer-opaque-receipt-drift-gate",
-    "planRecord": ".account-center-pipeline/AC-09-R1-EXECUTION-PLAN.md",
+    "kind": "ac-03-r2-durable-guided-auth-terminal-evidence",
+    "planRecord": ".account-center-pipeline/AC-03-R2-BLOCKER-RESOLUTION.md",
     "boundedSteps": [
-      "Inspect every consumer and native receipt normalizer against the versioned opaque contract and compile the owned helper without invoking it.",
-      "Exercise fixture/mock contract-drift and hostile-output cases; only exact applied or fixed UNPROVEN output may cross public boundaries.",
-      "Run security QA and trust/preservation review; retain candidate and issue a new internal plan on any failure."
+      "Prove sealed redacted terminal lifecycle transitions with fixture proof cases.",
+      "Implement only a narrow atomic validated transition/audit boundary with no runtime authority.",
+      "Run fixture-only public-boundary tests, security QA, and preservation review."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,14 +35,7 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "AC-09 R1 cross-consumer opaque receipt drift review passed: 268 Node, 19 Hermes, 15 Playwright/axe, static trust/compile, and security QA. No native helper or live operation ran.",
-    "record": ".account-center-pipeline/AC-09-R1-REVIEW.md"
-  },
-  "merge": {
-    "commit": "0c23b15",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-09 R1 fixture-only cross-consumer opaque receipt-drift release gate; owned transaction, Sentinel format, Dexter command, and weekly-only policy unchanged.",
-    "recordedBy": "AC-09 R1 coordinator; review and QA evidence committed."
+    "evidence": "AC-03 R2 fixture-only durable terminal-evidence review passed: 271 Node fixture/mock tests, 19 Hermes-plugin fixtures, 15 Playwright/axe tests, secret scan, and zero high-severity audit findings. Native helper and all live operations were not invoked.",
+    "record": ".account-center-pipeline/AC-03-R2-REVIEW.md"
   }
 }

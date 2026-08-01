@@ -18,7 +18,8 @@ const proof = {
   observedAt: "2026-07-30T11:59:00.000Z",
   identity: "matched",
   health: "ok",
-  replacement: "verified"
+  replacement: "verified",
+  result: "completed"
 };
 
 test("reauth completion readiness is proof-only and never claims a native apply", () => {

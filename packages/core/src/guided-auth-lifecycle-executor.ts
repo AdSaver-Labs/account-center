@@ -45,6 +45,35 @@ export async function executeGuidedAuthCancel(
   return { kind: "cancelled", challenge };
 }
 
+/**
+ * Fixture-safe terminal reauth boundary. It has no runtime adapter, login,
+ * credential, route, or native-delete authority. Invalid/replayed proof leaves
+ * durable state unchanged and produces no terminal audit claim.
+ */
+export async function executeGuidedAuthReauthTerminal(
+  id: string,
+  proof: unknown,
+  dependencies: { challengeStore?: AuthChallengeStore; auditStore?: AuditStore },
+  now = new Date()
+): Promise<{ kind: "completed" | "failed" | "unchanged" | "not_found" | "audit_unavailable"; challenge?: AuthChallenge }> {
+  if (!dependencies.challengeStore) return { kind: "not_found" };
+  if (!dependencies.auditStore) return { kind: "audit_unavailable" };
+  try { await dependencies.auditStore.list({ limit: 1 }); } catch { return { kind: "audit_unavailable" }; }
+  const result = await dependencies.challengeStore.completeReauthWithProof(id, proof, now);
+  if (result.kind !== "completed" && result.kind !== "failed") return result;
+  const challenge = result.challenge!;
+  await dependencies.auditStore.append({
+    action: "guided_auth.reauth_terminal",
+    outcome: result.kind === "completed" ? "applied" : "failed_no_change_verified",
+    proofState: "verified",
+    requestDigest: createHash("sha256").update(`guided_auth.reauth_terminal\0${challenge.id}\0${result.kind}`).digest("hex"),
+    summary: result.kind === "completed" ? "Local guided-auth reauth completion evidence recorded." : "Local guided-auth reauth failure evidence recorded.",
+    warnings: [], runtime: challenge.runtime,
+    ...(auditScopeKind(challenge.scope) ? { scopeKind: auditScopeKind(challenge.scope) } : {})
+  });
+  return result;
+}
+
 function auditScopeKind(scope: string): "agent" | "profile" | "session" | "default" | "all" | undefined {
   const kind = scope.split(":", 1)[0];
   return kind === "agent" || kind === "profile" || kind === "session" || kind === "default" || kind === "all" ? kind : undefined;

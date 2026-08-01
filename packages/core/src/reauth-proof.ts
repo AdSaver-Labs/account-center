@@ -13,8 +13,9 @@ export interface ReauthProof {
   scope: string;
   observedAt: string;
   identity: "matched";
-  health: "ok";
-  replacement: "verified";
+  health: "ok" | "failed";
+  replacement: "verified" | "not_replaced";
+  result: "completed" | "failed";
 }
 
 export type ReauthProofVerification =
@@ -22,7 +23,7 @@ export type ReauthProofVerification =
   | { kind: "UNPROVEN"; reason: "reauth_proof_absent" | "reauth_challenge_not_pending" | "reauth_proof_invalid" | "reauth_proof_binding_mismatch" | "reauth_proof_stale" };
 
 const MAX_PROOF_AGE_MS = 5 * 60_000;
-const PROOF_KEYS = new Set(["schemaVersion", "challengeId", "provider", "runtime", "scope", "observedAt", "identity", "health", "replacement"]);
+const PROOF_KEYS = new Set(["schemaVersion", "challengeId", "provider", "runtime", "scope", "observedAt", "identity", "health", "replacement", "result"]);
 
 /** Fail closed: only exact, fresh, non-secret evidence bound to one pending challenge verifies. */
 export function verifyReauthProof(challenge: AuthChallenge, value: unknown, options: { now?: Date } = {}): ReauthProofVerification {
@@ -32,7 +33,10 @@ export function verifyReauthProof(challenge: AuthChallenge, value: unknown, opti
   if (Object.keys(proof).length !== PROOF_KEYS.size || !Object.keys(proof).every((key) => PROOF_KEYS.has(key) && Object.prototype.hasOwnProperty.call(proof, key)) ||
       proof.schemaVersion !== "account-center.reauth-proof.v1" ||
       typeof proof.challengeId !== "string" || typeof proof.provider !== "string" || typeof proof.runtime !== "string" ||
-      typeof proof.scope !== "string" || typeof proof.observedAt !== "string" || proof.identity !== "matched" || proof.health !== "ok" || proof.replacement !== "verified") {
+      typeof proof.scope !== "string" || typeof proof.observedAt !== "string" || proof.identity !== "matched" ||
+      (proof.result !== "completed" && proof.result !== "failed") ||
+      (proof.result === "completed" && (proof.health !== "ok" || proof.replacement !== "verified")) ||
+      (proof.result === "failed" && (proof.health !== "failed" || proof.replacement !== "not_replaced"))) {
     return { kind: "UNPROVEN", reason: "reauth_proof_invalid" };
   }
   if (proof.challengeId !== challenge.id || proof.provider !== challenge.provider || proof.runtime !== challenge.runtime || proof.scope !== challenge.scope) return { kind: "UNPROVEN", reason: "reauth_proof_binding_mismatch" };

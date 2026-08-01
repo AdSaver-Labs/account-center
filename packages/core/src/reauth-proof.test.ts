@@ -18,7 +18,8 @@ const proof = {
   observedAt: "2026-07-29T21:59:00.000Z",
   identity: "matched",
   health: "ok",
-  replacement: "verified"
+  replacement: "verified",
+  result: "completed"
 };
 
 test("reauth completion proof requires bounded fresh identity, health, and replacement evidence", () => {
@@ -26,6 +27,7 @@ test("reauth completion proof requires bounded fresh identity, health, and repla
   assert.deepEqual(verifyReauthProof(challenge, { ...proof, health: "unknown" }, { now }), { kind: "UNPROVEN", reason: "reauth_proof_invalid" });
   assert.deepEqual(verifyReauthProof(challenge, { ...proof, observedAt: "2026-07-29T21:50:00.000Z" }, { now }), { kind: "UNPROVEN", reason: "reauth_proof_stale" });
   assert.deepEqual(verifyReauthProof(challenge, { ...proof, provider: "other" }, { now }), { kind: "UNPROVEN", reason: "reauth_proof_binding_mismatch" });
+  assert.deepEqual(verifyReauthProof(challenge, { ...proof, result: "failed", health: "failed", replacement: "not_replaced" }, { now }), { kind: "verified" });
 });
 
 test("reauth proof rejects absent, terminal, credential-bearing, and arbitrary evidence without public disclosure", () => {

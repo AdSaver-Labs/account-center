@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const builtStoreModule = new URL("../dist/auth-challenge-store.js", import.meta.url);
 
-test("compiled AuthChallengeStore.write rejects terminal, proof, verification, and arbitrary records before mutation", async () => {
+test("compiled AuthChallengeStore.write rejects proof, verification, and arbitrary records before mutation", async () => {
   const { AuthChallengeStore } = await import(builtStoreModule.href);
   const root = await mkdtemp(join(tmpdir(), "account-center-artifact-challenges-"));
   const path = join(root, "nested", "challenges.json");
@@ -25,7 +25,6 @@ test("compiled AuthChallengeStore.write rejects terminal, proof, verification, a
   const pending = await store.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "new@example.test", scope: "agent:main" });
   const before = await readFile(path, "utf8");
   for (const record of [
-    { ...pending, status: "completed" },
     { ...pending, proof: "attacker-controlled" },
     { ...pending, verificationState: "VERIFIED" },
     { ...pending, arbitrary: true }

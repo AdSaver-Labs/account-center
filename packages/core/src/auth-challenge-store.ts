@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { AuthChallenge, AuthChallengeInput, cancelAuthChallenge, createAuthChallenge, expireAuthChallenge, getAuthChallenge, isSafePublicChallengeMetadata } from "./auth-challenges.js";
+import { verifyReauthProof } from "./reauth-proof.js";
 
 export class AuthChallengeStore {
   private readonly lockPath: string;
@@ -85,6 +86,26 @@ export class AuthChallengeStore {
     });
   }
 
+  /** The only terminal transition: validate and discard proof under the lifecycle lock. */
+  async completeReauthWithProof(id: string, proof: unknown, now = new Date()): Promise<{ kind: "completed" | "failed" | "unchanged" | "not_found"; challenge?: AuthChallenge }> {
+    return this.withLock(async () => {
+      const challenges = await this.listUnsafe();
+      const index = challenges.findIndex((item) => item.id === id);
+      if (index < 0) return { kind: "not_found" };
+      const challenge = expireAuthChallenge(challenges[index]!, now);
+      if (challenge.status !== "pending") {
+        if (challenge.status !== challenges[index]!.status) { challenges[index] = challenge; await this.writeUnsafe(challenges); }
+        return { kind: "unchanged", challenge };
+      }
+      if (verifyReauthProof(challenge, proof, { now }).kind !== "verified") return { kind: "unchanged", challenge };
+      const kind = (proof as { result: "completed" | "failed" }).result;
+      const terminal: AuthChallenge = { ...challenge, status: kind, updatedAt: now.toISOString() };
+      challenges[index] = terminal;
+      await this.writeUnsafe(challenges);
+      return { kind, challenge: terminal };
+    });
+  }
+
   /**
    * TypeScript privacy and package export maps do not protect compiled JS.
    * Validate before any mkdir/temporary-file mutation, then acquire the same
@@ -150,7 +171,7 @@ function isDurableChallenge(value: unknown, allowLegacyTarget: boolean): value i
     hasOwn(candidate, "id") && typeof candidate.id === "string" &&
     hasOwn(candidate, "key") && typeof candidate.key === "string" &&
     hasOwn(candidate, "mode") && (candidate.mode === "add" || candidate.mode === "reauth") &&
-    hasOwn(candidate, "status") && (candidate.status === "pending" || candidate.status === "cancelled" || candidate.status === "expired") &&
+    hasOwn(candidate, "status") && (candidate.status === "pending" || candidate.status === "completed" || candidate.status === "failed" || candidate.status === "cancelled" || candidate.status === "expired") &&
     hasOwn(candidate, "provider") && typeof candidate.provider === "string" &&
     hasOwn(candidate, "runtime") && typeof candidate.runtime === "string" &&
     hasOwn(candidate, "scope") && typeof candidate.scope === "string" &&
