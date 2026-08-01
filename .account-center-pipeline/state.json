@@ -2,16 +2,15 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-04",
   "state": "MERGED",
-  "updatedAt": "2026-08-01T04:50:00Z",
-  "candidate": "CP-04 R1: preserve the merged CP-03 protected-route lifecycle boundary while independently proving the current Account Center and Hermes/Dexter AC-06 bridge reaches only the owned native exact-account delete transaction, emits one contract-backed opaque receipt, and remains fixture-only; Sentinel /auth and weekly-only policy locked.",
+  "updatedAt": "2026-08-01T05:58:11Z",
+  "candidate": "CP-04 R2: preserve the merged AC-06 owned native exact-account delete bridge and reconcile the internally inconsistent active MERGED release record through fixture-only contract evidence; Sentinel /auth, Dexter /auth delete, and Hermes/Dexter weekly-only policy locked.",
   "blockerResolutionPlan": {
-    "kind": "cp04-r1-owned-delete-bridge-contract",
-    "planRecord": ".account-center-pipeline/CP-04-R1.md",
+    "kind": "cp04-r2-release-evidence-reconciliation",
+    "planRecord": ".account-center-pipeline/CP-04-R2.md",
     "boundedSteps": [
-      "Verify the installed owned helper identity, owner-only mode, and reviewed SHA-256 without invoking it.",
-      "Exercise the Account Center OpenClaw adapter only with fake runners and owned-delete fixtures, covering exact target resolution, verified opaque receipt projection, and fail-closed malformed/untrusted evidence.",
-      "Exercise the Hermes and Dexter shared ChatOps wrapper only in hermetic fixture roots against the same receipt JSON contract.",
-      "Run focused fixture tests, complete deterministic QA/security gates, and inspect the final diff for unchanged Sentinel /auth rendering and Hermes/Dexter weekly-only behavior before any release decision."
+      "Inspect the Account Center adapter, receipt loader, Dexter transports, and Hermes plugin for the single owned transaction and opaque receipt contract.",
+      "Compile-check only the installed owner-only helper and run focused hermetic fixture tests; no helper invocation or live account operation.",
+      "Run deterministic security QA and independently review protected Sentinel, Dexter, exact-target, and weekly-only invariants before recording the gate."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -36,13 +35,13 @@
     "quality": "approved",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "CP-04 R1: verified the owned native helper path is a regular owner-Alej uid 1001, 0600 file with reviewed SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37; compile-only. Focused fixture/mock review passed: 78 Node tests spanning Account Center adapter, Dexter ChatOps/MCP, and canonical /auth rendering, plus 11 direct Hermes plugin tests. Full npm run qa:security passed: npm test 268 Node fixture/mock tests and 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 159-file secret scan, and npm audit 0 vulnerabilities. Diff review confirms no edits to runtime adapter, Hermes plugin, shared ChatOps/MCP bridge, receipt contract, Sentinel /auth rendering, or weekly-only export policy. No helper invocation, live deletion, login, provider request, credential/store write outside fixtures, route/model mutation, or runtime service operation occurred."
+    "evidence": "CP-04 R2: the installed owned helper was verified regular owner-Alej uid 1001, mode 0600, SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and compile-checked only. Focused hermetic AC-06 fixture gate passed: build, 34 Account Center/Dexter/MCP contract tests, and 19 direct Hermes-plugin tests. Full npm run qa:security passed: 268 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 160-file secret scan, and npm audit with 0 high vulnerabilities. Review found only this pipeline evidence changed; adapter uses the owned helper and ChatOps/Hermes use the same canonical opaque contract. No helper invocation, live delete, login, provider request, credential/store write, route/model mutation, browser action, or service operation occurred."
   },
   "merge": {
-    "commit": "e1a50b932338a31fbe0ca2170e75621abe2207ee",
+    "commit": "pending",
     "branch": "main",
-    "verified": true,
-    "scope": "CP-04 R1 ownership record: independently verified existing AC-06 Account Center/Hermes/Dexter fixture-only owned-delete bridge and opaque receipt contract; locked Sentinel /auth and weekly-only policy unchanged.",
-    "recordedBy": "CP-04 R1 coordinator review; release commit pushed and origin/main equality verified."
+    "verified": false,
+    "scope": "CP-04 R2 release-evidence reconciliation: fixture-only AC-06 owned helper and one opaque receipt contract revalidated; protected Sentinel /auth, Dexter /auth delete, and weekly-only policy unchanged.",
+    "recordedBy": "CP-04 R2 coordinator review pending committed revision and origin/main verification."
   }
 }
