@@ -2,15 +2,15 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "UI-01",
   "state": "MERGED",
-  "updatedAt": "2026-08-01T08:10:15Z",
-  "candidate": "UI-01: native Codex visual-system ownership is integrated and fixture-only review/QA approved; preserve the verified owned exact-account deletion transaction, one opaque receipt contract, full Sentinel /auth, Dexter /auth delete, and Hermes/Dexter weekly-only policy.",
+  "updatedAt": "2026-08-01T08:24:00Z",
+  "candidate": "UI-01 R2: cf09c6a publication candidate independently revalidated with fixture-only review/QA; native Codex visual-system gate released while the owned exact-account deletion transaction, one opaque receipt contract, full Sentinel /auth, Dexter /auth delete, and Hermes/Dexter weekly-only policy remain preserved.",
   "blockerResolutionPlan": {
-    "kind": "ui-01-native-codex-visual-system-ownership",
-    "planRecord": ".account-center-pipeline/UI-01.md",
+    "kind": "ui-01-release-publication-reconciliation-r2",
+    "planRecord": ".account-center-pipeline/UI-01-BLOCKER-RESOLUTION-R2.md",
     "boundedSteps": [
-      "Restore and inspect the isolated native Codex worktree without touching production runtime stores.",
-      "Prove its visual-system ancestry, documented tokens, protected-state behavior, and fixture/browser coverage.",
-      "Run independent review and full fixture-only QA/security before release evidence is committed."
+      "Record unpublished linear candidate cf09c6a as PLANNED under the exclusive state lock.",
+      "Revalidate its direct-parent topology, owned-helper trust boundary, fixture/mock contracts, and deterministic security QA.",
+      "Publish only if review is green and origin/main remains its direct parent; fetch and verify exact remote equality."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,13 +35,13 @@
     "quality": "approved",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "UI-01 review: native Codex UI worktree tip 02b03ed is a clean ancestor of main. npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests including protected UNPROVEN states, keyboard/dialog behavior, and 320/430/760/desktop overflow; 163-file secret scan; npm audit 0 vulnerabilities. Owned helper compile-checked only; no helper invocation, live delete, login, provider request, credential/store write, route/model mutation, live browser action, or service operation."
+    "evidence": "UI-01 R2: linear topology verified (cf09c6a parent equals fbe7c02 origin/main); owned helper compile-check passed and remains owner-only regular file with pinned SHA-256; npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests, 164-file secret scan, and npm audit 0 vulnerabilities. No helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, live browser action, or service operation."
   },
   "merge": {
-    "commit": "1662eeb",
+    "commit": "pending-publication",
     "branch": "main",
-    "verified": true,
-    "scope": "CP-04 R3/R4 release-evidence correction: actual owned-delete topology revalidated and intentionally ignored evidence admitted; protected owned-delete, Sentinel, Dexter, and weekly-only boundaries unchanged.",
-    "recordedBy": "CP-04 R4 coordinator review; 1662eeb was pushed and exact origin/main equality verified."
+    "verified": false,
+    "scope": "UI-01 R2 release-publication reconciliation pending commit/push verification.",
+    "recordedBy": "UI-01 R2 coordinator review."
   }
 }
