@@ -2,15 +2,15 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "UI-01",
   "state": "MERGED",
-  "updatedAt": "2026-08-01T08:24:00Z",
-  "candidate": "UI-01 R2: cf09c6a publication candidate independently revalidated with fixture-only review/QA; native Codex visual-system gate released while the owned exact-account deletion transaction, one opaque receipt contract, full Sentinel /auth, Dexter /auth delete, and Hermes/Dexter weekly-only policy remain preserved.",
+  "updatedAt": "2026-08-01T09:17:12Z",
+  "candidate": "UI-01 R3: factual publication record repaired after independent current-revision fixture-only review; AC-06 owned transaction, one opaque receipt contract, full Sentinel /auth, working Dexter /auth delete, and Hermes/Dexter weekly-only policy remain locked.",
   "blockerResolutionPlan": {
-    "kind": "ui-01-release-publication-reconciliation-r2",
-    "planRecord": ".account-center-pipeline/UI-01-BLOCKER-RESOLUTION-R2.md",
+    "kind": "ui-01-factual-release-record-repair-r3",
+    "planRecord": ".account-center-pipeline/UI-01-BLOCKER-RESOLUTION-R3.md",
     "boundedSteps": [
-      "Record unpublished linear candidate cf09c6a as PLANNED under the exclusive state lock.",
-      "Revalidate its direct-parent topology, owned-helper trust boundary, fixture/mock contracts, and deterministic security QA.",
-      "Publish only if review is green and origin/main remains its direct parent; fetch and verify exact remote equality."
+      "Record the stale pending-publication field as PLANNED under the exclusive lock while retaining 7f56d48.",
+      "Prove fetched local/remote equality, clean topology, trusted helper identity, and compile-only validity.",
+      "Re-run fixture/mock security QA and receipt/transport/policy preservation review before factual release recording."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,13 +35,13 @@
     "quality": "approved",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "UI-01 R2: linear topology verified (cf09c6a parent equals fbe7c02 origin/main); owned helper compile-check passed and remains owner-only regular file with pinned SHA-256; npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests, 164-file secret scan, and npm audit 0 vulnerabilities. No helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, live browser action, or service operation."
+    "evidence": "UI-01 R3: origin was fetched and 7f56d48 exactly equaled origin/main before evidence correction; 7f56d48 parent is cf09c6a. Owned helper is an Alej-owned regular 0600 file matching pinned SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and py_compile passed. npm run qa:security passed build/typecheck, 268 Node fixture/mock tests (including owned transaction, Dexter/ChatOps/MCP/Hermes opaque transport fixtures and Sentinel/weekly-only preservation), 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests, 165-file secret scan, and npm audit with 0 vulnerabilities. No helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, live browser action, or service operation."
   },
   "merge": {
-    "commit": "pending-publication",
+    "commit": "7f56d48",
     "branch": "main",
-    "verified": false,
-    "scope": "UI-01 R2 release-publication reconciliation pending commit/push verification.",
-    "recordedBy": "UI-01 R2 coordinator review."
+    "verified": true,
+    "scope": "UI-01 R2 publication and UI-01 R3 factual remote-equality evidence verified; the subsequent coordinator-only record corrects stale metadata.",
+    "recordedBy": "UI-01 R3 coordinator; fetched origin/main equality and current-revision QA verified."
   }
 }
