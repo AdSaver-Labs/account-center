@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06",
-  "state": "MERGED",
-  "updatedAt": "2026-08-01T10:24:04Z",
-  "candidate": "AC-06 R9: current-main fixture-only revalidation passed; owned transaction, one opaque receipt contract, full Sentinel /auth, working Dexter /auth delete, and Hermes/Dexter weekly-only policy remain locked.",
+  "activeCheckpoint": "AC-07",
+  "state": "PLANNED",
+  "updatedAt": "2026-08-01T13:22:00Z",
+  "candidate": "AC-07 R1: prove the current-main shared mutation executor is the sole protected apply boundary while preserving AC-06\u2019s owned transaction, opaque receipt, full Sentinel /auth, Dexter command, and weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-06-r9-owned-delete-release-gate-revalidation",
-    "planRecord": ".account-center-pipeline/AC-06-BLOCKER-RESOLUTION-R9.md",
+    "kind": "ac-07-r3-canonical-pipeline-record-recovery",
+    "planRecord": ".account-center-pipeline/AC-07-BLOCKER-RESOLUTION-R3.md",
     "boundedSteps": [
-      "Inventory the committed Account Center, Hermes, Dexter, contract, and local-helper trust boundary without invoking any native transaction.",
-      "Run targeted hermetic owned-delete fixtures and the complete fixture/mock security QA suite.",
-      "Review protected policy/format surfaces, repository and remote equality; publish release evidence only if all checks pass."
+      "Atomically rewrite canonical newline-terminated JSON under the exclusive state lock.",
+      "Parse the on-disk state with Python and Node and inspect the exact diff.",
+      "Reconfirm recorded fixture-only QA and static trust evidence without any native or live operation."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,13 +35,13 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "AC-06 R9: current-main review verified Account Center calls only the pinned Alej-owned mode-0600 exact-account helper and exports only opaque-owned-delete; Hermes and Dexter ChatOps accept the same two fixed public outcomes. The helper was stat/hash/py_compile checked only (SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37). Focused fixture suites passed (97 Node, 19 Hermes). npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes fixtures, 15 Playwright/axe fixture-browser tests, 167-file secret scan, and npm audit with 0 high vulnerabilities. No helper invocation, live deletion, login, provider request, credential/store write, route/model mutation, service operation, or live browser action occurred."
+    "evidence": "AC-07 R1 QA passed; R3 repairs only local pipeline JSON serialization before publication. No native helper invocation or live mutation occurred."
   },
   "merge": {
-    "commit": "9573fef",
+    "commit": "PENDING_PIPELINE_RECORD",
     "branch": "main",
-    "verified": true,
-    "scope": "AC-06 R9 fixture-only owned-delete release-gate review; policy/format/runtime implementation unchanged.",
-    "recordedBy": "AC-06 R9 coordinator; published to origin/main and remote equality verified after release-record commit."
+    "verified": false,
+    "scope": "AC-07 R3 canonical pipeline-record recovery after fixture-only AC-07 R1 review.",
+    "recordedBy": "AC-07 R3 coordinator; pending canonical JSON verification."
   }
 }
