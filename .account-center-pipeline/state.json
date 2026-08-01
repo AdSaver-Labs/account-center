@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "CP-04",
   "state": "PLANNED",
-  "updatedAt": "2026-08-01T04:20:21Z",
+  "updatedAt": "2026-08-01T04:20:59Z",
   "candidate": "CP-04: preserve the merged CP-03 protected-route lifecycle boundary and prepare the bounded public connection-inventory/Hermes automation-capacity release candidate; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Dexter command, and weekly-only policy locked.",
   "blockerResolutionPlan": {
     "kind": "cp04-public-inventory-filesystem-safety",
@@ -24,11 +24,11 @@
     "noLiveModelMutation": true
   },
   "previousMerge": {
-    "commit": "ac090dd3fc3c9aabb539fbb76b427a683022f96d",
+    "commit": "421c234",
     "branch": "main",
     "verified": true,
-    "scope": "AC-07 R1/R2 fixture-only shared mutation executor and locked-pipeline record release gate; AC-06 owned transaction, opaque receipt, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "AC-07 R2 release evidence; corrected state parsed, was pushed to origin/main, and remote equality was verified."
+    "scope": "CP-03 R3 protected guided-auth lifecycle executor: shared POST lifecycle boundary, side-effect-free protected GET projections, fixture-only AC-06 opaque owned-delete parity, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "CP-03 coordinator review; release commit was pushed and origin/main equality was verified."
   },
   "review": {
     "spec": "passed",
@@ -38,10 +38,10 @@
     "evidence": "CP-03 R3: guided-auth POST start/cancel use the shared local lifecycle executor; protected GET projections are side-effect-free. npm test passed: 268 Node fixture/mock tests + 19 Hermes-plugin tests. npm run qa:security passed: typecheck/build, 15 Playwright/axe tests, 157-file secret scan, and npm audit with 0 high vulnerabilities. Repeat npm run test:a11y: 15 passed. Owned helper compile-only pin SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37, regular 0600, owner Alej uid 1001. No helper invocation, live deletion, login, provider request, credential/store write outside fixtures, route/model mutation, or runtime service operation."
   },
   "merge": {
-    "commit": "294a17b",
+    "commit": "421c234",
     "branch": "main",
     "verified": true,
-    "scope": "CP-02 protected API contract: exact bearer, same-origin state changes, strict bounded JSON, fixed security headers, no CORS allowance, and redacted fixture-only errors; AC-06 owned transaction/opaque receipt, Sentinel full /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
-    "recordedBy": "CP-02 coordinator review; release commit was pushed and origin/main equality was verified before merge record."
+    "scope": "CP-03 R3 protected guided-auth lifecycle executor: shared POST lifecycle boundary, side-effect-free protected GET projections, fixture-only AC-06 opaque owned-delete parity, full Sentinel /auth, Hermes/Dexter weekly-only policy, and Dexter /auth delete preserved.",
+    "recordedBy": "CP-03 coordinator review; release commit was pushed and origin/main equality was verified."
   }
 }
