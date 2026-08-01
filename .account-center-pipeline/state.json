@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "CP-04",
+  "activeCheckpoint": "UI-01",
   "state": "MERGED",
-  "updatedAt": "2026-08-01T06:33:17Z",
-  "candidate": "CP-04 R4: preserve the R3 verified owned-delete evidence and admit only the intentionally ignored pipeline records with an explicit allowlist; Sentinel /auth, Dexter /auth delete, and weekly-only policy locked.",
+  "updatedAt": "2026-08-01T08:10:15Z",
+  "candidate": "UI-01: native Codex visual-system ownership is integrated and fixture-only review/QA approved; preserve the verified owned exact-account deletion transaction, one opaque receipt contract, full Sentinel /auth, Dexter /auth delete, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "cp04-r4-ignored-evidence-admission-correction",
-    "planRecord": ".account-center-pipeline/CP-04-R4.md",
+    "kind": "ui-01-native-codex-visual-system-ownership",
+    "planRecord": ".account-center-pipeline/UI-01.md",
     "boundedSteps": [
-      "Force-add only the reviewed pipeline state and R4 record after confirming the fixed allowlist.",
-      "Commit, push, and verify origin/main equality; re-read the committed record.",
-      "Reuse R3 fixture-only validation evidence; do not invoke any helper or live operation."
+      "Restore and inspect the isolated native Codex worktree without touching production runtime stores.",
+      "Prove its visual-system ancestry, documented tokens, protected-state behavior, and fixture/browser coverage.",
+      "Run independent review and full fixture-only QA/security before release evidence is committed."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,7 +35,7 @@
     "quality": "approved",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "CP-04 R3/R4: stale probe path corrected to runtime-adapters.ts; six authoritative owner/consumer receipt references passed. Owned helper verified regular owner-Alej uid 1001, mode 0600, SHA-256 4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37 and compile-checked only. npm run qa:security passed: 268 Node fixture/mock tests, 19 Hermes-plugin tests, typecheck/build, 15 Playwright/axe tests, 161-file secret scan, and npm audit with 0 high vulnerabilities. Review found only pipeline evidence changed; protected Sentinel /auth, Dexter /auth delete, exact target transaction, opaque receipt, and Hermes/Dexter weekly-only policy unchanged. No helper invocation, live delete, login, provider request, credential/store write, route/model mutation, browser action, or service operation occurred."
+    "evidence": "UI-01 review: native Codex UI worktree tip 02b03ed is a clean ancestor of main. npm run qa:security passed build/typecheck, 268 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests including protected UNPROVEN states, keyboard/dialog behavior, and 320/430/760/desktop overflow; 163-file secret scan; npm audit 0 vulnerabilities. Owned helper compile-checked only; no helper invocation, live delete, login, provider request, credential/store write, route/model mutation, live browser action, or service operation."
   },
   "merge": {
     "commit": "1662eeb",
