@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-08",
-  "state": "MERGED",
-  "updatedAt": "2026-08-01T18:27:39Z",
-  "candidate": "AC-08 R1: fixture-only direct Hermes revalidation of Account Center\u2019s existing owned exact-account delete transaction and its shared opaque receipt contract; retain current main and protected formats/policy.",
+  "activeCheckpoint": "AC-09",
+  "state": "REVIEWED",
+  "updatedAt": "2026-08-01T21:36:51Z",
+  "candidate": "AC-09 R1: fixture-only cross-consumer drift review of the existing owned exact-account delete transaction and its single opaque receipt contract; retain protected main and all locked policy/format surfaces.",
   "blockerResolutionPlan": {
-    "kind": "ac-08-r1-direct-hermes-opaque-receipt-revalidation",
-    "planRecord": ".account-center-pipeline/AC-08-R1-EXECUTION-PLAN.md",
+    "kind": "ac-09-r1-cross-consumer-opaque-receipt-drift-gate",
+    "planRecord": ".account-center-pipeline/AC-09-R1-EXECUTION-PLAN.md",
     "boundedSteps": [
-      "Stub Hermes subprocess before every delete fixture and validate only the versioned applied/UNPROVEN texts.",
-      "Run compiled adapter, CLI/Dexter ChatOps, MCP, Hermes, and documentation contract fixtures without invoking the native helper.",
-      "Run security QA, static helper/bridge compilation and trust inspection, then record review only if all pass."
+      "Inspect every consumer and native receipt normalizer against the versioned opaque contract and compile the owned helper without invoking it.",
+      "Exercise fixture/mock contract-drift and hostile-output cases; only exact applied or fixed UNPROVEN output may cross public boundaries.",
+      "Run security QA and trust/preservation review; retain candidate and issue a new internal plan on any failure."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -35,14 +35,7 @@
     "quality": "passed",
     "qaSecurity": "passed",
     "liveDeletionExecuted": false,
-    "evidence": "AC-08 R1 direct Hermes fixture revalidation passed: 268 Node, 19 Hermes, 15 Playwright/axe, static trust/compile, and security QA. No native helper or live operation ran.",
-    "record": ".account-center-pipeline/AC-08-R1-REVIEW.md"
-  },
-  "merge": {
-    "commit": "b107cf1",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-08 R1 fixture-only direct Hermes opaque receipt-contract release gate; owned transaction, Sentinel format, Dexter command, and weekly-only policy unchanged.",
-    "recordedBy": "AC-08 R1 coordinator; review and QA evidence committed."
+    "evidence": "AC-09 R1 cross-consumer opaque receipt drift review passed: 268 Node, 19 Hermes, 15 Playwright/axe, static trust/compile, and security QA. No native helper or live operation ran.",
+    "record": ".account-center-pipeline/AC-09-R1-REVIEW.md"
   }
 }
