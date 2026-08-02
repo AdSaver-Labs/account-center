@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-05",
+  "activeCheckpoint": "AC-06",
   "state": "PLANNED",
-  "updatedAt": "2026-08-02T02:34:59Z",
-  "candidate": "AC-05: fixture-only release-record reconciliation for the reviewed /auth remove semantics candidate, entered after AC-04 active-state reconciliation verified the already-merged AC-04, AC-06 owned exact-account delete transaction, sole opaque receipt contract, full Sentinel /auth format, working Dexter command, and weekly-only policy.",
+  "updatedAt": "2026-08-02T03:44:09Z",
+  "candidate": "AC-06: exact-account delete release-gate reconciliation; retain the locally owned native transaction at codex-auth-delete.py, the sole opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-04-active-state-reconciliation-r1",
-    "planRecord": ".account-center-pipeline/AC-04-ACTIVE-STATE-RECONCILIATION-R1.md",
+    "kind": "ac-05-active-state-reconciliation-r1",
+    "planRecord": ".account-center-pipeline/AC-05-ACTIVE-STATE-RECONCILIATION-R1.md",
     "boundedSteps": [
-      "Verify merged AC-04/AC-06/AC-09 ancestry and retain existing evidence.",
-      "Re-run fixture-only cross-consumer receipt, Sentinel, and weekly-policy QA without executing the owned helper.",
-      "Atomically select AC-05 as the sole next planned release checkpoint after locked state validation."
+      "Verify AC-05 release-record ancestry and retain its reviewed route-only no-delete evidence.",
+      "Re-run fixture-only cross-consumer owned-delete, Sentinel, and weekly-policy QA without executing the owned helper.",
+      "Atomically select AC-06 as the sole next planned controlled-account-operations release checkpoint after locked state validation."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -24,25 +24,25 @@
     "noLiveModelMutation": true
   },
   "previousMerge": {
-    "commit": "d559790",
+    "commit": "49ffcf0",
     "branch": "main",
     "verified": true,
-    "scope": "AC-03 R2 fixture-only sealed guided-auth terminal evidence; exact owned delete transaction, one opaque receipt contract, Sentinel format, Dexter command, and weekly-only policy unchanged.",
-    "recordedBy": "AC-03 R2 coordinator; review and QA evidence committed."
+    "scope": "AC-05 route-only /auth remove release record; fixture-only review confirmed no credential-delete invocation and preserved the AC-06 owned transaction, sole opaque receipt, Sentinel format, Dexter command, and weekly-only policy.",
+    "recordedBy": "AC-05 release publisher."
   },
   "review": {
-    "spec": "passed: AC-04 state reconciled after ancestry verification",
-    "quality": "approved: metadata-only active-checkpoint correction",
-    "qaSecurity": "passed: fixture-only full QA/security revalidation",
+    "spec": "passed: AC-05 release-record ancestry and route-only no-delete contract verified",
+    "quality": "approved: protected owned-delete and cross-consumer receipt boundary unchanged",
+    "qaSecurity": "passed: fixture-only full QA/security/a11y revalidation",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-02 fixture-only revalidation passed: npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests), npm run test:a11y (15 fixture-browser/axe tests), npm run qa:security (typecheck/build, 177 tracked-file secret scan, npm audit 0 vulnerabilities), static py_compile, helper trust inspection, locked JSON parsing, ancestry checks, and git diff --check. The owned helper was not launched; no live delete, login, provider request, credential/store write, route/model mutation, or live browser action occurred.",
-    "record": ".account-center-pipeline/AC-04-ACTIVE-STATE-RECONCILIATION-R1.md"
+    "evidence": "2026-08-02 fixture-only revalidation passed: 99 focused Node tests; npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests); npm run test:a11y (15 fixture-browser/axe tests); npm run qa:security (typecheck/build, 178 tracked-file secret scan, npm audit 0 vulnerabilities); static py_compile; helper trust inspection; locked JSON parsing; AC-05 ancestry; and git diff --check. The owned helper was not launched; no live delete, login, provider request, credential/store write, route/model mutation, or live browser action occurred.",
+    "record": ".account-center-pipeline/AC-05-ACTIVE-STATE-RECONCILIATION-R1.md"
   },
   "merge": {
-    "commit": "d559790",
+    "commit": "49ffcf0",
     "branch": "main",
     "verified": true,
-    "scope": "AC-03 R2 fixture-only terminal lifecycle completion gate; no native helper or live operation ran.",
-    "recordedBy": "AC-03 R2 release publisher."
+    "scope": "AC-05 release record; no native helper or live operation ran.",
+    "recordedBy": "AC-05 release publisher."
   }
 }
