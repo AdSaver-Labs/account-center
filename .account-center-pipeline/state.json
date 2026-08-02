@@ -24,11 +24,11 @@
     "noLiveModelMutation": true
   },
   "previousMerge": {
-    "commit": "39a5b5f",
+    "commit": "694f9f9",
     "branch": "main",
     "verified": true,
-    "scope": "AC-09 cross-consumer opaque-receipt drift review passed and was merged; it retained the owned native transaction, one opaque receipt contract, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
-    "recordedBy": "AC-09 release publisher."
+    "scope": "AC-10 canonical delete-command-path release review passed and was merged locally; it retained the owned native transaction, one opaque receipt contract, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
+    "recordedBy": "AC-10 release publisher."
   },
   "review": {
     "spec": "passed: canonical CLI/auth, MCP, Dexter ChatOps, Hermes, executor, and OpenClaw adapter delete path has one guarded owned transaction and target-free opaque terminal boundary",
@@ -39,10 +39,10 @@
     "record": ".account-center-pipeline/AC-10-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "PENDING_LOCAL_AC-10_RELEASE_EVIDENCE",
+    "commit": "694f9f9",
     "branch": "main",
-    "verified": false,
-    "scope": "AC-10 release evidence passed local specification, quality, and security QA and is staged for commit; no protected runtime implementation or policy changed.",
+    "verified": true,
+    "scope": "AC-10 release evidence merged locally after specification, command-path, quality, and security QA; no protected runtime implementation or policy changed.",
     "recordedBy": "AC-10 release publisher."
   }
 }
