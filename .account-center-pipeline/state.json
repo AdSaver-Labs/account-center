@@ -1,16 +1,17 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-11",
-  "state": "COMPLETED",
-  "updatedAt": "2026-08-02T22:37:41Z",
-  "candidate": "AC-11 completion-record reconciliation complete: the merged hermetic owned-delete transaction remains verified with no runtime behavior change.",
+  "activeCheckpoint": "AC-04",
+  "state": "PLANNED",
+  "updatedAt": "2026-08-02T23:42:46Z",
+  "candidate": "AC-04-R10: close the remaining verified reauth transaction release-gate gap with a bounded fixture-only lifecycle change while preserving AC-11 owned-delete proof.",
   "blockerResolutionPlan": {
-    "kind": "ac-11-completion-record-reconciliation-r1",
-    "planRecord": ".account-center-pipeline/AC-11-COMPLETION-RECONCILIATION-R1.md",
+    "kind": "ac-04-verified-reauth-release-gate-r10",
+    "planRecord": ".account-center-pipeline/AC-04-VERIFIED-REAUTH-TRANSACTION-R10.md",
     "boundedSteps": [
-      "Reconcile active pipeline metadata under the exclusive state lock without changing runtime behavior.",
-      "Re-check owned helper identity and run fixture-only native plus full security QA; prohibit live deletion.",
-      "Reconcile plan/review completion records and commit only reviewed pipeline metadata."
+      "Create an isolated clean-base AC-04-R10 worktree and inventory only protected reauth lifecycle seams.",
+      "Demonstrate one concrete fixture-only gap with adversarial redaction and non-mutation tests.",
+      "Implement the minimum protected lifecycle change; retain UNPROVEN without independent native evidence.",
+      "Re-run native helper only in temporary-HOME fixtures plus full QA/security/a11y, then independent reviews before merge."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -23,26 +24,18 @@
     "noLiveRouteMutation": true,
     "noLiveModelMutation": true
   },
-  "previousMerge": {
-    "commit": "694f9f9",
-    "branch": "main",
+  "previousCheckpoint": {
+    "id": "AC-11",
+    "commit": "fd096a3",
     "verified": true,
-    "scope": "AC-10 canonical delete-command-path release review passed and was merged locally; it retained the owned native transaction, one opaque receipt contract, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
-    "recordedBy": "AC-10 release publisher."
+    "scope": "Fresh review and QA reconfirmed the hermetic owned exact-account delete transaction, one opaque receipt contract, working Dexter command, full Sentinel auth format, and weekly-only policy.",
+    "evidence": "5 native temporary-HOME fixture tests and npm run qa:security passed; helper owner/mode/hash/compile checks passed; no live deletion."
   },
   "review": {
-    "spec": "passed: completion records now agree that the fixed owned native transaction is the sole delete path and Account Center alone projects the opaque contract",
-    "quality": "approved: fresh fixture-only native tests prove isolated synthetic HOME/private state; no live deletion occurred",
-    "qaSecurity": "passed: full security QA, Sentinel-format, weekly-policy, Hermes/Dexter, opaque-contract, and native fixtures passed",
-    "liveDeletionExecuted": false,
-    "evidence": "Fresh AC-11 reconciliation verification: 5 native fixture tests and npm run qa:security passed; helper hash/owner/mode/compile checks passed; no live deletion.",
-    "record": ".account-center-pipeline/AC-11-COMPLETION-RECONCILIATION-R1-REVIEW.md"
+    "spec": "pending independent review",
+    "quality": "pending independent review",
+    "qaSecurity": "pending fixture-only verification",
+    "liveDeletionExecuted": false
   },
-  "merge": {
-    "commit": "ce281a5",
-    "branch": "main",
-    "verified": true,
-    "scope": "AC-11 hermetic owned-delete transaction hardening merged locally after fixture-only native transaction, opaque-contract, Hermes/Dexter, Sentinel-format, weekly-policy, QA, and security review.",
-    "recordedBy": "AC-11 release publisher."
-  }
+  "merge": null
 }
