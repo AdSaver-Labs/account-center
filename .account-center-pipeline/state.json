@@ -1,8 +1,8 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-10",
-  "state": "PLANNED",
-  "updatedAt": "2026-08-02T06:31:16Z",
+  "state": "COMPLETED",
+  "updatedAt": "2026-08-02T07:05:00Z",
   "candidate": "AC-10: canonical delete-command-path release gate; preserve Alej\u2019s locally owned native exact-account transaction, one versioned target-free opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
     "kind": "ac-10-r1-canonical-delete-command-path",
@@ -31,18 +31,18 @@
     "recordedBy": "AC-09 release publisher."
   },
   "review": {
-    "spec": "passed: Account Center CLI/adapter, Dexter ChatOps/MCP, and Hermes retain the shared versioned two-result receipt contract, owned helper path/trust pin, exact connected-target resolution, and target-free opaque boundary",
-    "quality": "approved: fixture-only cross-consumer drift, malformed/mismatched/unverified/alternate result, and helper non-invocation coverage passed; Sentinel format and weekly-only behavior retained",
-    "qaSecurity": "passed: npm test, accessibility, typecheck/build, full security QA, tracked-file secret scan, and audit revalidation",
+    "spec": "passed: canonical CLI/auth, MCP, Dexter ChatOps, Hermes, executor, and OpenClaw adapter delete path has one guarded owned transaction and target-free opaque terminal boundary",
+    "quality": "approved: fixture-only authorization/review/idempotency/parser/transport/native-receipt negatives prove blocked paths do not invoke the helper; full Sentinel format and weekly-only behavior retained",
+    "qaSecurity": "passed: typecheck/build, 271 Node fixture/mock tests, 19 Hermes-plugin fixtures, 15 accessibility fixtures, tracked-file secret scan, and npm audit",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-02 AC-09 fixture-only review passed: npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests); npm run test:a11y (15 fixture-browser/axe tests); npm run qa:security (typecheck/build, complete fixtures, 182 tracked-file secret scan, npm audit 0 vulnerabilities); locked state/diff validation; helper regular-owner-0600/hash inspection and py_compile; no native-helper invocation.",
-    "record": ".account-center-pipeline/AC-09-R1-REVIEW.md"
+    "evidence": "2026-08-02 AC-10 fixture-only command-path review passed: npm run qa:security (271 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests, 183 tracked-file secret scan, npm audit 0 vulnerabilities); locked state/diff review; helper regular-owner-0600/hash inspection and py_compile; no native-helper invocation.",
+    "record": ".account-center-pipeline/AC-10-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "39a5b5f",
+    "commit": "PENDING_LOCAL_AC-10_RELEASE_EVIDENCE",
     "branch": "main",
-    "verified": true,
-    "scope": "AC-09 release evidence merged after specification, quality, and security QA; no protected runtime implementation or policy changed.",
-    "recordedBy": "AC-09 release publisher."
+    "verified": false,
+    "scope": "AC-10 release evidence passed local specification, quality, and security QA and is staged for commit; no protected runtime implementation or policy changed.",
+    "recordedBy": "AC-10 release publisher."
   }
 }
