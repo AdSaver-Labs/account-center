@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-06",
+  "activeCheckpoint": "AC-07",
   "state": "PLANNED",
-  "updatedAt": "2026-08-02T04:18:02Z",
-  "candidate": "AC-06: exact-account delete release-gate reconciliation; retain the locally owned native transaction at codex-auth-delete.py, the sole opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
+  "updatedAt": "2026-08-02T04:30:00Z",
+  "candidate": "AC-07: shared mutation-executor release-record reconciliation; preserve the locally owned native exact-account delete transaction at codex-auth-delete.py, the sole opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-06-active-state-reconciliation-r1",
-    "planRecord": ".account-center-pipeline/AC-06-ACTIVE-STATE-RECONCILIATION-R1.md",
+    "kind": "ac-07-active-state-reconciliation-r4",
+    "planRecord": ".account-center-pipeline/AC-07-ACTIVE-STATE-RECONCILIATION-R4.md",
     "boundedSteps": [
-      "Reconcile AC-06 active-state evidence against main ancestry and statically verify the pinned owner-only native helper without invoking it.",
-      "Run complete fixture/mock cross-consumer exact-argv, opaque-receipt, Sentinel-format, Dexter/Hermes, and weekly-only acceptance coverage.",
-      "Record deterministic review/QA and retain AC-06 as the only planned release checkpoint until the state reconciliation is committed and merge-verified."
+      "Verify AC-06's confirmed release record is ancestral to local and remote main under the exclusive state lock.",
+      "Atomically advance only the sole active pipeline pointer to AC-07 while retaining all protected runtime contracts and policies.",
+      "Parse/review the bounded coordinator record and commit/push/verify it only after fixture-only QA and static helper trust evidence remain green."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -24,25 +24,25 @@
     "noLiveModelMutation": true
   },
   "previousMerge": {
-    "commit": "49ffcf0",
+    "commit": "db059cc",
     "branch": "main",
     "verified": true,
-    "scope": "AC-05 route-only /auth remove release record; fixture-only review confirmed no credential-delete invocation and preserved the AC-06 owned transaction, sole opaque receipt, Sentinel format, Dexter command, and weekly-only policy.",
-    "recordedBy": "AC-05 release publisher."
+    "scope": "AC-06 release-record confirmation; fixture-only verification retained the owned native delete transaction, shared opaque receipt, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
+    "recordedBy": "AC-06 release publisher."
   },
   "review": {
-    "spec": "passed: fixed owned OpenClaw helper path, owner/mode/hash trust pin, exact connected-target resolution, and sole target-free opaque receipt boundary verified",
+    "spec": "passed: AC-06 uses the fixed locally owned helper path, owner/mode/hash trust pin, exact connected-target resolution, and one target-free opaque receipt boundary",
     "quality": "approved: fixture-only CLI/ChatOps/MCP/Dexter/Hermes consumers accept only the shared two-result receipt contract; Sentinel format and weekly-only behavior retained",
-    "qaSecurity": "passed: deterministic full test, accessibility, typecheck/build, secret scan, and audit revalidation",
+    "qaSecurity": "passed: npm test, accessibility, typecheck/build, full security QA, tracked-file secret scan, and audit revalidation",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-02 fixture-only AC-06 revalidation passed: npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests); npm run test:a11y (15 fixture-browser/axe tests); npm run qa:security (typecheck/build, full fixtures, 179 tracked-file secret scan, npm audit 0 vulnerabilities); locked JSON/ancestry validation; helper regular-owner-0600/hash inspection; and no native-helper invocation. No live delete, login, provider request, credential/store write, route/model mutation, Sentinel update, service operation, or live browser action occurred.",
-    "record": ".account-center-pipeline/AC-06-ACTIVE-STATE-RECONCILIATION-R1.md"
+    "evidence": "2026-08-02 fixture-only transition verification passed: npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests); npm run test:a11y (15 fixture-browser/axe tests); npm run qa:security (typecheck/build, full fixtures, 180 tracked-file secret scan, npm audit 0 vulnerabilities); helper regular-owner-0600/hash inspection and py_compile; no native-helper invocation.",
+    "record": ".account-center-pipeline/AC-07-ACTIVE-STATE-RECONCILIATION-R4.md"
   },
   "merge": {
-    "commit": "cf66137",
+    "commit": "db059cc",
     "branch": "main",
     "verified": true,
-    "scope": "AC-06 active-state reconciliation record; fixture-only verification retained the owned native delete transaction, shared opaque receipt, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
+    "scope": "AC-06 release-record confirmation verified before advancing the active checkpoint; no runtime implementation or protected policy changed.",
     "recordedBy": "AC-06 release publisher."
   }
 }
