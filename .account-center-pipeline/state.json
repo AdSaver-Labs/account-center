@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-11",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-02T21:30:30Z",
+  "updatedAt": "2026-08-02T21:30:43Z",
   "candidate": "AC-11: hermetic owned-delete transaction hardening; preserve the owned exact-account transaction, the single opaque receipt contract, Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
     "kind": "ac-11-hermetic-owned-delete-transaction",
@@ -39,10 +39,10 @@
     "record": ".account-center-pipeline/AC-11-HERMETIC-OWNED-DELETE-REVIEW.md"
   },
   "merge": {
-    "commit": "04fcfe2",
+    "commit": "ce281a5",
     "branch": "main",
     "verified": true,
-    "scope": "AC-10 R2 native rollback remediation merged locally after fixture-only native transaction, opaque-contract, Hermes/Dexter, Sentinel, weekly-policy, QA, and security review.",
-    "recordedBy": "AC-10 release publisher."
+    "scope": "AC-11 hermetic owned-delete transaction hardening merged locally after fixture-only native transaction, opaque-contract, Hermes/Dexter, Sentinel-format, weekly-policy, QA, and security review.",
+    "recordedBy": "AC-11 release publisher."
   }
 }
