@@ -2,15 +2,15 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-11",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-02T21:30:43Z",
-  "candidate": "AC-11: hermetic owned-delete transaction hardening; preserve the owned exact-account transaction, the single opaque receipt contract, Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
+  "updatedAt": "2026-08-02T22:37:41Z",
+  "candidate": "AC-11 completion-record reconciliation complete: the merged hermetic owned-delete transaction remains verified with no runtime behavior change.",
   "blockerResolutionPlan": {
-    "kind": "ac-11-hermetic-owned-delete-transaction",
-    "planRecord": ".account-center-pipeline/AC-11-HERMETIC-OWNED-DELETE-TRANSACTION-PLAN.md",
+    "kind": "ac-11-completion-record-reconciliation-r1",
+    "planRecord": ".account-center-pipeline/AC-11-COMPLETION-RECONCILIATION-R1.md",
     "boundedSteps": [
-      "Add a fail-closed fixture-only native state-root override confined beneath temporary HOME while retaining the production helper path and arguments.",
-      "Use collision-resistant private operation identifiers for backup and receipt locations.",
-      "Run fixture-only native, Account Center, Hermes/Dexter, Sentinel/weekly-policy, QA/security, and review checks before the next release gate."
+      "Reconcile active pipeline metadata under the exclusive state lock without changing runtime behavior.",
+      "Re-check owned helper identity and run fixture-only native plus full security QA; prohibit live deletion.",
+      "Reconcile plan/review completion records and commit only reviewed pipeline metadata."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -31,12 +31,12 @@
     "recordedBy": "AC-10 release publisher."
   },
   "review": {
-    "spec": "passed: one fixed owned native transaction path remains pinned; only Account Center projects its private result to the opaque contract",
-    "quality": "approved: native fixture state, private backups, and private receipts are confined to temporary HOME; preview/no-match are non-mutating and forced rollback is byte-for-byte",
-    "qaSecurity": "passed: build/typecheck, 271 Node fixtures, 19 Hermes fixtures, 5 native-helper fixtures, 15 browser/a11y fixtures, secret scan, and npm audit",
+    "spec": "passed: completion records now agree that the fixed owned native transaction is the sole delete path and Account Center alone projects the opaque contract",
+    "quality": "approved: fresh fixture-only native tests prove isolated synthetic HOME/private state; no live deletion occurred",
+    "qaSecurity": "passed: full security QA, Sentinel-format, weekly-policy, Hermes/Dexter, opaque-contract, and native fixtures passed",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-02 AC-11 passed npm run qa:security; real helper execution used only temporary HOME and fixture state roots; no live deletion.",
-    "record": ".account-center-pipeline/AC-11-HERMETIC-OWNED-DELETE-REVIEW.md"
+    "evidence": "Fresh AC-11 reconciliation verification: 5 native fixture tests and npm run qa:security passed; helper hash/owner/mode/compile checks passed; no live deletion.",
+    "record": ".account-center-pipeline/AC-11-COMPLETION-RECONCILIATION-R1-REVIEW.md"
   },
   "merge": {
     "commit": "ce281a5",

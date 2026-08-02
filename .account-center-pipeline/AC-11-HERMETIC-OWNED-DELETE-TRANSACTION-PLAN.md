@@ -1,6 +1,6 @@
 # AC-11 — hermetic owned-delete transaction hardening
 
-**State:** PLANNED
+**State:** COMPLETED — reconciled by `AC-11-COMPLETION-RECONCILIATION-R1.md` and its approved review.
 **Candidate:** preserve the merged AC-10 candidate: Dexter's owned exact-account transaction at `/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py`, Account Center's single versioned opaque receipt contract, working Dexter `/auth delete`, full Sentinel `/auth` format, and Hermes/Dexter weekly-only policy.
 
 ## Internal issue
