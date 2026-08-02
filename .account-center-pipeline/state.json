@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-09",
+  "activeCheckpoint": "AC-10",
   "state": "PLANNED",
-  "updatedAt": "2026-08-02T05:58:49Z",
-  "candidate": "AC-09: cross-consumer opaque-receipt drift release gate; preserve the locally owned native exact-account transaction at codex-auth-delete.py, the one versioned target-free opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
+  "updatedAt": "2026-08-02T06:31:16Z",
+  "candidate": "AC-10: canonical delete-command-path release gate; preserve Alej\u2019s locally owned native exact-account transaction, one versioned target-free opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-09-r1-cross-consumer-opaque-receipt-drift",
-    "planRecord": ".account-center-pipeline/AC-09-R1-EXECUTION-PLAN.md",
+    "kind": "ac-10-r1-canonical-delete-command-path",
+    "planRecord": ".account-center-pipeline/AC-10-R1-EXECUTION-PLAN.md",
     "boundedSteps": [
-      "Statically inspect each consumer and native-adapter boundary for the fixed versioned two-result owned-delete contract.",
-      "Run fixture/mock contract-drift cases only; no native helper, transport, provider, or runtime operation.",
-      "Re-review QA, trust metadata, state, diff, Sentinel format, and weekly-only fixtures before publishing release evidence."
+      "Statically trace every public delete entry point to the confirmed executor lifecycle, protected adapter, fixed owned helper, and target-free terminal boundary.",
+      "Run fixture/mock authorization, review/idempotency, parser, transport, and alternate-receipt negatives only; assert blocked paths never invoke the helper.",
+      "Re-review deterministic QA/security/browser evidence, state, diff, Sentinel format, Dexter command, and weekly-only fixtures before publishing release evidence."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -24,25 +24,25 @@
     "noLiveModelMutation": true
   },
   "previousMerge": {
-    "commit": "523a4d9",
+    "commit": "bb1c889",
     "branch": "main",
     "verified": true,
-    "scope": "AC-08 direct Hermes shared-owned-delete receipt review retained the owned native transaction, one opaque receipt contract, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
-    "recordedBy": "AC-08 release publisher."
+    "scope": "AC-09 cross-consumer opaque-receipt drift review candidate prior to release evidence publication.",
+    "recordedBy": "AC-09 release publisher."
   },
   "review": {
-    "spec": "passed: direct Hermes canonical-output allow-list, shared versioned contract, fixed owned helper path/trust pin, exact connected-target resolution, and target-free opaque boundary retained",
-    "quality": "approved: fixture-only Hermes, CLI, Dexter ChatOps/MCP, and adapter consumers accept only the shared two-result receipt contract; Sentinel format and weekly-only behavior retained",
+    "spec": "passed: Account Center CLI/adapter, Dexter ChatOps/MCP, and Hermes retain the shared versioned two-result receipt contract, owned helper path/trust pin, exact connected-target resolution, and target-free opaque boundary",
+    "quality": "approved: fixture-only cross-consumer drift, malformed/mismatched/unverified/alternate result, and helper non-invocation coverage passed; Sentinel format and weekly-only behavior retained",
     "qaSecurity": "passed: npm test, accessibility, typecheck/build, full security QA, tracked-file secret scan, and audit revalidation",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-02 AC-08 fixture-only review passed: npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests); npm run test:a11y (15 fixture-browser/axe tests); npm run qa:security (typecheck/build, complete fixtures, 182 tracked-file secret scan, npm audit 0 vulnerabilities); locked ancestry/state and diff validation; helper regular-owner-0600/hash inspection and py_compile; no native-helper invocation.",
-    "record": ".account-center-pipeline/AC-08-R1-REVIEW.md"
+    "evidence": "2026-08-02 AC-09 fixture-only review passed: npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests); npm run test:a11y (15 fixture-browser/axe tests); npm run qa:security (typecheck/build, complete fixtures, 182 tracked-file secret scan, npm audit 0 vulnerabilities); locked state/diff validation; helper regular-owner-0600/hash inspection and py_compile; no native-helper invocation.",
+    "record": ".account-center-pipeline/AC-09-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "523a4d9",
+    "commit": "bb1c889",
     "branch": "main",
-    "verified": true,
-    "scope": "AC-08 active-state reconciliation was verified before advancing the sole active checkpoint to AC-09; no protected runtime implementation or policy changed.",
-    "recordedBy": "AC-08 release publisher."
+    "verified": false,
+    "scope": "AC-09 release evidence is staged for commit; no protected runtime implementation or policy changed.",
+    "recordedBy": "AC-09 release publisher."
   }
 }

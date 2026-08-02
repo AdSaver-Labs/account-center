@@ -1,23 +1,25 @@
 # AC-09 R1 — cross-consumer opaque-receipt drift review
 
-**Status:** passed (fixture/mock only)
+**Status:** passed (fixture-only)
 
 ## Scope reviewed
 
-- The sole native credential-delete implementation remains Alej’s owned exact-account transaction at `/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py`. No upstream OpenClaw CLI delete command is required.
-- Account Center’s adapter recognizes only the verified native receipt `{ action: "account.delete", state: "DELETED", receipt: "opaque-owned-delete" }`; its public renderer, Dexter ChatOps, MCP, and Hermes accept only the shared applied text or the fixed target-free `UNPROVEN` text.
-- Fixture coverage exercised malformed/tampered contracts, target/path-bearing would-be success output, malformed/mismatched/unverified native receipts, nonzero/failed/unavailable transport, and consumer forwarding. All fail closed without invoking the helper.
-- Locked Sentinel `/auth` rendering, the working Dexter `/auth delete` command, and Hermes/Dexter weekly-only capacity behavior remain covered by the complete fixture suite.
+- Account Center CLI, OpenClaw runtime adapter, Dexter ChatOps/MCP, and Hermes all enforce the sole versioned `account-center.owned-delete-receipt.v1` contract. The only verified public native result is `{ "action": "account.delete", "state": "DELETED", "receipt": "opaque-owned-delete" }`; every other delete result is the fixed, target-free `UNPROVEN` text.
+- The adapter remains pinned to Alej’s owned exact-account transaction at `/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py`. It resolves one exact connected target and requires executor capability plus trusted helper evidence before it can call the helper. Its private receipt, target digest, backups, paths, stores, and diagnostics are suppressed.
+- Dexter `/auth delete` remains the working shared ChatOps path used by Hermes. Fixture transport tests reject malformed, target-bearing, mismatched, unverified, nonzero, timeout, output-limit, and alternate-success outputs without invoking a native transaction.
+- The locked full Sentinel `/auth` format and Hermes/Dexter weekly-only policy remain exercised in the complete fixture suites.
 
 ## Executed verification
 
-1. `npm run qa:security` passed: **268 Node fixture/mock tests**, **19 Hermes-plugin fixtures**, TypeScript build and typecheck, **15 Playwright/axe fixture-browser tests**, secret scan of **173 tracked files**, and `npm audit --audit-level=high` with **0 vulnerabilities**.
-2. `python3 -m py_compile integrations/hermes-plugin/__init__.py /home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py` passed.
-3. Static trust inspection passed: helper is a regular file owned by uid `1001` (`Alej`), mode `0600`, SHA-256 `4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37`, matching the immutable adapter pin.
-4. Contract schema inspection passed for `account-center.owned-delete-receipt.v1` and opaque receipt `opaque-owned-delete`; pipeline JSON parsed under its exclusive lock and `git diff --check` passed.
+1. Static contract and consumer inspection confirmed the fixed schema/version, two canonical public outcomes, opaque adapter normalizer, owned helper path/trust pin, and direct Hermes/Dexter shared transport.
+2. `npm test` passed: **271 Node fixture/mock tests** and **19 Hermes-plugin fixture tests**, including cross-consumer receipt-drift and owned-helper non-invocation cases.
+3. `npm run test:a11y` passed: **15 Playwright/axe fixture-browser tests**.
+4. `npm run qa:security` passed: typecheck/build, complete fixture suites, secret scan of **182 tracked files**, and `npm audit --audit-level=high` with **0 vulnerabilities**.
+5. Static helper verification passed: regular `Alej`-owned `0600` file; SHA-256 `4c09c926e94500f02f34a19ca80fbec280003227588d2b4f0d1d1085ee7fba37`; `python3 -m py_compile` passed without execution.
+6. Final repository review passed: clean working tree before this evidence record, `git diff --check`, tracked-file secret scan, and JSON state/status/gate validation under `.account-center-pipeline/locks/state.lock` all passed.
 
-No native helper invocation, live credential deletion, interactive login, provider request, credential/store write, routing/model mutation, runtime service operation, or live browser operation occurred.
+No native-helper invocation, live deletion, interactive login, provider request, credential/store write, routing/model mutation, Sentinel operation, service operation, or live browser action occurred.
 
 ## Decision
 
-AC-09 R1 passes specification, quality, and security QA. The release evidence may be committed and published; the owned transaction, opaque contract, full Sentinel `/auth` format, working Dexter command, and weekly-only policy are unchanged.
+AC-09 satisfies specification, quality, and security QA. Release evidence may be merged and the sole active checkpoint advances to AC-10, retaining the owned transaction, one opaque receipt contract, working Dexter command, full Sentinel `/auth` format, and Hermes/Dexter weekly-only policy.
