@@ -2,15 +2,15 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-10",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-02T07:05:00Z",
-  "candidate": "AC-10: canonical delete-command-path release gate; preserve Alej\u2019s locally owned native exact-account transaction, one versioned target-free opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
+  "updatedAt": "2026-08-02T19:50:28Z",
+  "candidate": "AC-10: native owned-delete transaction rollback remediation; retain the canonical protected command path, one opaque receipt contract, Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-10-r1-canonical-delete-command-path",
-    "planRecord": ".account-center-pipeline/AC-10-R1-EXECUTION-PLAN.md",
+    "kind": "ac-10-r2-native-rollback-remediation",
+    "planRecord": ".account-center-pipeline/AC-10-R2-NATIVE-ROLLBACK-REMEDIATION.md",
     "boundedSteps": [
-      "Statically trace every public delete entry point to the confirmed executor lifecycle, protected adapter, fixed owned helper, and target-free terminal boundary.",
-      "Run fixture/mock authorization, review/idempotency, parser, transport, and alternate-receipt negatives only; assert blocked paths never invoke the helper.",
-      "Re-review deterministic QA/security/browser evidence, state, diff, Sentinel format, Dexter command, and weekly-only fixtures before publishing release evidence."
+      "Correct the owned native transaction rollback restoration direction without changing its production command interface.",
+      "Execute the actual helper only under a temporary HOME with fixture JSON and SQLite stores, including forced rollback restoration cases.",
+      "Re-pin the reviewed helper and run fixture-only Account Center, Hermes, Dexter, Sentinel, weekly-policy, QA/security, and diff checks before review."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -31,18 +31,18 @@
     "recordedBy": "AC-10 release publisher."
   },
   "review": {
-    "spec": "passed: canonical CLI/auth, MCP, Dexter ChatOps, Hermes, executor, and OpenClaw adapter delete path has one guarded owned transaction and target-free opaque terminal boundary",
-    "quality": "approved: fixture-only authorization/review/idempotency/parser/transport/native-receipt negatives prove blocked paths do not invoke the helper; full Sentinel format and weekly-only behavior retained",
-    "qaSecurity": "passed: typecheck/build, 271 Node fixture/mock tests, 19 Hermes-plugin fixtures, 15 accessibility fixtures, tracked-file secret scan, and npm audit",
+    "spec": "passed: owned exact-account helper retains the canonical protected path and sole opaque public receipt contract",
+    "quality": "approved: temporary-HOME fixture execution verifies exact deletion and byte-for-byte JSON/SQLite rollback after forced post-mutation faults",
+    "qaSecurity": "passed: build/typecheck, 271 Node fixtures, 19 Hermes fixtures, 3 native-helper fixtures, 15 browser/a11y fixtures, secret scan, and npm audit",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-02 AC-10 fixture-only command-path review passed: npm run qa:security (271 Node fixture/mock tests, 19 Hermes-plugin tests, 15 Playwright/axe fixture-browser tests, 183 tracked-file secret scan, npm audit 0 vulnerabilities); locked state/diff review; helper regular-owner-0600/hash inspection and py_compile; no native-helper invocation.",
-    "record": ".account-center-pipeline/AC-10-R1-REVIEW.md"
+    "evidence": "2026-08-02 AC-10 R2 passed npm run qa:security and static 0600 owner/hash/py_compile checks; real helper executed only against temporary HOME fixture stores; no live deletion.",
+    "record": ".account-center-pipeline/AC-10-R2-NATIVE-ROLLBACK-REVIEW.md"
   },
   "merge": {
-    "commit": "694f9f9",
+    "commit": "0b6ac6d",
     "branch": "main",
     "verified": true,
-    "scope": "AC-10 release evidence merged locally after specification, command-path, quality, and security QA; no protected runtime implementation or policy changed.",
+    "scope": "AC-10 R2 native rollback remediation merged locally after fixture-only native transaction, opaque-contract, Hermes/Dexter, Sentinel, weekly-policy, QA, and security review.",
     "recordedBy": "AC-10 release publisher."
   }
 }
