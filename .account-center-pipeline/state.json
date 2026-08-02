@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-06",
   "state": "PLANNED",
-  "updatedAt": "2026-08-02T04:17:00Z",
+  "updatedAt": "2026-08-02T04:18:02Z",
   "candidate": "AC-06: exact-account delete release-gate reconciliation; retain the locally owned native transaction at codex-auth-delete.py, the sole opaque receipt contract, working Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
     "kind": "ac-06-active-state-reconciliation-r1",
@@ -39,10 +39,10 @@
     "record": ".account-center-pipeline/AC-06-ACTIVE-STATE-RECONCILIATION-R1.md"
   },
   "merge": {
-    "commit": "49ffcf0",
+    "commit": "cf66137",
     "branch": "main",
     "verified": true,
-    "scope": "AC-05 release record; no native helper or live operation ran.",
-    "recordedBy": "AC-05 release publisher."
+    "scope": "AC-06 active-state reconciliation record; fixture-only verification retained the owned native delete transaction, shared opaque receipt, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
+    "recordedBy": "AC-06 release publisher."
   }
 }
