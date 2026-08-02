@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-03",
-  "state": "MERGED",
-  "updatedAt": "2026-08-01T23:17:02Z",
-  "candidate": "AC-03 R2: fixture-only durable guided-auth terminal-evidence completion; preserve the AC-09-owned exact-account delete transaction, one opaque receipt contract, Sentinel format, Dexter command, and weekly-only policy.",
+  "activeCheckpoint": "AC-04",
+  "state": "PLANNED",
+  "updatedAt": "2026-08-02T00:55:58Z",
+  "candidate": "AC-04: fixture-only verified reauth transaction gate, entered only after revalidating the already-owned AC-06 exact-account delete transaction, one opaque receipt contract, full Sentinel /auth format, working Dexter command, and weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-03-r2-durable-guided-auth-terminal-evidence",
-    "planRecord": ".account-center-pipeline/AC-03-R2-BLOCKER-RESOLUTION.md",
+    "kind": "ac-04-owned-delete-carry-forward-revalidation",
+    "planRecord": ".account-center-pipeline/AC-04-OWNED-DELETE-CARRY-FORWARD-PLAN.md",
     "boundedSteps": [
-      "Prove sealed redacted terminal lifecycle transitions with fixture proof cases.",
-      "Implement only a narrow atomic validated transition/audit boundary with no runtime authority.",
-      "Run fixture-only public-boundary tests, security QA, and preservation review."
+      "Revalidate the existing AC-06 owned delete boundary with fixtures only.",
+      "Run full build, fixture, a11y, and security gates with no live operation.",
+      "Review receipt/adapter/filesystem/policy preservation before AC-04 implementation."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -31,12 +31,12 @@
     "recordedBy": "AC-03 R2 coordinator; review and QA evidence committed."
   },
   "review": {
-    "spec": "passed",
-    "quality": "passed",
-    "qaSecurity": "passed",
+    "spec": "carry-forward passed",
+    "quality": "carry-forward approved",
+    "qaSecurity": "carry-forward passed",
     "liveDeletionExecuted": false,
-    "evidence": "AC-03 R2 fixture-only durable terminal-evidence review passed: 271 Node fixture/mock tests, 19 Hermes-plugin fixtures, 15 Playwright/axe tests, secret scan, and zero high-severity audit findings. Native helper and all live operations were not invoked.",
-    "record": ".account-center-pipeline/AC-03-R2-REVIEW.md"
+    "evidence": "AC-06 owned-delete carry-forward revalidation passed on current main: npm test (271 Node fixture/mock tests and 19 Hermes-plugin tests), npm run test:a11y (15 fixture-browser/axe tests), and npm run qa:security (build/typecheck, secret scan of 177 tracked files, npm audit 0 vulnerabilities). The pinned owned helper was not launched; no live delete, login, provider request, credential/store write, route/model mutation, or live browser action occurred.",
+    "record": ".account-center-pipeline/AC-04-OWNED-DELETE-CARRY-FORWARD-PLAN.md"
   },
   "merge": {
     "commit": "d559790",
