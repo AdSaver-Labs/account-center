@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "AC-10",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-02T19:50:28Z",
+  "updatedAt": "2026-08-02T19:50:38Z",
   "candidate": "AC-10: native owned-delete transaction rollback remediation; retain the canonical protected command path, one opaque receipt contract, Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
     "kind": "ac-10-r2-native-rollback-remediation",
@@ -39,7 +39,7 @@
     "record": ".account-center-pipeline/AC-10-R2-NATIVE-ROLLBACK-REVIEW.md"
   },
   "merge": {
-    "commit": "0b6ac6d",
+    "commit": "04fcfe2",
     "branch": "main",
     "verified": true,
     "scope": "AC-10 R2 native rollback remediation merged locally after fixture-only native transaction, opaque-contract, Hermes/Dexter, Sentinel, weekly-policy, QA, and security review.",
