@@ -24,10 +24,10 @@
     "noLiveModelMutation": true
   },
   "previousMerge": {
-    "commit": "bb1c889",
+    "commit": "39a5b5f",
     "branch": "main",
     "verified": true,
-    "scope": "AC-09 cross-consumer opaque-receipt drift review candidate prior to release evidence publication.",
+    "scope": "AC-09 cross-consumer opaque-receipt drift review passed and was merged; it retained the owned native transaction, one opaque receipt contract, Dexter/Hermes transport, full Sentinel /auth format, and weekly-only policy.",
     "recordedBy": "AC-09 release publisher."
   },
   "review": {
@@ -39,10 +39,10 @@
     "record": ".account-center-pipeline/AC-09-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "bb1c889",
+    "commit": "39a5b5f",
     "branch": "main",
-    "verified": false,
-    "scope": "AC-09 release evidence is staged for commit; no protected runtime implementation or policy changed.",
+    "verified": true,
+    "scope": "AC-09 release evidence merged after specification, quality, and security QA; no protected runtime implementation or policy changed.",
     "recordedBy": "AC-09 release publisher."
   }
 }
