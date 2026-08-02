@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-10",
+  "activeCheckpoint": "AC-11",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-02T19:50:38Z",
-  "candidate": "AC-10: native owned-delete transaction rollback remediation; retain the canonical protected command path, one opaque receipt contract, Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
+  "updatedAt": "2026-08-02T21:30:30Z",
+  "candidate": "AC-11: hermetic owned-delete transaction hardening; preserve the owned exact-account transaction, the single opaque receipt contract, Dexter /auth delete, full Sentinel /auth format, and Hermes/Dexter weekly-only policy.",
   "blockerResolutionPlan": {
-    "kind": "ac-10-r2-native-rollback-remediation",
-    "planRecord": ".account-center-pipeline/AC-10-R2-NATIVE-ROLLBACK-REMEDIATION.md",
+    "kind": "ac-11-hermetic-owned-delete-transaction",
+    "planRecord": ".account-center-pipeline/AC-11-HERMETIC-OWNED-DELETE-TRANSACTION-PLAN.md",
     "boundedSteps": [
-      "Correct the owned native transaction rollback restoration direction without changing its production command interface.",
-      "Execute the actual helper only under a temporary HOME with fixture JSON and SQLite stores, including forced rollback restoration cases.",
-      "Re-pin the reviewed helper and run fixture-only Account Center, Hermes, Dexter, Sentinel, weekly-policy, QA/security, and diff checks before review."
+      "Add a fail-closed fixture-only native state-root override confined beneath temporary HOME while retaining the production helper path and arguments.",
+      "Use collision-resistant private operation identifiers for backup and receipt locations.",
+      "Run fixture-only native, Account Center, Hermes/Dexter, Sentinel/weekly-policy, QA/security, and review checks before the next release gate."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -31,12 +31,12 @@
     "recordedBy": "AC-10 release publisher."
   },
   "review": {
-    "spec": "passed: owned exact-account helper retains the canonical protected path and sole opaque public receipt contract",
-    "quality": "approved: temporary-HOME fixture execution verifies exact deletion and byte-for-byte JSON/SQLite rollback after forced post-mutation faults",
-    "qaSecurity": "passed: build/typecheck, 271 Node fixtures, 19 Hermes fixtures, 3 native-helper fixtures, 15 browser/a11y fixtures, secret scan, and npm audit",
+    "spec": "passed: one fixed owned native transaction path remains pinned; only Account Center projects its private result to the opaque contract",
+    "quality": "approved: native fixture state, private backups, and private receipts are confined to temporary HOME; preview/no-match are non-mutating and forced rollback is byte-for-byte",
+    "qaSecurity": "passed: build/typecheck, 271 Node fixtures, 19 Hermes fixtures, 5 native-helper fixtures, 15 browser/a11y fixtures, secret scan, and npm audit",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-02 AC-10 R2 passed npm run qa:security and static 0600 owner/hash/py_compile checks; real helper executed only against temporary HOME fixture stores; no live deletion.",
-    "record": ".account-center-pipeline/AC-10-R2-NATIVE-ROLLBACK-REVIEW.md"
+    "evidence": "2026-08-02 AC-11 passed npm run qa:security; real helper execution used only temporary HOME and fixture state roots; no live deletion.",
+    "record": ".account-center-pipeline/AC-11-HERMETIC-OWNED-DELETE-REVIEW.md"
   },
   "merge": {
     "commit": "04fcfe2",
