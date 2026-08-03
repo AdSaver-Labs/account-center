@@ -15,7 +15,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HELPER = Path("/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py")
+# CI must exercise a reviewed, repository-owned helper under a temporary
+# fixture HOME—not a VPS-only OpenClaw path or real credential state.
+HELPER = Path(__file__).resolve().parent / "fixtures" / "codex-auth-delete.py"
 TARGET = "fixture-delete@example.test"
 PROFILE = "openai:fixture-delete@example.test"
 

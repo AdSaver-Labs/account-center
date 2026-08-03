@@ -51,7 +51,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 ### 5. Installability and release verification
 
 - [ ] One documented install/build/start path works on a clean supported Node 24 environment.
-- [x] `npm test`, `npm run typecheck`, `npm run build`, API integration/security tests, and UI/browser smoke tests pass: 107/107 project tests and 6/6 fixture-only Chromium/axe browser tests passed on the merged branch.
+- [ ] A green GitHub Actions run for the current release candidate must verify `npm test`, `npm run typecheck`, `npm run build`, API/security integration tests, owned-delete transaction tests, and fixture-only browser/accessibility tests. Fixed historical test counts are not release evidence.
 - [ ] Dependency audit and secret scan have no unresolved release blockers.
 - [x] A real fixture-only local launch smoke proved loopback binding, token protection, dashboard load, and the safe local guided-auth cancellation flow; no live runtime routing, credential, or model change was attempted or claimed.
 - [ ] README, API/command contract, threat/safety model, rollback/backup behavior, and test instructions are current.
