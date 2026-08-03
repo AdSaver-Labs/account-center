@@ -72,15 +72,17 @@ ACCOUNT_CENTER_GENERIC_COMMAND="node examples/odysseus-status.mjs" \
 
 The CLI uses `tests/fixtures/status.fixture.json` by default and writes token-free local status files under `.account-center/`. Live OpenClaw reads require explicit `--source openclaw` or `ACCOUNT_CENTER_SOURCE=openclaw`. Mutation-shaped commands stay dry-run unless `--apply` is explicit and supported.
 
-## Local team-beta panel (read-only)
+## Local control panel
 
-After building, launch the local control panel on an ephemeral **loopback-only** port:
+After building, launch the local control panel on an ephemeral **loopback-only** port against the existing redacted OpenClaw/Sentinel status:
 
 ```bash
 umask 077
 token_file="$(node scripts/create-launch-token-file.mjs)"
-node packages/cli/dist/index.js serve --port 0 --source fixture --token-file "$token_file"
+node packages/cli/dist/index.js serve --port 0 --source openclaw --token-file "$token_file"
 ```
+
+`--source openclaw` is read-only status discovery. It uses the configured OpenClaw workspace (or `ACCOUNT_CENTER_OPENCLAW_WORKSPACE`) and renders Hermes, OpenClaw, and Codex as connected, available, needs-auth, unavailable, or `UNPROVEN` only when the redacted status actually supports that state. For a safe local demo with no runtime reads, use `--source fixture` instead.
 
 The token-creation command actually prompts `Paste the launch token, then press Ctrl+D:` on standard error. Paste the token and press `Ctrl+D`; it accumulates standard input and, only at EOF, atomically creates one owner-only token file. Its standard output is only that file path (captured in `token_file`), never the token. The launcher prints the actual `127.0.0.1` URL, but never the token. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`, then remove the owner-only temporary directory with `rm -rf "$(dirname "$token_file")"`.
 
