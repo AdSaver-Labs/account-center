@@ -36,7 +36,7 @@ const GENERIC_COMMAND_FAILURE = "Generic command status is unavailable or unprov
 const privateConnectedEmails = new WeakMap<AccountCenterStatus, Map<string, string>>();
 /** The one owned credential-delete implementation; destructive overrides are forbidden. */
 export const OWNED_OPENCLAW_DELETE_SCRIPT = "/home/Alej/.openclaw/workspace/3-Resources/codex-account-ops/scripts/codex-auth-delete.py";
-const OWNED_OPENCLAW_DELETE_SHA256 = "76877f63f2bdf82bc8c156ae47f4e7aafa09e9b91389d6b15a2e89eb8d82eb70";
+const OWNED_OPENCLAW_DELETE_SHA256 = "5e9f137cbc1797a2afb6589c6a50e7f0e3fb5c7d7b57b14629096c796b219be2";
 
 /**
  * The delete implementation intentionally lives with Dexter's owned account

@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "SC-01",
+  "activeCheckpoint": "AC-06",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-03T09:02:00Z",
-  "candidate": "SC-01 R1 completed: public runtime/scope selectors are closed to authoritative labels while AC-06 and protected policy invariants remain intact.",
+  "updatedAt": "2026-08-03T09:30:00Z",
+  "candidate": "SC-01 R1 completed: public runtime/scope selectors are closed to authoritative labels while AC-06 and protected policy invariants remain intact. AC-06 native transaction filesystem hardening R1 is planned; the existing owned-delete candidate is preserved. AC-06 filesystem hardening R1 completed with fixture-only verification; helper trust pin and opaque receipt contract are retained.",
   "blockerResolutionPlan": {
-    "kind": "sc-01-explicit-runtime-scope-r1",
-    "planRecord": ".account-center-pipeline/SC-01-EXPLICIT-RUNTIME-SCOPE-R1.md",
+    "kind": "ac-06-native-transaction-filesystem-hardening-r1",
+    "planRecord": ".account-center-pipeline/AC-06-NATIVE-TRANSACTION-FILESYSTEM-HARDENING-R1.md",
     "boundedSteps": [
-      "Map all runtime/scope selector boundaries and tests.",
-      "Add adversarial authoritative-runtime/scope fixtures and make the smallest shared fail-closed change.",
-      "Re-run owned-delete parity fixtures and full deterministic QA before review."
+      "Harden private artifact tree and add fail-closed operation lock in owned helper.",
+      "Add hostile-path, artifact-permission, and contention fixture tests.",
+      "Update reviewed helper integrity pin and run fixture-only build/test/security review."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -30,18 +30,18 @@
     "scope": "AC-12 release-gate reconciliation completed with fresh fixture-only owned-transaction, Account Center, Hermes/Dexter, and QA evidence."
   },
   "review": {
-    "spec": "approved: custom/private runtime selectors are rejected at all protected public contexts",
-    "quality": "approved: one shared closed selector preserves explicit scope pairing and avoids duplicated validation",
-    "qaSecurity": "passed: npm test 271 Node + 19 Hermes + 5 owned-delete; qa:security typecheck/build/a11y 15/15/secret scan/audit clean",
+    "spec": "approved: Account Center/Hermes/Dexter retain one owned transaction and the sole target-free opaque receipt contract",
+    "quality": "approved: private artifact safety and operation-wide fail-closed lock added without command, Sentinel, or policy drift",
+    "qaSecurity": "passed: npm test 271 Node + 19 Hermes + 7 owned-delete; qa:security typecheck/build/a11y 15/15/secret scan/audit clean",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-03 fixture-only validation; no live delete, login, provider, route/model, Sentinel, or service operation occurred.",
-    "record": ".account-center-pipeline/SC-01-EXPLICIT-RUNTIME-SCOPE-R1-REVIEW.md"
+    "evidence": "2026-08-03 fixture-only validation; no live delete, login, provider, route/model, Sentinel, service, or notification operation occurred.",
+    "record": ".account-center-pipeline/AC-06-NATIVE-TRANSACTION-FILESYSTEM-HARDENING-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "42843bb",
+    "commit": "pending-amend",
     "branch": "main",
     "verified": true,
-    "scope": "SC-01 R1 merged and pushed: public runtime/scope selectors are closed while AC-06 owned delete, opaque receipt, Dexter command, Sentinel format, and weekly-only policy remain retained.",
-    "recordedBy": "SC-01 R1 production coordinator"
+    "scope": "AC-06 native transaction filesystem hardening R1 reviewed, QA-passed, and merged: owned helper retained, opaque receipt and Dexter command preserved, Sentinel format and weekly-only policy unchanged.",
+    "recordedBy": "AC-06 R1 production coordinator"
   }
 }
