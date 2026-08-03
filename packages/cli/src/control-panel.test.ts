@@ -13,6 +13,12 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /Account Center/);
     assert.match(html, /aria-live/);
     assert.match(html, /Connected accounts/);
+    assert.match(html, /Sentinel runtime overview/);
+    assert.match(html, /Hermes · OpenClaw · Codex/);
+    assert.match(html, /id="sentinel-runtimes"/);
+    assert.match(html, /function renderSentinelRuntimes\(connectionData, unavailable\)/);
+    assert.match(html, /Weekly availability/);
+    assert.match(html, /Last verified/);
     assert.match(html, /Attention &amp; pending work/);
     assert.match(html, /View guided auth/);
     assert.match(html, /ArrowRight/);
