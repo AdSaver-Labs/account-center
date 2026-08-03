@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-04",
+  "activeCheckpoint": "AC-12",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-03T00:49:34Z",
-  "candidate": "AC-04-R11: verify the proof-only reauth terminal release boundary with fixture-only evidence while preserving the AC-11 owned-delete transaction and opaque receipt contract.",
+  "updatedAt": "2026-08-03T03:30:49Z",
+  "candidate": "AC-12-R1: reconcile the completed-active checkpoint state through fresh fixture-only owned-transaction, Account Center, Hermes/Dexter, and release-gate evidence.",
   "blockerResolutionPlan": {
-    "kind": "ac-04-proof-only-terminal-boundary-r11",
-    "planRecord": ".account-center-pipeline/AC-04-VERIFIED-REAUTH-TRANSACTION-R11.md",
+    "kind": "ac-12-owned-delete-release-gate-reconciliation-r1",
+    "planRecord": ".account-center-pipeline/AC-12-RELEASE-GATE-RECONCILIATION-R1.md",
     "boundedSteps": [
-      "Inventory reauth exports, HTTP routes, and capability claims for a proof-only terminal boundary.",
-      "Run adversarial fixture evidence checks without any adapter, credential, route, helper, or provider operation.",
-      "Re-run temporary-HOME owned-helper and full deterministic QA/security/a11y evidence, then review before merge."
+      "Reconcile the sole active checkpoint under the exclusive state lock without changing protected production behavior.",
+      "Verify trusted helper identity and run only temporary-HOME owned-helper fixtures plus Account Center/Hermes/Dexter opaque-contract fixtures.",
+      "Run deterministic security QA and review public-output, format, command, and weekly-policy invariants before completion."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -24,25 +24,25 @@
     "noLiveModelMutation": true
   },
   "previousCheckpoint": {
-    "id": "AC-11",
-    "commit": "522ae39",
+    "id": "AC-04",
+    "commit": "a8eeeb92d872d0dfff330ce824fd4f8910aa3b8b",
     "verified": true,
-    "scope": "Fresh fixture-only carry-forward review reconfirmed the owned exact-account delete transaction, one opaque receipt contract, working Dexter command, full Sentinel auth format, and weekly-only policy.",
-    "evidence": "2026-08-03: npm run qa:security passed (271 Node fixture/mock tests, 19 Hermes-plugin tests, 5 synthetic temporary-HOME owned-helper fixtures, 15 fixture-browser/axe tests, 189 tracked-file secret scan, and npm audit with 0 vulnerabilities); focused Hermes/Dexter/MCP opaque-contract fixtures passed; helper owner/mode/hash/compile checks passed; no live deletion."
+    "scope": "AC-04 R11 was completed locally with fixture-only proof-boundary review while retaining the owned exact-account delete transaction, one opaque receipt, Dexter command, Sentinel format, and weekly-only policy.",
+    "evidence": "2026-08-03: focused 112-node fixture run plus npm run qa:security passed; helper regular/Alej/0600/SHA-256/py_compile checks passed; no live delete, login, provider, route/model, Sentinel, or service operation occurred."
   },
   "review": {
-    "spec": "approved: R11 source review confirmed proof-only local terminal boundary and no public completion capability",
-    "quality": "approved: receipt, adapter, redaction, policy, and filesystem boundaries retained",
-    "qaSecurity": "passed: 271 Node, 19 Hermes-plugin, 5 temporary-HOME helper, 15 Playwright/axe; secret scan and audit clean",
+    "spec": "approved: fixed owned-helper invocation, exact connected-target/capability checks, and sole opaque public receipt retained",
+    "quality": "approved: Hermes/Dexter shared transport, redaction, Sentinel format, and weekly-only invariants retained",
+    "qaSecurity": "passed: 271 Node fixture/mock, 19 Hermes-plugin, 5 temporary-HOME owned-helper, 15 Playwright/axe; secret scan and audit clean",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-03: focused 112-node fixture run plus npm run qa:security passed; helper regular/Alej/0600/SHA-256/py_compile checks passed; no live delete, login, provider, route/model, Sentinel, or service operation occurred.",
-    "record": ".account-center-pipeline/AC-04-R11-REVIEW.md"
+    "evidence": "2026-08-03: helper regular/Alej/0600/SHA-256/py_compile checks passed; focused fixture suite and npm run qa:security passed; no live delete, login, provider, route/model, Sentinel, or service operation occurred.",
+    "record": ".account-center-pipeline/AC-12-RELEASE-GATE-RECONCILIATION-R1-REVIEW.md"
   },
   "merge": {
     "commit": "HEAD",
     "branch": "main",
     "verified": true,
-    "scope": "AC-04 R11 proof-only terminal boundary release review passed with the owned delete transaction, opaque receipt, Dexter command, Sentinel format, and weekly-only policy retained.",
-    "recordedBy": "AC-04 R11 production coordinator"
+    "scope": "AC-12 release-gate reconciliation passed with the owned transaction, sole opaque receipt, Dexter command, Sentinel format, and weekly-only policy retained.",
+    "recordedBy": "AC-12 R1 production coordinator"
   }
 }
