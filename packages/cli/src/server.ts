@@ -225,7 +225,7 @@ function auditQuery(path: string): AuditQuery | undefined {
   const action = parameters.get("action");
   if (action !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(action)) return undefined;
   const runtime = parameters.get("runtime");
-  if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
+  if (runtime !== null && !isPublicRuntimeSelector(runtime)) return undefined;
   const scopeKind = parameters.get("scopeKind");
   if (scopeKind !== null && !["agent", "profile", "session", "default", "all"].includes(scopeKind)) return undefined;
   // Scope context is meaningful only alongside its concrete runtime. Never
@@ -259,12 +259,20 @@ interface MutationOperationQuery {
 
 interface RuntimeInventoryQuery { runtime?: string; scope?: string; }
 
+// Public context selectors are a closed contract. Adapter-specific/custom
+// runtime keys may occur in private normalized status, but must never become a
+// browser/API selection handle. `generic-command` remains an explicitly
+// read-only untrusted adapter label whose capabilities are narrowed separately.
+function isPublicRuntimeSelector(value: string): boolean {
+  return value === "codex" || value === "generic-command" || value === "hermes" || value === "openclaw";
+}
+
 function runtimeInventoryQuery(path: string): RuntimeInventoryQuery | undefined {
   const parameters = new URL(path, "http://account-center.local").searchParams;
   if ([...parameters.keys()].some((key) => key !== "runtime" && key !== "scope") || ["runtime", "scope"].some((key) => parameters.getAll(key).length > 1)) return undefined;
   const runtime = parameters.get("runtime");
   const scope = parameters.get("scope");
-  if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
+  if (runtime !== null && !isPublicRuntimeSelector(runtime)) return undefined;
   if (scope !== null && !/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(scope)) return undefined;
   // A scope is meaningful only with its concrete runtime. Never treat it as a
   // global filter or silently broaden a request to every observed runtime.
@@ -297,7 +305,7 @@ function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery 
   const limit = limitValue === null ? 50 : Number(limitValue);
   const cursor = parameters.get("cursor");
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return undefined;
-  if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
+  if (runtime !== null && !isPublicRuntimeSelector(runtime)) return undefined;
   // Scope is an exact, API-observed selector. Reject separators, whitespace, and
   // controls so it cannot be broadened or treated as an arbitrary search term.
   if (scope !== null && !/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(scope)) return undefined;
@@ -320,7 +328,7 @@ function mutationOperationQuery(path: string): MutationOperationQuery | undefine
   const action = parameters.get("action");
   if (action !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(action)) return undefined;
   const runtime = parameters.get("runtime");
-  if (runtime !== null && !/^[a-z][a-z0-9._-]{0,63}$/.test(runtime)) return undefined;
+  if (runtime !== null && !isPublicRuntimeSelector(runtime)) return undefined;
   const scopeKind = parameters.get("scopeKind");
   if (scopeKind !== null && !["agent", "profile", "session", "default", "all"].includes(scopeKind)) return undefined;
   // Scope kind alone is not an exact selected context. Require its runtime so

@@ -1,16 +1,16 @@
 {
   "schemaVersion": "account-center.pipeline-state.v1",
-  "activeCheckpoint": "AC-12",
+  "activeCheckpoint": "SC-01",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-03T03:30:49Z",
-  "candidate": "AC-12-R1: reconcile the completed-active checkpoint state through fresh fixture-only owned-transaction, Account Center, Hermes/Dexter, and release-gate evidence.",
+  "updatedAt": "2026-08-03T09:00:00Z",
+  "candidate": "SC-01 R1 completed: public runtime/scope selectors are closed to authoritative labels while AC-06 and protected policy invariants remain intact.",
   "blockerResolutionPlan": {
-    "kind": "ac-12-owned-delete-release-gate-reconciliation-r1",
-    "planRecord": ".account-center-pipeline/AC-12-RELEASE-GATE-RECONCILIATION-R1.md",
+    "kind": "sc-01-explicit-runtime-scope-r1",
+    "planRecord": ".account-center-pipeline/SC-01-EXPLICIT-RUNTIME-SCOPE-R1.md",
     "boundedSteps": [
-      "Reconcile the sole active checkpoint under the exclusive state lock without changing protected production behavior.",
-      "Verify trusted helper identity and run only temporary-HOME owned-helper fixtures plus Account Center/Hermes/Dexter opaque-contract fixtures.",
-      "Run deterministic security QA and review public-output, format, command, and weekly-policy invariants before completion."
+      "Map all runtime/scope selector boundaries and tests.",
+      "Add adversarial authoritative-runtime/scope fixtures and make the smallest shared fail-closed change.",
+      "Re-run owned-delete parity fixtures and full deterministic QA before review."
     ],
     "liveDeletionTestsForbidden": true,
     "interactiveLoginForbidden": true,
@@ -24,25 +24,24 @@
     "noLiveModelMutation": true
   },
   "previousCheckpoint": {
-    "id": "AC-04",
-    "commit": "a8eeeb92d872d0dfff330ce824fd4f8910aa3b8b",
+    "id": "AC-12",
+    "commit": "2daf87a",
     "verified": true,
-    "scope": "AC-04 R11 was completed locally with fixture-only proof-boundary review while retaining the owned exact-account delete transaction, one opaque receipt, Dexter command, Sentinel format, and weekly-only policy.",
-    "evidence": "2026-08-03: focused 112-node fixture run plus npm run qa:security passed; helper regular/Alej/0600/SHA-256/py_compile checks passed; no live delete, login, provider, route/model, Sentinel, or service operation occurred."
+    "scope": "AC-12 release-gate reconciliation completed with fresh fixture-only owned-transaction, Account Center, Hermes/Dexter, and QA evidence."
   },
   "review": {
-    "spec": "approved: fixed owned-helper invocation, exact connected-target/capability checks, and sole opaque public receipt retained",
-    "quality": "approved: Hermes/Dexter shared transport, redaction, Sentinel format, and weekly-only invariants retained",
-    "qaSecurity": "passed: 271 Node fixture/mock, 19 Hermes-plugin, 5 temporary-HOME owned-helper, 15 Playwright/axe; secret scan and audit clean",
+    "spec": "approved: custom/private runtime selectors are rejected at all protected public contexts",
+    "quality": "approved: one shared closed selector preserves explicit scope pairing and avoids duplicated validation",
+    "qaSecurity": "passed: npm test 271 Node + 19 Hermes + 5 owned-delete; qa:security typecheck/build/a11y 15/15/secret scan/audit clean",
     "liveDeletionExecuted": false,
-    "evidence": "2026-08-03: helper regular/Alej/0600/SHA-256/py_compile checks passed; focused fixture suite and npm run qa:security passed; no live delete, login, provider, route/model, Sentinel, or service operation occurred.",
-    "record": ".account-center-pipeline/AC-12-RELEASE-GATE-RECONCILIATION-R1-REVIEW.md"
+    "evidence": "2026-08-03 fixture-only validation; no live delete, login, provider, route/model, Sentinel, or service operation occurred.",
+    "record": ".account-center-pipeline/SC-01-EXPLICIT-RUNTIME-SCOPE-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "HEAD",
+    "commit": "PENDING",
     "branch": "main",
-    "verified": true,
-    "scope": "AC-12 release-gate reconciliation passed with the owned transaction, sole opaque receipt, Dexter command, Sentinel format, and weekly-only policy retained.",
-    "recordedBy": "AC-12 R1 production coordinator"
+    "verified": false,
+    "scope": "SC-01 awaits conventional commit and origin/main push after all green evidence.",
+    "recordedBy": "SC-01 R1 production coordinator"
   }
 }

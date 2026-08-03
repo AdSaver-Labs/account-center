@@ -549,6 +549,20 @@ test("generic-command status cannot establish public mutation scopes for recogni
         ]
       });
     }
+    // A syntactically safe adapter key is still private implementation detail,
+    // not an authoritative runtime/scope selector. Every protected public
+    // consumer rejects it rather than exposing an empty or cross-context view.
+    for (const path of [
+      "/api/limits?runtime=custom%3Aprivate-adapter",
+      "/api/models?runtime=custom%3Aprivate-adapter&scope=default",
+      "/api/auth-challenges?runtime=custom%3Aprivate-adapter&scope=default",
+      "/api/audit?runtime=custom%3Aprivate-adapter&scopeKind=default",
+      "/api/mutation-operations?runtime=custom%3Aprivate-adapter&scopeKind=default"
+    ]) {
+      const response = await request(address.port, path, "test-token");
+      assert.equal(response.status, 400, path);
+      assert.deepEqual(await response.json(), { error: "invalid_query" }, path);
+    }
   } finally {
     await app.close();
     if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
