@@ -21,14 +21,16 @@ test("persistent control panel reads the owner-only local state used by the laun
   const address = await app.listen();
   try {
     const headers = { authorization: `Bearer ${token}` };
-    const [challengeResponse, auditResponse, operationResponse] = await Promise.all([
+    const [challengeResponse, auditResponse, operationResponse, preferencesResponse] = await Promise.all([
       fetch(`http://127.0.0.1:${address.port}/api/auth-challenges`, { headers }),
       fetch(`http://127.0.0.1:${address.port}/api/audit`, { headers }),
-      fetch(`http://127.0.0.1:${address.port}/api/mutation-operations`, { headers })
+      fetch(`http://127.0.0.1:${address.port}/api/mutation-operations`, { headers }),
+      fetch(`http://127.0.0.1:${address.port}/api/account-ui-preferences`, { headers })
     ]);
     assert.equal(challengeResponse.status, 200);
     assert.equal(auditResponse.status, 200);
     assert.equal(operationResponse.status, 200);
+    assert.equal(preferencesResponse.status, 200);
     const challengesView = await challengeResponse.json() as { challenges: Array<{ target?: unknown }> };
     const auditView = await auditResponse.json() as { records: unknown[] };
     const operationsView = await operationResponse.json() as { operations: unknown[] };
@@ -36,6 +38,14 @@ test("persistent control panel reads the owner-only local state used by the laun
     assert.equal("target" in challengesView.challenges[0], false);
     assert.equal(auditView.records.length, 1);
     assert.equal(operationsView.operations.length, 1);
+    assert.deepEqual(await preferencesResponse.json(), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: [] });
+    const origin = `http://127.0.0.1:${address.port}`;
+    const hide = await fetch(`${origin}/api/account-ui-preferences`, { method: "POST", headers: { ...headers, origin, "content-type": "application/json" }, body: JSON.stringify({ accountRef: "account-1", state: "hidden" }) });
+    assert.equal(hide.status, 200);
+    assert.deepEqual(await hide.json(), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: ["account-1"] });
+    const restore = await fetch(`${origin}/api/account-ui-preferences`, { method: "POST", headers: { ...headers, origin, "content-type": "application/json" }, body: JSON.stringify({ accountRef: "account-1", state: "active" }) });
+    assert.equal(restore.status, 200);
+    assert.deepEqual(await restore.json(), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: [] });
   } finally {
     await app.close();
     await rm(root, { recursive: true, force: true });

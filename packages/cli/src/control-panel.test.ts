@@ -33,6 +33,12 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /function challengeFreshness\(challengeData\)/);
     assert.match(html, /Server snapshot:/);
     assert.match(html, /Accounts &amp; routing/);
+    assert.match(html, /Account visibility/);
+    assert.match(html, /active, saved, and hidden accounts/);
+    assert.match(html, /function renderAccountVisibility\(limitData, preferenceData, unavailable\)/);
+    assert.match(html, /Hidden locally only\. The connected credential and runtime state are preserved\./);
+    assert.match(html, /\/api\/account-ui-preferences/);
+    assert.match(html, /No credential deletion was requested/);
     assert.match(html, /Settings/);
     assert.match(html, /Receipts &amp; audit/);
     assert.match(html, /data-view="dashboard"/);

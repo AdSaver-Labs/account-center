@@ -86,6 +86,20 @@ The token-creation command actually prompts `Paste the launch token, then press 
 
 The initial beta path is limited to protected status, limits, scopes, model catalog, local guided-auth challenge inventory/cancellation, and redacted audit/operation history. Routing, model changes, account deletion, and live guided-auth completion remain visibly blocked or `UNPROVEN` until their supported runtime contracts and proof gates exist.
 
+### Panel smoke check
+
+Before opening the panel, or after updating it, run:
+
+```bash
+npm run smoke:panel
+```
+
+This starts a temporary loopback-only fixture panel, verifies the protected status and token-free account-visibility preference endpoint, then removes its temporary state. It does not read live credentials, route an account, or delete anything.
+
+### Account visibility
+
+The **Accounts & routing** view labels observed accounts as **active**, **saved**, or **hidden**. **Hide** is a non-destructive local UI preference: it preserves the connected credential and runtime state. **Restore** reverses only that preference. The panel stores only redacted `account-N` references in its owner-only local state; it does not copy or display tokens. Runtime route changes remain capability-gated, and `/auth remove` remains route-only.
+
 ## Manual chat bridge
 
 Phase 2 adds an actual `/auth` parser/bridge over the CLI:

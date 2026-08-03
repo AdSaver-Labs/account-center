@@ -32,6 +32,7 @@ import {
 import { randomBytes } from "node:crypto";
 import { loadOwnedDeleteReceiptContract } from "./owned-delete-contract.js";
 import { createAccountCenterServer } from "./server.js";
+import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 import { parseAuthCommand, renderAuthHelp } from "./auth-bridge.js";
 
 interface CliResult {
@@ -780,7 +781,8 @@ export function createPersistentControlPanel(options: { token: string; source: C
     source: options.source,
     auditStore: new AuditStore(join(stateRoot, "audit.v1.json")),
     challengeStore: new AuthChallengeStore(join(stateRoot, "auth-challenges.v1.json")),
-    mutationRepository: new MutationRepository(join(stateRoot, "mutation-operations"))
+    mutationRepository: new MutationRepository(join(stateRoot, "mutation-operations")),
+    accountUiPreferencesStore: new AccountUiPreferencesStore(stateRoot)
   });
 }
 
