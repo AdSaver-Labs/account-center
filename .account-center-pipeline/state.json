@@ -2,7 +2,7 @@
   "schemaVersion": "account-center.pipeline-state.v1",
   "activeCheckpoint": "SC-01",
   "state": "COMPLETED",
-  "updatedAt": "2026-08-03T09:00:00Z",
+  "updatedAt": "2026-08-03T09:02:00Z",
   "candidate": "SC-01 R1 completed: public runtime/scope selectors are closed to authoritative labels while AC-06 and protected policy invariants remain intact.",
   "blockerResolutionPlan": {
     "kind": "sc-01-explicit-runtime-scope-r1",
@@ -38,10 +38,10 @@
     "record": ".account-center-pipeline/SC-01-EXPLICIT-RUNTIME-SCOPE-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "PENDING",
+    "commit": "42843bb",
     "branch": "main",
-    "verified": false,
-    "scope": "SC-01 awaits conventional commit and origin/main push after all green evidence.",
+    "verified": true,
+    "scope": "SC-01 R1 merged and pushed: public runtime/scope selectors are closed while AC-06 owned delete, opaque receipt, Dexter command, Sentinel format, and weekly-only policy remain retained.",
     "recordedBy": "SC-01 R1 production coordinator"
   }
 }
