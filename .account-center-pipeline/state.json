@@ -38,7 +38,7 @@
     "record": ".account-center-pipeline/AC-06-NATIVE-TRANSACTION-FILESYSTEM-HARDENING-R1-REVIEW.md"
   },
   "merge": {
-    "commit": "pending-amend",
+    "commit": "54bd2c8",
     "branch": "main",
     "verified": true,
     "scope": "AC-06 native transaction filesystem hardening R1 reviewed, QA-passed, and merged: owned helper retained, opaque receipt and Dexter command preserved, Sentinel format and weekly-only policy unchanged.",
