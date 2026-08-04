@@ -243,6 +243,8 @@ gate("keeps an empty verified inventory distinct from locally hidden accounts", 
   await expect(home.locator("#account-count")).toHaveText("0 accounts");
   await expect(home.locator("#accounts")).toContainText("No visible account limits were reported by the protected API.");
   await expect(home.locator("#accounts")).not.toContainText("Every verified account is hidden only from everyday lists.");
+  await expect(home.locator("#accounts")).not.toContainText(/Restore an account/i);
+  await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
 
 gate("confirms guided-auth cancellation and restores focus when cancellation is dismissed", async ({ panel }) => {
