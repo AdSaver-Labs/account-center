@@ -172,6 +172,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   await row.getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
   expect((await hiddenResponse).request().postDataJSON()).toEqual({ accountRef, state: "hidden" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(`${accountRef} · Hidden`);
+  await expect(homePanel(panel).locator("#accounts")).not.toContainText(accountRef || "");
   await expect(panel.page.locator("#notice")).toContainText("Account hidden locally. Credentials and runtime state were preserved. Some other workspace evidence is UNPROVEN.");
 
   const restoredResponse = panel.page.waitForResponse((response) =>
@@ -180,6 +181,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   await accounts.getByRole("button", { name: "Restore account to everyday lists" }).first().click();
   expect((await restoredResponse).request().postDataJSON()).toEqual({ accountRef, state: "active" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(initialTitle || "");
+  await expect(homePanel(panel).locator("#accounts")).toContainText(accountRef || "");
   await expect(panel.page.locator("#notice")).toContainText("Account restored to everyday lists. Credentials and runtime state were preserved. Some other workspace evidence is UNPROVEN.");
 });
 
