@@ -348,6 +348,34 @@ gate("keeps a malformed nested weekly window UNPROVEN without Hide or Restore co
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
 
+gate("keeps an out-of-range nested weekly percentage UNPROVEN without Hide or Restore controls", async ({ panel }) => {
+  await panel.page.route("**/api/limits?runtime=hermes&scope=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.limits.v1",
+        generatedAt: new Date().toISOString(),
+        accounts: [{
+          accountRef: "account-1",
+          provider: "openai",
+          health: "ok",
+          authState: "active",
+          readable: true,
+          windows: [{ name: "weekly", remainingPct: 101, resetsAt: "2026-08-10T00:00:00.000Z" }]
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const visibility = accountsPanel(panel).locator("#account-visibility-state");
+  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
+  await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
+  await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
+});
+
 gate("keeps unavailable local visibility preferences UNPROVEN without Restore guidance", async ({ panel }) => {
   await panel.page.route("**/api/account-ui-preferences", async (route) => {
     if (route.request().method() === "GET") await route.abort("failed");
