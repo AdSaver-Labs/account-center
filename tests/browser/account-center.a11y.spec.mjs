@@ -226,6 +226,25 @@ gate("explains when every verified account is hidden only from everyday lists", 
   await expect(homePanel(panel).locator("#accounts")).toContainText("Every verified account is hidden only from everyday lists. Restore an account in Accounts to show it here; credentials and routing are unchanged.");
 });
 
+gate("keeps an empty verified inventory distinct from locally hidden accounts", async ({ panel }) => {
+  await panel.page.route("**/api/limits?runtime=hermes&scope=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.limits.v1",
+        generatedAt: new Date().toISOString(),
+        accounts: []
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  const home = homePanel(panel);
+  await expect(home.locator("#account-count")).toHaveText("0 accounts");
+  await expect(home.locator("#accounts")).toContainText("No visible account limits were reported by the protected API.");
+  await expect(home.locator("#accounts")).not.toContainText("Every verified account is hidden only from everyday lists.");
+});
+
 gate("confirms guided-auth cancellation and restores focus when cancellation is dismissed", async ({ panel }) => {
   await open(panel);
   await connect(panel);
