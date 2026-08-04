@@ -45,6 +45,7 @@ test("local control panel serves an accessible application shell", async () => {
     assert.match(html, /\/api\/auth-challenges/);
     assert.match(html, /\/api\/capabilities/);
     assert.match(html, /function renderOperatorActions/);
+    assert.match(html, /Credential deletion \(deferred\)/);
     assert.match(html, /action && action.reason/);
     assert.match(html, /\/api\/audit/);
     assert.match(html, /<label for="audit-outcome">Outcome<\/label>/);
