@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { AuditStore, AuthChallengeStore, MutationRepository } from "../../packages/core/dist/index.js";
+import { AccountUiPreferencesStore } from "../../packages/cli/dist/account-preferences-store.js";
 import { createAccountCenterServer } from "../../packages/cli/dist/server.js";
 
 /**
@@ -37,7 +38,8 @@ const gate = test.extend({
       source: "fixture",
       auditStore: new AuditStore(join(root, "audit.json")),
       challengeStore,
-      mutationRepository
+      mutationRepository,
+      accountUiPreferencesStore: new AccountUiPreferencesStore(root)
     });
     const { port } = await app.listen();
     const baseURL = `http://127.0.0.1:${port}`;
@@ -150,6 +152,35 @@ gate("explains active, saved, and hidden accounts before offering local Hide or 
   await expect(accounts).toContainText("Saved — available locally, but not used by this route");
   await expect(accounts).toContainText("Hidden — kept locally, but out of everyday lists");
   await expect(accounts).toContainText("Hide and Restore only change this local list; they never delete credentials.");
+});
+
+gate("hides then restores a fixture account without requesting credential deletion", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const accounts = accountsPanel(panel);
+  const row = accounts.locator("#account-visibility-state .record").filter({
+    has: panel.page.getByRole("button", { name: "Hide account locally; credentials stay connected" })
+  }).first();
+  const initialTitle = await row.locator("strong").textContent();
+  const accountRef = initialTitle?.split(" · ")[0];
+  expect(accountRef).toMatch(/^account-[1-9][0-9]*$/);
+
+  const hiddenResponse = panel.page.waitForResponse((response) =>
+    response.url().endsWith("/api/account-ui-preferences") && response.request().method() === "POST"
+  );
+  await row.getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
+  expect((await hiddenResponse).request().postDataJSON()).toEqual({ accountRef, state: "hidden" });
+  await expect(accounts.locator("#account-visibility-state")).toContainText(`${accountRef} · Hidden`);
+  await expect(panel.page.locator("#notice")).toContainText("Account visibility changed; some evidence is UNPROVEN.");
+
+  const restoredResponse = panel.page.waitForResponse((response) =>
+    response.url().endsWith("/api/account-ui-preferences") && response.request().method() === "POST"
+  );
+  await accounts.getByRole("button", { name: "Restore account to everyday lists" }).first().click();
+  expect((await restoredResponse).request().postDataJSON()).toEqual({ accountRef, state: "active" });
+  await expect(accounts.locator("#account-visibility-state")).toContainText(initialTitle || "");
+  await expect(panel.page.locator("#notice")).toContainText("Account visibility changed; some evidence is UNPROVEN.");
 });
 
 gate("confirms guided-auth cancellation and restores focus when cancellation is dismissed", async ({ panel }) => {
