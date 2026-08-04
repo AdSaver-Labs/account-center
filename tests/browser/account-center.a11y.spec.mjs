@@ -299,6 +299,8 @@ gate("keeps malformed local visibility preferences UNPROVEN without Restore guid
   await expect(visibility).toContainText("Account visibility is UNPROVEN");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.locator(".record:not(.state)")).toHaveCount(0);
+  await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
+  await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
 
 gate("confirms guided-auth cancellation and restores focus when cancellation is dismissed", async ({ panel }) => {
