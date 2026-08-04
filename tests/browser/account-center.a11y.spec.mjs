@@ -247,6 +247,19 @@ gate("keeps an empty verified inventory distinct from locally hidden accounts", 
   await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
 
+gate("keeps an unavailable account inventory UNPROVEN without Restore guidance", async ({ panel }) => {
+  await panel.page.route("**/api/limits?runtime=hermes&scope=default", async (route) => {
+    await route.abort("failed");
+  });
+  await open(panel);
+  await connect(panel);
+  const home = homePanel(panel);
+  await expect(home.locator("#account-count")).toHaveText("UNPROVEN");
+  await expect(home.locator("#accounts")).toContainText("Visible accounts could not be verified");
+  await expect(home.locator("#accounts")).not.toContainText(/Restore an account/i);
+  await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
+});
+
 gate("confirms guided-auth cancellation and restores focus when cancellation is dismissed", async ({ panel }) => {
   await open(panel);
   await connect(panel);
