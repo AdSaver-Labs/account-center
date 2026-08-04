@@ -245,6 +245,11 @@ gate("keeps an empty verified inventory distinct from locally hidden accounts", 
   await expect(home.locator("#accounts")).not.toContainText("Every verified account is hidden only from everyday lists.");
   await expect(home.locator("#accounts")).not.toContainText(/Restore an account/i);
   await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const visibility = accountsPanel(panel).locator("#account-visibility-state");
+  await expect(visibility).toContainText("No connected accounts were reported by the protected selected-scope inventory.");
+  await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
+  await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
 
 gate("keeps an unavailable account inventory UNPROVEN without Restore guidance", async ({ panel }) => {
