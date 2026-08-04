@@ -291,6 +291,7 @@ gate("keeps malformed local visibility preferences UNPROVEN without Restore guid
   const home = homePanel(panel);
   await expect(home.locator("#account-count")).toHaveText("UNPROVEN");
   await expect(home.locator("#accounts")).toContainText("Visible accounts could not be verified");
+  await expect(home.locator("#accounts")).not.toContainText("0 accounts");
   await expect(home.locator("#accounts")).not.toContainText(/Restore an account/i);
   await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
