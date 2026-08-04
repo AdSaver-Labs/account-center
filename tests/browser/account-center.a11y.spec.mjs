@@ -172,7 +172,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   await row.getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
   expect((await hiddenResponse).request().postDataJSON()).toEqual({ accountRef, state: "hidden" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(`${accountRef} · Hidden`);
-  await expect(panel.page.locator("#notice")).toContainText("Account visibility changed; some evidence is UNPROVEN.");
+  await expect(panel.page.locator("#notice")).toContainText("Account hidden locally. Credentials and runtime state were preserved. Some other workspace evidence is UNPROVEN.");
 
   const restoredResponse = panel.page.waitForResponse((response) =>
     response.url().endsWith("/api/account-ui-preferences") && response.request().method() === "POST"
@@ -180,7 +180,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   await accounts.getByRole("button", { name: "Restore account to everyday lists" }).first().click();
   expect((await restoredResponse).request().postDataJSON()).toEqual({ accountRef, state: "active" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(initialTitle || "");
-  await expect(panel.page.locator("#notice")).toContainText("Account visibility changed; some evidence is UNPROVEN.");
+  await expect(panel.page.locator("#notice")).toContainText("Account restored to everyday lists. Credentials and runtime state were preserved. Some other workspace evidence is UNPROVEN.");
 });
 
 gate("confirms guided-auth cancellation and restores focus when cancellation is dismissed", async ({ panel }) => {
