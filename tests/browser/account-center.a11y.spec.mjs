@@ -196,6 +196,20 @@ gate("explains when some verified accounts are hidden only from everyday lists",
   await expect(homePanel(panel).locator("#account-count")).toHaveText(`${initialVisibleCount - 1} accounts visible — 1 verified account is hidden locally`);
 });
 
+gate("uses plural local-hide wording while verified accounts remain visible", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const accounts = accountsPanel(panel);
+  const hideButtons = accounts.getByRole("button", { name: "Hide account locally; credentials stay connected" });
+  const initialVisibleCount = await hideButtons.count();
+  expect(initialVisibleCount).toBeGreaterThan(2);
+  await hideButtons.first().click();
+  await accounts.getByRole("button", { name: "Hide account locally; credentials stay connected" }).first().click();
+  const remaining = initialVisibleCount - 2;
+  await expect(homePanel(panel).locator("#account-count")).toHaveText(`${remaining} ${remaining === 1 ? "account" : "accounts"} visible — 2 verified accounts are hidden locally`);
+});
+
 gate("explains when every verified account is hidden only from everyday lists", async ({ panel }) => {
   await open(panel);
   await connect(panel);
