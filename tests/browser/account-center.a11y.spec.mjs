@@ -282,8 +282,12 @@ gate("keeps malformed local visibility preferences UNPROVEN without Restore guid
       await route.continue();
     }
   });
+  const preferencesRequest = panel.page.waitForRequest((request) =>
+    request.url() === `${panel.baseURL}/api/account-ui-preferences` && request.method() === "GET"
+  );
   await open(panel);
   await connect(panel);
+  await preferencesRequest;
   const home = homePanel(panel);
   await expect(home.locator("#account-count")).toHaveText("UNPROVEN");
   await expect(home.locator("#accounts")).toContainText("Visible accounts could not be verified");
