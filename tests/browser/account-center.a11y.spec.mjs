@@ -263,6 +263,12 @@ gate("keeps an unavailable account inventory UNPROVEN without Restore guidance",
   await expect(home.locator("#accounts")).toContainText("Visible accounts could not be verified");
   await expect(home.locator("#accounts")).not.toContainText(/Restore an account/i);
   await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const visibility = accountsPanel(panel).locator("#account-visibility-state");
+  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
+  await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
+  await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
 
 gate("keeps unavailable local visibility preferences UNPROVEN without Restore guidance", async ({ panel }) => {
