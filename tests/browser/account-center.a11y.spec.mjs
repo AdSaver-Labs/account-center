@@ -197,6 +197,7 @@ gate("explains when every verified account is hidden only from everyday lists", 
     await hideButtons.first().click();
     await expect(accounts.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(index + 1);
   }
+  await expect(homePanel(panel).locator("#account-count")).toHaveText("0 accounts visible — all verified accounts are hidden locally");
   await expect(homePanel(panel).locator("#accounts")).toContainText("Every verified account is hidden only from everyday lists. Restore an account in Accounts to show it here; credentials and routing are unchanged.");
 });
 
