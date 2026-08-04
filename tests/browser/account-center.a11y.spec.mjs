@@ -419,6 +419,11 @@ gate("renders malformed selected-scope limits and model catalogs as UNPROVEN ins
   });
   await open(panel);
   await connect(panel);
+  const home = homePanel(panel);
+  await expect(home.locator("#account-count")).toHaveText("UNPROVEN");
+  await expect(home.locator("#accounts")).toContainText("Visible accounts could not be verified");
+  await expect(home.locator("#accounts")).not.toContainText(/Restore an account/i);
+  await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const accountsRouting = accountsPanel(panel);
   await expect(accountsRouting).toContainText("Selected-scope limit inventory unavailable");
