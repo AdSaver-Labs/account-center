@@ -185,6 +185,17 @@ gate("hides then restores a fixture account without requesting credential deleti
   await expect(panel.page.locator("#notice")).toContainText("Account restored to everyday lists. Credentials and runtime state were preserved. Some other workspace evidence is UNPROVEN.");
 });
 
+gate("explains when some verified accounts are hidden only from everyday lists", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const accounts = accountsPanel(panel);
+  const initialVisibleCount = await accounts.getByRole("button", { name: "Hide account locally; credentials stay connected" }).count();
+  expect(initialVisibleCount).toBeGreaterThan(1);
+  await accounts.getByRole("button", { name: "Hide account locally; credentials stay connected" }).first().click();
+  await expect(homePanel(panel).locator("#account-count")).toHaveText(`${initialVisibleCount - 1} accounts visible — 1 verified account is hidden locally`);
+});
+
 gate("explains when every verified account is hidden only from everyday lists", async ({ panel }) => {
   await open(panel);
   await connect(panel);
