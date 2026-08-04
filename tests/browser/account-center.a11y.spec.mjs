@@ -66,6 +66,14 @@ async function connect(panel) {
   await expect(panel.page.getByRole("status")).toContainText("workspace refreshed", { ignoreCase: true });
 }
 
+async function openMore(panel) {
+  await panel.page.getByRole("tab", { name: "More" }).click();
+}
+
+function homePanel(panel) { return panel.page.locator("#home-view"); }
+function accountsPanel(panel) { return panel.page.locator("#accounts-view"); }
+function morePanel(panel) { return panel.page.locator("#more-view"); }
+
 async function assertNoSeriousOrCriticalAxeViolations(page, testInfo) {
   const results = await new AxeBuilder({ page }).analyze();
   const seriousOrCritical = results.violations.filter((violation) =>
@@ -93,29 +101,41 @@ gate("rejects an invalid launch token and repairs focus to the token field", asy
 gate("supports roving tab navigation with ArrowRight, ArrowLeft, Home, and End", async ({ panel }) => {
   await open(panel);
   await connect(panel);
-  const dashboard = panel.page.getByRole("tab", { name: "Dashboard" });
-  await dashboard.focus();
-  await dashboard.press("ArrowRight");
-  await expect(panel.page.getByRole("tab", { name: /Accounts & routing/i })).toBeFocused();
+  const home = panel.page.getByRole("tab", { name: "Home" });
+  await home.focus();
+  await home.press("ArrowRight");
+  await expect(panel.page.getByRole("tab", { name: "Accounts" })).toBeFocused();
   await panel.page.keyboard.press("ArrowLeft");
-  await expect(dashboard).toBeFocused();
+  await expect(home).toBeFocused();
   await panel.page.keyboard.press("End");
-  await expect(panel.page.getByRole("tab", { name: "Settings" })).toBeFocused();
+  await expect(panel.page.getByRole("tab", { name: "More" })).toBeFocused();
   await panel.page.keyboard.press("Home");
-  await expect(dashboard).toBeFocused();
-  await expect(dashboard).toHaveAttribute("aria-selected", "true");
+  await expect(home).toBeFocused();
+  await expect(home).toHaveAttribute("aria-selected", "true");
+});
+
+gate("uses a calm Home, Accounts, and More navigation model", async ({ panel }) => {
+  await open(panel);
+  await expect(panel.page.getByRole("tab")).toHaveText(["Home", "Accounts", "More"]);
+  await expect(homePanel(panel)).toContainText("Runtime health");
+  await expect(homePanel(panel)).toContainText("Attention");
+  await expect(homePanel(panel)).toContainText("Visible accounts");
+  await expect(homePanel(panel)).not.toContainText("Model policy");
+  await panel.page.getByRole("tab", { name: "More" }).click();
+  await expect(morePanel(panel)).toContainText("Settings");
+  await expect(morePanel(panel)).toContainText("Advanced");
 });
 
 gate("renders accounts/routing and settings as truthful protected states", async ({ panel }) => {
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Accounts & routing/i }).click();
-  const accountsRouting = panel.page.getByRole("tabpanel", { name: /Accounts & routing/i });
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const accountsRouting = accountsPanel(panel);
   await expect(accountsRouting).toContainText(/No route reported|Active:/i);
   await expect(accountsRouting).toContainText(/Route changes unavailable/i);
   await expect(accountsRouting).toContainText(/UNPROVEN/i);
-  await panel.page.getByRole("tab", { name: "Settings" }).click();
-  const settings = panel.page.getByRole("tabpanel", { name: "Settings" });
+  await openMore(panel);
+  const settings = morePanel(panel);
   await expect(settings).toContainText(/No verified release status reported/i);
   await expect(settings).toContainText(/Update Center is unavailable/i);
   await expect(settings).toContainText(/blocked/i);
@@ -124,7 +144,7 @@ gate("renders accounts/routing and settings as truthful protected states", async
 gate("confirms guided-auth cancellation and restores focus when cancellation is dismissed", async ({ panel }) => {
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Guided auth/i }).click();
+  await openMore(panel);
   const trigger = panel.page.getByRole("button", { name: "Cancel pending challenge" });
   await trigger.click();
   const dialog = panel.page.getByRole("dialog");
@@ -136,8 +156,8 @@ gate("confirms guided-auth cancellation and restores focus when cancellation is 
   await trigger.click();
   await panel.page.getByRole("button", { name: "Cancel local challenge" }).click();
   await expect(dialog).toBeHidden();
-  await expect(panel.page.getByRole("status")).toContainText(/challenge cancelled/i);
-  await expect(panel.page.getByRole("tabpanel", { name: /Guided auth/i })).toContainText(/cancelled/i);
+  await expect(panel.page.locator("#notice")).toContainText(/challenge cancelled/i);
+  await expect(morePanel(panel)).toContainText(/cancelled/i);
 });
 
 gate("renders malformed guided-auth inventory evidence as UNPROVEN instead of current lifecycle state", async ({ panel }) => {
@@ -162,8 +182,8 @@ gate("renders malformed guided-auth inventory evidence as UNPROVEN instead of cu
   });
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Guided auth/i }).click();
-  const guided = panel.page.getByRole("tabpanel", { name: /Guided auth/i });
+  await openMore(panel);
+  const guided = morePanel(panel);
   await expect(guided).toContainText("UNPROVEN — data unavailable");
   await expect(guided).not.toContainText("invented_success_state");
 });
@@ -217,8 +237,8 @@ gate("renders malformed protected-operation history as UNPROVEN instead of a cla
   });
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
-  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await openMore(panel);
+  const audit = morePanel(panel);
   await expect(audit).toContainText("UNPROVEN — data unavailable");
   await expect(audit).not.toContainText("invented_success_state");
 });
@@ -244,8 +264,8 @@ gate("renders malformed audit history as UNPROVEN instead of a claimed outcome",
   });
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
-  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await openMore(panel);
+  const audit = morePanel(panel);
   await expect(audit).toContainText("UNPROVEN — data unavailable");
   await expect(audit).not.toContainText("invented_success_state");
 });
@@ -293,13 +313,13 @@ gate("renders malformed selected-scope limits and model catalogs as UNPROVEN ins
   });
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Accounts & routing/i }).click();
-  const accountsRouting = panel.page.getByRole("tabpanel", { name: /Accounts & routing/i });
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const accountsRouting = accountsPanel(panel);
   await expect(accountsRouting).toContainText("Selected-scope limit inventory unavailable");
   await expect(accountsRouting).toContainText("UNPROVEN");
   await expect(accountsRouting).not.toContainText("account-9");
-  await panel.page.getByRole("tab", { name: /Models & fallbacks/i }).click();
-  const models = panel.page.getByRole("tabpanel", { name: /Models & fallbacks/i });
+  await openMore(panel);
+  const models = morePanel(panel);
   await expect(models).toContainText("UNPROVEN — data unavailable");
   await expect(models).not.toContainText("openai/invented-model");
 });
@@ -307,8 +327,8 @@ gate("renders malformed selected-scope limits and model catalogs as UNPROVEN ins
 gate("loads a redacted protected-operation detail through the bearer-protected API", async ({ panel }) => {
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
-  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await openMore(panel);
+  const audit = morePanel(panel);
   await audit.getByRole("button", { name: "View protected operation details" }).click();
   const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
   await expect(detail).toContainText("Protected operation detail");
@@ -320,8 +340,8 @@ gate("loads a redacted protected-operation detail through the bearer-protected A
 gate("clears protected-operation detail when the selected runtime context changes", async ({ panel }) => {
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
-  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await openMore(panel);
+  const audit = morePanel(panel);
   await audit.getByRole("button", { name: "View protected operation details" }).click();
   const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
   await expect(detail).toContainText("route.use");
@@ -334,8 +354,8 @@ gate("clears protected-operation detail when the selected runtime context change
 gate("clears guided-auth challenge detail when the selected runtime context changes", async ({ panel }) => {
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Guided auth/i }).click();
-  const guided = panel.page.getByRole("tabpanel", { name: /Guided auth/i });
+  await openMore(panel);
+  const guided = morePanel(panel);
   await guided.getByRole("button", { name: "View challenge details" }).click();
   const detail = panel.page.getByRole("region", { name: "Guided-auth challenge detail" });
   await expect(detail).toContainText("Challenge detail");
@@ -348,8 +368,8 @@ gate("clears guided-auth challenge detail when the selected runtime context chan
 gate("clears protected-operation detail before replacing its filtered history", async ({ panel }) => {
   await open(panel);
   await connect(panel);
-  await panel.page.getByRole("tab", { name: /Receipts & audit/i }).click();
-  const audit = panel.page.getByRole("tabpanel", { name: /Receipts & audit/i });
+  await openMore(panel);
+  const audit = morePanel(panel);
   await audit.getByRole("button", { name: "View protected operation details" }).click();
   const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
   await expect(detail).toContainText("route.use");
