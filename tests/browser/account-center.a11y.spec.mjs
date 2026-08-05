@@ -818,6 +818,29 @@ gate("rejects a malformed runtime scope catalog before it can select an invented
   await expect(selector).not.toContainText("invented-runtime");
 });
 
+gate("keeps a non-canonical runtime scope catalog timestamp UNPROVEN without selecting a context", async ({ panel }) => {
+  await panel.page.route("**/api/scopes", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.runtime-scopes.v1",
+        generatedAt: "2026-08-10T00:00:00Z",
+        scopes: [{
+          runtime: "hermes",
+          scope: { kind: "default", id: "default" },
+          capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false }
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  const selector = panel.page.locator("#context-selector");
+  await expect(selector).toContainText("UNPROVEN");
+  await expect(selector).toContainText("could not be verified");
+  await expect(selector).not.toContainText("hermes / default");
+});
+
 gate("renders malformed protected-operation history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
   await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
     await route.fulfill({
