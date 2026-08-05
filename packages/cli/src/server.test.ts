@@ -981,8 +981,15 @@ test("mutation operation history is bounded, newest-first, and paginates with an
 
     const filtered = await request(address.port, "/api/mutation-operations?outcome=blocked", "test-token");
     assert.equal(filtered.status, 200);
-    const filteredBody = await filtered.json() as { operations: Array<{ operationId: string; outcome?: string }> };
+    const filteredBody = await filtered.json() as { operations: Array<{ operationId: string; outcome?: string }>; nextCursor: string | null };
     assert.deepEqual(filteredBody.operations.map(({ operationId, outcome }) => ({ operationId, outcome })), [{ operationId: "op_page_2", outcome: "blocked" }]);
+    assert.equal(filteredBody.nextCursor, null);
+
+    const noMatch = await request(address.port, "/api/mutation-operations?outcome=applied&runtime=hermes", "test-token");
+    assert.equal(noMatch.status, 200);
+    const noMatchBody = await noMatch.json() as { operations: Array<Record<string, unknown>>; nextCursor: string | null };
+    assert.deepEqual(noMatchBody.operations, []);
+    assert.equal(noMatchBody.nextCursor, null);
 
     const malformed = await request(address.port, "/api/mutation-operations?limit=101", "test-token");
     assert.equal(malformed.status, 400);
