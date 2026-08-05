@@ -1372,7 +1372,7 @@ gate("keeps a protected-operation history response with an oversized next cursor
   await expect(audit).not.toContainText("op_history_oversized_next_cursor_must_not_be_exposed");
 });
 
-gate("keeps a protected-operation history response with a null next cursor UNPROVEN without exposing operation records", async ({ panel }) => {
+gate("accepts an explicit terminal protected-operation cursor", async ({ panel }) => {
   await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -1401,8 +1401,40 @@ gate("keeps a protected-operation history response with a null next cursor UNPRO
   await connect(panel);
   await openMore(panel);
   const audit = morePanel(panel);
+  await expect(audit).toContainText("op_history_null_next_cursor_must_not_be_exposed");
+  await expect(audit.getByRole("button", { name: "Load older protected operations" })).toBeHidden();
+});
+
+gate("keeps a protected-operation history response without an explicit terminal cursor UNPROVEN without exposing operation records", async ({ panel }) => {
+  await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.mutation-operations.v1",
+        generatedAt: "2026-08-05T07:00:00.000Z",
+        operations: [{
+          operationId: "op_history_missing_next_cursor_must_not_be_exposed",
+          state: "completed",
+          outcome: "applied",
+          createdAt: "2026-08-05T07:00:00.000Z",
+          completedAt: "2026-08-05T07:01:00.000Z",
+          audit: {
+            action: "route.use",
+            provider: "openai",
+            runtime: "hermes",
+            scopeKind: "default",
+            warningCodes: []
+          }
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const audit = morePanel(panel);
   await expect(audit).toContainText("UNPROVEN — data unavailable");
-  await expect(audit).not.toContainText("op_history_null_next_cursor_must_not_be_exposed");
+  await expect(audit).not.toContainText("op_history_missing_next_cursor_must_not_be_exposed");
 });
 
 gate("keeps a protected-operation history response with an empty next cursor UNPROVEN without exposing operation records", async ({ panel }) => {

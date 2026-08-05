@@ -950,7 +950,7 @@ test("mutation operation history is bounded, newest-first, and paginates with an
   try {
     const first = await request(address.port, "/api/mutation-operations?limit=2", "test-token");
     assert.equal(first.status, 200);
-    const firstBody = await first.json() as { schemaVersion: string; generatedAt: string; operations: Array<{ operationId: string; outcome?: string }>; nextCursor?: string };
+    const firstBody = await first.json() as { schemaVersion: string; generatedAt: string; operations: Array<{ operationId: string; outcome?: string }>; nextCursor: string | null };
     assert.equal(firstBody.schemaVersion, "account-center.mutation-operations.v1");
     assert.match(firstBody.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(firstBody.operations.map(({ operationId, outcome }) => ({ operationId, outcome })), [{ operationId: "op_page_3", outcome: "failed" }, { operationId: "op_page_2", outcome: "blocked" }]);
@@ -958,9 +958,9 @@ test("mutation operation history is bounded, newest-first, and paginates with an
 
     const second = await request(address.port, `/api/mutation-operations?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor ?? "")}`, "test-token");
     assert.equal(second.status, 200);
-    const secondBody = await second.json() as { operations: Array<{ operationId: string }>; nextCursor?: string };
+    const secondBody = await second.json() as { operations: Array<{ operationId: string }>; nextCursor: string | null };
     assert.deepEqual(secondBody.operations.map(({ operationId }) => operationId), ["op_page_1"]);
-    assert.equal(secondBody.nextCursor, undefined);
+    assert.equal(secondBody.nextCursor, null);
     assert.equal(JSON.stringify([firstBody, secondBody]).match(/page-idempotency|[ab]{64}/), null);
 
     const filtered = await request(address.port, "/api/mutation-operations?outcome=blocked", "test-token");
