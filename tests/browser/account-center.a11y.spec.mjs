@@ -795,6 +795,34 @@ gate("renders malformed guided-auth inventory evidence as UNPROVEN instead of cu
   await expect(guided).not.toContainText("invented_success_state");
 });
 
+gate("keeps a non-canonical guided-auth inventory timestamp UNPROVEN without exposing challenges", async ({ panel }) => {
+  await panel.page.route("**/api/auth-challenges?runtime=hermes&scope=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.auth-challenges.v1",
+        generatedAt: "2026-08-10T00:00:00Z",
+        challenges: [{
+          id: "auth_00000000-0000-4000-8000-000000000000",
+          mode: "reauth",
+          provider: "openai",
+          runtime: "hermes",
+          scope: "default",
+          status: "pending",
+          createdAt: "2026-08-10T00:00:00.000Z",
+          updatedAt: "2026-08-10T00:00:00.000Z"
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const guided = morePanel(panel);
+  await expect(guided).toContainText("UNPROVEN — data unavailable");
+  await expect(guided).not.toContainText("reauth · openai");
+});
+
 gate("rejects a malformed runtime scope catalog before it can select an invented context", async ({ panel }) => {
   await panel.page.route("**/api/scopes", async (route) => {
     await route.fulfill({
