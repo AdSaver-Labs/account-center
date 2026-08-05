@@ -1072,6 +1072,7 @@ test("mutation operation history filters an exact safe action category without b
     const noMatchBody = await noMatch.json() as { operations: Array<Record<string, unknown>>; nextCursor: string | null };
     assert.deepEqual(noMatchBody.operations, []);
     assert.equal(noMatchBody.nextCursor, null);
+    assert.equal(JSON.stringify(noMatchBody).includes("private@example.test"), false);
 
     const malformed = await request(address.port, "/api/mutation-operations?action=route%20use", "test-token");
     assert.equal(malformed.status, 400);
