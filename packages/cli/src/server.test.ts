@@ -1067,6 +1067,12 @@ test("mutation operation history filters an exact safe action category without b
     ]);
     assert.equal(JSON.stringify(body).match(/private@example\.test|operation-action|[ab]{64}/), null);
 
+    const noMatch = await request(address.port, "/api/mutation-operations?action=account.enable", "test-token");
+    assert.equal(noMatch.status, 200);
+    const noMatchBody = await noMatch.json() as { operations: Array<Record<string, unknown>>; nextCursor: string | null };
+    assert.deepEqual(noMatchBody.operations, []);
+    assert.equal(noMatchBody.nextCursor, null);
+
     const malformed = await request(address.port, "/api/mutation-operations?action=route%20use", "test-token");
     assert.equal(malformed.status, 400);
     assert.deepEqual(await malformed.json(), { error: "invalid_query" });
