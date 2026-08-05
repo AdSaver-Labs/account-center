@@ -936,6 +936,38 @@ gate("renders malformed selected-scope limits and model catalogs as UNPROVEN ins
   await expect(models).not.toContainText("openai/invented-model");
 });
 
+gate("keeps a non-canonical selected-scope model generated-at timestamp UNPROVEN without catalog inventory", async ({ panel }) => {
+  await panel.page.route("**/api/models?runtime=hermes&scope=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.models.v1",
+        generatedAt: "2026-08-10T00:00:00Z",
+        selection: {
+          requestedPolicy: { state: "not_reported" },
+          effectiveRuntimeModel: { state: "not_reported" },
+          fallbackChain: { state: "not_reported" },
+          verificationState: "UNPROVEN"
+        },
+        models: [{
+          id: "openai/non-canonical-model",
+          selectable: true,
+          observedProfileCount: 1,
+          readableProfileCount: 1,
+          runtimeCompatibility: ["hermes"],
+          verificationState: "UNPROVEN"
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const models = morePanel(panel);
+  await expect(models).toContainText("UNPROVEN — data unavailable");
+  await expect(models).not.toContainText("openai/non-canonical-model");
+});
+
 gate("loads a redacted protected-operation detail through the bearer-protected API", async ({ panel }) => {
   await open(panel);
   await connect(panel);
