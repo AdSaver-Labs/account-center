@@ -292,6 +292,27 @@ gate("keeps malformed hidden account preferences UNPROVEN without Hide or Restor
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
 });
 
+gate("keeps duplicate hidden account preferences UNPROVEN without Hide or Restore controls", async ({ panel }) => {
+  await panel.page.route("**/api/account-ui-preferences", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.account-ui-preferences.v1",
+        hiddenAccountRefs: ["account-1", "account-1"]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const visibility = accountsPanel(panel).locator("#account-visibility-state");
+  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
+  await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
+  await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
+});
+
 gate("keeps a malformed selected-scope account inventory UNPROVEN without Hide or Restore controls", async ({ panel }) => {
   await panel.page.route("**/api/limits?runtime=hermes&scope=default", async (route) => {
     await route.fulfill({
