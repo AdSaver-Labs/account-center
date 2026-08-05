@@ -891,6 +891,22 @@ test("mutation operation history is bearer-protected and exposes only redacted t
   }
 });
 
+test("an empty protected operation history exposes an explicit terminal cursor", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const repository = new MutationRepository(join(root, "mutations"));
+  const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    const accepted = await request(address.port, "/api/mutation-operations", "test-token");
+    assert.equal(accepted.status, 200);
+    const body = await accepted.json() as { operations: Array<Record<string, unknown>>; nextCursor: string | null };
+    assert.deepEqual(body.operations, []);
+    assert.equal(body.nextCursor, null);
+  } finally {
+    await app.close();
+  }
+});
+
 test("protected operation detail is bearer-protected, redacted, and does not expose receipt digests", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const repository = new MutationRepository(join(root, "mutations"), { operationId: () => "op_detail" });
