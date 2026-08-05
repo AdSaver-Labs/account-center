@@ -1242,6 +1242,37 @@ gate("keeps a completed protected operation with an unrecognized top-level prope
   await expect(audit).not.toContainText("op_completed_unrecognized_top_level_property_must_not_be_exposed");
 });
 
+gate("keeps a pending protected operation with an unrecognized top-level property UNPROVEN without exposing operation records", async ({ panel }) => {
+  await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.mutation-operations.v1",
+        generatedAt: "2026-08-05T07:00:00.000Z",
+        operations: [{
+          operationId: "op_pending_unrecognized_top_level_property_must_not_be_exposed",
+          state: "pending",
+          createdAt: "2026-08-05T07:00:00.000Z",
+          audit: {
+            action: "route.use",
+            provider: "openai",
+            runtime: "hermes",
+            scopeKind: "default",
+            warningCodes: []
+          },
+          unrecognized: true
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const audit = morePanel(panel);
+  await expect(audit).toContainText("UNPROVEN — data unavailable");
+  await expect(audit).not.toContainText("op_pending_unrecognized_top_level_property_must_not_be_exposed");
+});
+
 gate("renders malformed audit history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
   await panel.page.route("**/api/audit?runtime=hermes&scopeKind=default", async (route) => {
     await route.fulfill({
