@@ -1471,6 +1471,39 @@ gate("keeps a protected-operation history response with a numeric next cursor UN
   await expect(audit).not.toContainText("op_history_numeric_next_cursor_must_not_be_exposed");
 });
 
+gate("keeps a protected-operation history response with a boolean next cursor UNPROVEN without exposing operation records", async ({ panel }) => {
+  await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.mutation-operations.v1",
+        generatedAt: "2026-08-05T07:00:00.000Z",
+        operations: [{
+          operationId: "op_history_boolean_next_cursor_must_not_be_exposed",
+          state: "completed",
+          outcome: "applied",
+          createdAt: "2026-08-05T07:00:00.000Z",
+          completedAt: "2026-08-05T07:01:00.000Z",
+          audit: {
+            action: "route.use",
+            provider: "openai",
+            runtime: "hermes",
+            scopeKind: "default",
+            warningCodes: []
+          }
+        }],
+        nextCursor: true
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const audit = morePanel(panel);
+  await expect(audit).toContainText("UNPROVEN — data unavailable");
+  await expect(audit).not.toContainText("op_history_boolean_next_cursor_must_not_be_exposed");
+});
+
 gate("renders malformed audit history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
   await panel.page.route("**/api/audit?runtime=hermes&scopeKind=default", async (route) => {
     await route.fulfill({
