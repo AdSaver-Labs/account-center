@@ -841,6 +841,32 @@ gate("keeps a non-canonical runtime scope catalog timestamp UNPROVEN without sel
   await expect(selector).not.toContainText("hermes / default");
 });
 
+gate("keeps a non-canonical agent-connection inventory timestamp UNPROVEN without exposing connections", async ({ panel }) => {
+  await panel.page.route("**/api/agent-connections", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.agent-connections.v1",
+        generatedAt: "2026-08-10T00:00:00Z",
+        inventory: [{
+          connectionRef: "connection-1",
+          runtime: "hermes",
+          scope: "default",
+          state: "connected",
+          onboarding: { action: "connect-local-adapter", command: "connect locally" },
+          accounts: []
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  const connections = panel.page.locator("#agent-connection-state");
+  await expect(connections).toContainText("Agent connection inventory unavailable");
+  await expect(connections).toContainText("could not be verified");
+  await expect(connections).not.toContainText("hermes / default");
+});
+
 gate("renders malformed protected-operation history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
   await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
     await route.fulfill({
