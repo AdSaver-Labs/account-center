@@ -954,6 +954,33 @@ gate("renders malformed audit history as UNPROVEN instead of a claimed outcome",
   await expect(audit).not.toContainText("invented_success_state");
 });
 
+gate("keeps a non-canonical audit-history timestamp UNPROVEN without exposing audit records", async ({ panel }) => {
+  await panel.page.route("**/api/audit?runtime=hermes&scopeKind=default", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.audit-history.v1",
+        generatedAt: "2026-08-05T07:00:00Z",
+        records: [{
+          id: "audit_00000000-0000-4000-8000-000000000000",
+          createdAt: "2026-08-05T07:00:00.000Z",
+          action: "route.use",
+          outcome: "applied",
+          proofState: "verified",
+          summary: "Audit record that must not be exposed.",
+          warnings: []
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const audit = morePanel(panel);
+  await expect(audit).toContainText("UNPROVEN — data unavailable");
+  await expect(audit).not.toContainText("Audit record that must not be exposed.");
+});
+
 gate("renders malformed selected-scope limits and model catalogs as UNPROVEN instead of inventory", async ({ panel }) => {
   await panel.page.route("**/api/limits?runtime=hermes&scope=default", async (route) => {
     await route.fulfill({
