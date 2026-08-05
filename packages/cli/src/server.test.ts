@@ -1069,8 +1069,9 @@ test("mutation operation history filters an exact safe action category without b
 
     const noMatch = await request(address.port, "/api/mutation-operations?action=account.enable", "test-token");
     assert.equal(noMatch.status, 200);
-    const noMatchBody = await noMatch.json() as { schemaVersion: string; operations: Array<Record<string, unknown>>; nextCursor: string | null };
+    const noMatchBody = await noMatch.json() as { schemaVersion: string; generatedAt: string; operations: Array<Record<string, unknown>>; nextCursor: string | null };
     assert.equal(noMatchBody.schemaVersion, "account-center.mutation-operations.v1");
+    assert.match(noMatchBody.generatedAt, /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/);
     assert.deepEqual(noMatchBody.operations, []);
     assert.equal(noMatchBody.nextCursor, null);
     assert.equal(JSON.stringify(noMatchBody).includes("private@example.test"), false);
