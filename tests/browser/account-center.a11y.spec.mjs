@@ -152,6 +152,7 @@ gate("explains active, saved, and hidden accounts before offering local Hide or 
   await expect(accounts).toContainText("Saved — available locally, but not used by this route");
   await expect(accounts).toContainText("Hidden — kept locally, but out of everyday lists");
   await expect(accounts).toContainText("Hide and Restore only change this local list; they never delete credentials.");
+  await expect(accounts).toContainText("It stays connected locally; routing changes remain capability-gated.");
 });
 
 gate("hides then restores a fixture account without requesting credential deletion", async ({ panel }) => {
