@@ -152,6 +152,7 @@ gate("explains active, saved, and hidden accounts before offering local Hide or 
   await expect(accounts).toContainText("Saved — available locally, but not used by this route");
   await expect(accounts).toContainText("Hidden — out of everyday lists only; it stays connected locally and can be restored.");
   await expect(accounts).toContainText("Restore puts it back in everyday lists; it does not change routing or delete credentials.");
+  await expect(accounts.getByRole("button", { name: "Hide account locally; credentials stay connected and routing stays unchanged", exact: true }).first()).toBeVisible();
   await accounts.getByRole("button", { name: "Hide account locally; credentials stay connected" }).first().click();
   await expect(accounts.getByRole("button", { name: "Restore account to everyday lists; routing and credentials stay unchanged" })).toHaveCount(1);
   await expect(accounts).toContainText("It stays connected locally; routing changes remain capability-gated.");
