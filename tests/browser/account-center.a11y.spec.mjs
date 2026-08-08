@@ -177,7 +177,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   expect((await hiddenResponse).request().postDataJSON()).toEqual({ accountRef, state: "hidden" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(`${accountRef} · Hidden`);
   await expect(homePanel(panel).locator("#accounts")).not.toContainText(accountRef || "");
-  await expect(panel.page.locator("#notice")).toContainText("Account hidden locally. Credentials and runtime state were preserved. Some other workspace evidence is UNPROVEN.");
+  await expect(panel.page.locator("#notice")).toContainText("Account hidden locally. Credentials and runtime state were preserved; routing was not changed. Some other workspace evidence is UNPROVEN.");
 
   const restoredResponse = panel.page.waitForResponse((response) =>
     response.url().endsWith("/api/account-ui-preferences") && response.request().method() === "POST"
