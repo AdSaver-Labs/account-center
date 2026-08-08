@@ -1,10 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
 import { createPersistentControlPanel } from "./index.js";
+import { AccountUiPreferencesStore } from "./account-preferences-store.js";
+
+test("migrates and safely deduplicates legacy global hides into Hermes/default without hiding the same account in OpenClaw/default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-preferences-migration-"));
+  try {
+    const path = join(root, "account-ui-preferences.v1.json");
+    await writeFile(path, JSON.stringify({ schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: ["account-2", "account-1", "account-2"] }), { mode: 0o600 });
+    await chmod(path, 0o600);
+    const store = new AccountUiPreferencesStore(root);
+    assert.deepEqual(await store.view("hermes|default"), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: ["account-1", "account-2"] });
+    assert.deepEqual(await store.view("openclaw|default"), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: [] });
+    assert.deepEqual(await store.setAccountState("hermes|default", "account-1", "active"), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: ["account-2"] });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("persistent control panel reads the owner-only local state used by the launcher", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-panel-state-"));
@@ -25,7 +41,7 @@ test("persistent control panel reads the owner-only local state used by the laun
       fetch(`http://127.0.0.1:${address.port}/api/auth-challenges`, { headers }),
       fetch(`http://127.0.0.1:${address.port}/api/audit`, { headers }),
       fetch(`http://127.0.0.1:${address.port}/api/mutation-operations`, { headers }),
-      fetch(`http://127.0.0.1:${address.port}/api/account-ui-preferences`, { headers })
+      fetch(`http://127.0.0.1:${address.port}/api/account-ui-preferences?runtime=hermes&scope=default`, { headers })
     ]);
     assert.equal(challengeResponse.status, 200);
     assert.equal(auditResponse.status, 200);
@@ -40,10 +56,10 @@ test("persistent control panel reads the owner-only local state used by the laun
     assert.equal(operationsView.operations.length, 1);
     assert.deepEqual(await preferencesResponse.json(), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: [] });
     const origin = `http://127.0.0.1:${address.port}`;
-    const hide = await fetch(`${origin}/api/account-ui-preferences`, { method: "POST", headers: { ...headers, origin, "content-type": "application/json" }, body: JSON.stringify({ accountRef: "account-1", state: "hidden" }) });
+    const hide = await fetch(`${origin}/api/account-ui-preferences?runtime=hermes&scope=default`, { method: "POST", headers: { ...headers, origin, "content-type": "application/json" }, body: JSON.stringify({ accountRef: "account-1", state: "hidden" }) });
     assert.equal(hide.status, 200);
     assert.deepEqual(await hide.json(), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: ["account-1"] });
-    const restore = await fetch(`${origin}/api/account-ui-preferences`, { method: "POST", headers: { ...headers, origin, "content-type": "application/json" }, body: JSON.stringify({ accountRef: "account-1", state: "active" }) });
+    const restore = await fetch(`${origin}/api/account-ui-preferences?runtime=hermes&scope=default`, { method: "POST", headers: { ...headers, origin, "content-type": "application/json" }, body: JSON.stringify({ accountRef: "account-1", state: "active" }) });
     assert.equal(restore.status, 200);
     assert.deepEqual(await restore.json(), { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: [] });
   } finally {

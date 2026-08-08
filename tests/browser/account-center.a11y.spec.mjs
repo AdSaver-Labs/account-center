@@ -204,6 +204,24 @@ gate("keeps the selected Active fixture account Active when a Saved account is h
   await expect(accounts.locator(".record strong").filter({ hasText: / · Active$/ })).toHaveCount(1);
 });
 
+gate("keeps the same fixture account visible in another selected runtime scope when hidden locally", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  const scope = panel.page.getByLabel("Runtime & scope");
+  await scope.selectOption("openclaw|default");
+  await expect(panel.page.getByRole("status")).toContainText("Observed scoped runtime data refreshed.");
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const openclawAccounts = accountsPanel(panel).locator("#account-visibility-state");
+  await openclawAccounts.locator(".record").filter({ hasText: "account-1 · Active" }).getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
+  await expect(openclawAccounts).toContainText("account-1 · Hidden");
+
+  await scope.selectOption("hermes|default");
+  await expect(panel.page.locator("#notice")).toContainText("Observed scoped runtime data refreshed.");
+  const hermesAccounts = accountsPanel(panel).locator("#account-visibility-state");
+  await expect(hermesAccounts).toContainText("account-1 · Saved");
+  await expect(hermesAccounts).not.toContainText("account-1 · Hidden");
+});
+
 gate("restores a selected-scope Hidden Saved account to Saved while the Active account stays Active", async ({ panel }) => {
   await open(panel);
   await connect(panel);
@@ -235,6 +253,7 @@ gate("restores only the chosen selected-scope Hidden Saved fixture account", asy
   const secondSaved = accounts.locator(".record").filter({ hasText: "account-3 · Saved" });
 
   await firstSaved.getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
+  await expect(accounts.locator(".record strong").filter({ hasText: "account-2 · Hidden" })).toHaveCount(1);
   await secondSaved.getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
   await expect(accounts.locator(".record strong")).toContainText(["account-2 · Hidden", "account-3 · Hidden"]);
 
@@ -274,7 +293,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   expect(accountRef).toMatch(/^account-[1-9][0-9]*$/);
 
   const hiddenResponse = panel.page.waitForResponse((response) =>
-    response.url().endsWith("/api/account-ui-preferences") && response.request().method() === "POST"
+    new URL(response.url()).pathname === "/api/account-ui-preferences" && response.request().method() === "POST"
   );
   await row.getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
   expect((await hiddenResponse).request().postDataJSON()).toEqual({ accountRef, state: "hidden" });
@@ -283,7 +302,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   await expect(panel.page.locator("#notice")).toContainText("Account hidden locally. Credentials and runtime state were preserved; routing was not changed.");
 
   const restoredResponse = panel.page.waitForResponse((response) =>
-    response.url().endsWith("/api/account-ui-preferences") && response.request().method() === "POST"
+    new URL(response.url()).pathname === "/api/account-ui-preferences" && response.request().method() === "POST"
   );
   await accounts.getByRole("button", { name: "Restore account to everyday lists" }).first().click();
   expect((await restoredResponse).request().postDataJSON()).toEqual({ accountRef, state: "active" });
@@ -381,7 +400,7 @@ gate("keeps an unavailable account inventory UNPROVEN without Restore guidance",
 });
 
 gate("keeps malformed hidden account preferences UNPROVEN without Hide or Restore controls", async ({ panel }) => {
-  await panel.page.route("**/api/account-ui-preferences", async (route) => {
+  await panel.page.route("**/api/account-ui-preferences**", async (route) => {
     if (route.request().method() !== "GET") return route.continue();
     await route.fulfill({
       contentType: "application/json",
@@ -402,7 +421,7 @@ gate("keeps malformed hidden account preferences UNPROVEN without Hide or Restor
 });
 
 gate("keeps duplicate hidden account preferences UNPROVEN without Hide or Restore controls", async ({ panel }) => {
-  await panel.page.route("**/api/account-ui-preferences", async (route) => {
+  await panel.page.route("**/api/account-ui-preferences**", async (route) => {
     if (route.request().method() !== "GET") return route.continue();
     await route.fulfill({
       contentType: "application/json",
@@ -784,7 +803,7 @@ gate("keeps a limits response with an unrecognized root property UNPROVEN withou
 });
 
 gate("keeps unavailable local visibility preferences UNPROVEN without Restore guidance", async ({ panel }) => {
-  await panel.page.route("**/api/account-ui-preferences", async (route) => {
+  await panel.page.route("**/api/account-ui-preferences**", async (route) => {
     if (route.request().method() === "GET") await route.abort("failed");
     else await route.continue();
   });
@@ -798,7 +817,7 @@ gate("keeps unavailable local visibility preferences UNPROVEN without Restore gu
 });
 
 gate("keeps malformed local visibility preferences UNPROVEN without Restore guidance", async ({ panel }) => {
-  await panel.page.route("**/api/account-ui-preferences", async (route) => {
+  await panel.page.route("**/api/account-ui-preferences**", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({ schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: "not-an-account-list" }) });
     } else {
@@ -806,7 +825,7 @@ gate("keeps malformed local visibility preferences UNPROVEN without Restore guid
     }
   });
   const preferencesRequest = panel.page.waitForRequest((request) =>
-    request.url() === `${panel.baseURL}/api/account-ui-preferences` && request.method() === "GET"
+    new URL(request.url()).pathname === "/api/account-ui-preferences" && request.method() === "GET"
   );
   await open(panel);
   await connect(panel);
@@ -827,7 +846,7 @@ gate("keeps malformed local visibility preferences UNPROVEN without Restore guid
 });
 
 gate("keeps otherwise valid local visibility preferences with an unrecognized root property UNPROVEN", async ({ panel }) => {
-  await panel.page.route("**/api/account-ui-preferences", async (route) => {
+  await panel.page.route("**/api/account-ui-preferences**", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({
         contentType: "application/json",
