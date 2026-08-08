@@ -163,6 +163,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const accounts = accountsPanel(panel);
+  await expect(accounts).not.toContainText("undefined");
   const row = accounts.locator("#account-visibility-state .record").filter({
     has: panel.page.getByRole("button", { name: "Hide account locally; credentials stay connected" })
   }).first();
@@ -177,7 +178,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   expect((await hiddenResponse).request().postDataJSON()).toEqual({ accountRef, state: "hidden" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(`${accountRef} · Hidden`);
   await expect(homePanel(panel).locator("#accounts")).not.toContainText(accountRef || "");
-  await expect(panel.page.locator("#notice")).toContainText("Account hidden locally. Credentials and runtime state were preserved; routing was not changed. Some other workspace evidence is UNPROVEN.");
+  await expect(panel.page.locator("#notice")).toContainText("Account hidden locally. Credentials and runtime state were preserved; routing was not changed.");
 
   const restoredResponse = panel.page.waitForResponse((response) =>
     response.url().endsWith("/api/account-ui-preferences") && response.request().method() === "POST"
@@ -186,7 +187,8 @@ gate("hides then restores a fixture account without requesting credential deleti
   expect((await restoredResponse).request().postDataJSON()).toEqual({ accountRef, state: "active" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(initialTitle || "");
   await expect(homePanel(panel).locator("#accounts")).toContainText(accountRef || "");
-  await expect(panel.page.locator("#notice")).toContainText("Account restored locally to everyday lists. Credentials and runtime state were preserved; routing was not changed. Some other workspace evidence is UNPROVEN.");
+  await expect(panel.page.locator("#notice")).toContainText("Account restored locally to everyday lists. Credentials and runtime state were preserved; routing was not changed.");
+  await expect(panel.page.locator("#notice")).not.toContainText("UNPROVEN");
 });
 
 gate("explains when some verified accounts are hidden only from everyday lists", async ({ panel }) => {
@@ -898,6 +900,44 @@ gate("keeps a non-canonical agent-connection inventory timestamp UNPROVEN withou
   await expect(connections).toContainText("Agent connection inventory unavailable");
   await expect(connections).toContainText("could not be verified");
   await expect(connections).not.toContainText("hermes / default");
+});
+
+gate("keeps a malformed scoped account lease UNPROVEN instead of claiming it verified", async ({ panel }) => {
+  await panel.page.route("**/api/agent-connections", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.agent-connections.v1",
+        generatedAt: "2026-08-10T00:00:00.000Z",
+        inventory: [{
+          connectionRef: "connection-4e2ad5d32de1db5932cf9708",
+          runtime: "hermes",
+          state: "connected",
+          onboarding: { action: "connect-local-adapter" },
+          accounts: [{
+            accountRef: "account-1",
+            state: "usable",
+            pairing: "paired-verified",
+            weeklyRemainingPct: 68,
+            routeState: "selected",
+            lease: {
+              schemaVersion: "account-center.scoped-account-lease.v1",
+              leaseRef: "lease-connection-4e2ad5d32de1db5932cf9708-account-1",
+              connectionRef: "connection-4e2ad5d32de1db5932cf9708",
+              accountRef: "account-1",
+              runtime: "openclaw",
+              state: "verified"
+            }
+          }]
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  const connections = panel.page.locator("#agent-connection-state");
+  await expect(connections).toContainText("Agent connection inventory unavailable");
+  await expect(connections).not.toContainText("scoped lease verified");
 });
 
 gate("renders malformed protected-operation history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
