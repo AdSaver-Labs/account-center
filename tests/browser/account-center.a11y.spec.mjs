@@ -279,6 +279,16 @@ gate("explains active, saved, and hidden accounts before offering local Hide or 
   await expect(accounts).toContainText("It stays connected locally; routing changes remain capability-gated.");
 });
 
+gate("names the exact selected scope protected by local Hide and Restore", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByLabel("Runtime & scope").selectOption("openclaw|default");
+  await expect(panel.page.getByRole("status")).toContainText("Observed scoped runtime data refreshed.");
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const visibility = accountsPanel(panel).locator("#account-visibility-state");
+  await expect(visibility).toContainText("Changes stay in Openclaw / default. Other runtimes and scopes are unchanged.");
+});
+
 gate("hides then restores a fixture account without requesting credential deletion", async ({ panel }) => {
   await open(panel);
   await connect(panel);
