@@ -204,6 +204,26 @@ gate("keeps the selected Active fixture account Active when a Saved account is h
   await expect(accounts.locator(".record strong").filter({ hasText: / · Active$/ })).toHaveCount(1);
 });
 
+gate("restores a selected-scope Hidden Saved account to Saved while the Active account stays Active", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  const scope = panel.page.getByLabel("Runtime & scope");
+  await scope.selectOption("openclaw|default");
+  await expect(panel.page.getByRole("status")).toContainText("Observed scoped runtime data refreshed.");
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const accounts = accountsPanel(panel).locator("#account-visibility-state");
+  const saved = accounts.locator(".record").filter({ hasText: "account-2 · Saved" });
+
+  await saved.getByRole("button", { name: "Hide account locally; credentials stay connected" }).click();
+  await expect(accounts.locator(".record strong")).toContainText(["account-1 · Active", "account-2 · Hidden"]);
+
+  await accounts.getByRole("button", { name: "Restore account to everyday lists" }).click();
+  await expect(scope).toHaveValue("openclaw|default");
+  await expect(accounts.locator(".record strong")).toContainText(["account-1 · Active", "account-2 · Saved"]);
+  await expect(accounts.locator(".record strong").filter({ hasText: / · Active$/ })).toHaveCount(1);
+  await expect(accounts.locator(".record strong").filter({ hasText: / · Saved$/ })).toHaveCount(3);
+});
+
 gate("explains active, saved, and hidden accounts before offering local Hide or Restore", async ({ panel }) => {
   await open(panel);
   await connect(panel);
