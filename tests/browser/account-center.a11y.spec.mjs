@@ -148,10 +148,10 @@ gate("explains active, saved, and hidden accounts before offering local Hide or 
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const accounts = accountsPanel(panel);
-  await expect(accounts).toContainText("Active — used by the selected route now.");
-  await expect(accounts).toContainText("Saved — available locally, but not used by this route");
-  await expect(accounts).toContainText("Hidden — out of everyday lists only; it stays connected locally and can be restored.");
-  await expect(accounts).toContainText("Restore puts it back in everyday lists; it does not change routing or delete credentials.");
+  await expect(accounts).toContainText("Active — selected for use now.");
+  await expect(accounts).toContainText("Saved — available, but not selected now.");
+  await expect(accounts).toContainText("Hidden — out of everyday lists, but still available.");
+  await expect(accounts).toContainText("Hide removes an account from everyday lists. Restore shows it there again.");
   await expect(accounts.getByRole("button", { name: "Hide account locally; credentials stay connected and routing stays unchanged", exact: true }).first()).toBeVisible();
   await accounts.getByRole("button", { name: "Hide account locally; credentials stay connected" }).first().click();
   await expect(accounts.getByRole("button", { name: "Restore account to everyday lists; routing and credentials stay unchanged" })).toHaveCount(1);
