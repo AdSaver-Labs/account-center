@@ -978,6 +978,45 @@ gate("renders the verified label only for a fully matching scoped account lease"
   await expect(connections).not.toContainText("Agent connection inventory unavailable");
 });
 
+gate("fails closed when a scoped account lease includes an unexpected property", async ({ panel }) => {
+  await panel.page.route("**/api/agent-connections", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.agent-connections.v1",
+        generatedAt: "2026-08-10T00:00:00.000Z",
+        inventory: [{
+          connectionRef: "connection-4e2ad5d32de1db5932cf9708",
+          runtime: "hermes",
+          state: "connected",
+          onboarding: { action: "connect-local-adapter" },
+          accounts: [{
+            accountRef: "account-1",
+            state: "usable",
+            pairing: "paired-verified",
+            weeklyRemainingPct: 68,
+            routeState: "selected",
+            lease: {
+              schemaVersion: "account-center.scoped-account-lease.v1",
+              leaseRef: "lease-connection-4e2ad5d32de1db5932cf9708-account-1",
+              connectionRef: "connection-4e2ad5d32de1db5932cf9708",
+              accountRef: "account-1",
+              runtime: "hermes",
+              state: "verified",
+              unexpected: true
+            }
+          }]
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  const connections = panel.page.locator("#agent-connection-state");
+  await expect(connections).toContainText("Agent connection inventory unavailable");
+  await expect(connections).not.toContainText("scoped lease verified");
+});
+
 gate("renders malformed protected-operation history as UNPROVEN instead of a claimed outcome", async ({ panel }) => {
   await panel.page.route("**/api/mutation-operations?runtime=hermes&scopeKind=default", async (route) => {
     await route.fulfill({
