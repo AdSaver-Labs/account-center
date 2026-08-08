@@ -301,6 +301,20 @@ gate("hides then restores a fixture account without requesting credential deleti
   const initialTitle = await row.locator("strong").textContent();
   const accountRef = initialTitle?.split(" · ")[0];
   expect(accountRef).toMatch(/^account-[1-9][0-9]*$/);
+  // Hide and Restore are local preference changes only. Record every mutation
+  // request after the workspace is loaded so this flow cannot quietly grow a
+  // route or credential side effect alongside the selected account change.
+  const mutationTargets = [];
+  panel.page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    const url = new URL(request.url());
+    mutationTargets.push({
+      origin: url.origin,
+      path: url.pathname,
+      runtime: url.searchParams.get("runtime"),
+      scope: url.searchParams.get("scope")
+    });
+  });
 
   const hiddenResponse = panel.page.waitForResponse((response) =>
     new URL(response.url()).pathname === "/api/account-ui-preferences" && response.request().method() === "POST"
@@ -320,6 +334,10 @@ gate("hides then restores a fixture account without requesting credential deleti
   await expect(homePanel(panel).locator("#accounts")).toContainText(accountRef || "");
   await expect(panel.page.locator("#notice")).toContainText("Account restored locally to everyday lists. Credentials and runtime state were preserved; routing was not changed.");
   await expect(panel.page.locator("#notice")).not.toContainText("UNPROVEN");
+  expect(mutationTargets).toEqual([
+    { origin: new URL(panel.baseURL).origin, path: "/api/account-ui-preferences", runtime: "hermes", scope: "default" },
+    { origin: new URL(panel.baseURL).origin, path: "/api/account-ui-preferences", runtime: "hermes", scope: "default" }
+  ]);
 });
 
 gate("explains when some verified accounts are hidden only from everyday lists", async ({ panel }) => {
