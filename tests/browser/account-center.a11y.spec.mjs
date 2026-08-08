@@ -186,7 +186,7 @@ gate("hides then restores a fixture account without requesting credential deleti
   expect((await restoredResponse).request().postDataJSON()).toEqual({ accountRef, state: "active" });
   await expect(accounts.locator("#account-visibility-state")).toContainText(initialTitle || "");
   await expect(homePanel(panel).locator("#accounts")).toContainText(accountRef || "");
-  await expect(panel.page.locator("#notice")).toContainText("Account restored to everyday lists. Credentials and runtime state were preserved. Some other workspace evidence is UNPROVEN.");
+  await expect(panel.page.locator("#notice")).toContainText("Account restored to everyday lists. Credentials and runtime state were preserved; routing was not changed. Some other workspace evidence is UNPROVEN.");
 });
 
 gate("explains when some verified accounts are hidden only from everyday lists", async ({ panel }) => {
