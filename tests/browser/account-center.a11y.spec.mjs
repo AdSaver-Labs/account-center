@@ -265,7 +265,8 @@ gate("keeps an unavailable account inventory UNPROVEN without Restore guidance",
   await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
+  await expect(visibility).toContainText("No account was hidden or removed.");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -286,7 +287,7 @@ gate("keeps malformed hidden account preferences UNPROVEN without Hide or Restor
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -307,7 +308,7 @@ gate("keeps duplicate hidden account preferences UNPROVEN without Hide or Restor
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -328,7 +329,7 @@ gate("keeps a malformed selected-scope account inventory UNPROVEN without Hide o
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -352,7 +353,7 @@ gate("keeps duplicate selected-scope account references UNPROVEN without Hide or
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -380,7 +381,7 @@ gate("keeps an array-shaped selected-scope inventory with a malformed account UN
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -408,7 +409,7 @@ gate("keeps a malformed nested weekly window UNPROVEN without Hide or Restore co
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -436,7 +437,7 @@ gate("keeps an out-of-range nested weekly percentage UNPROVEN without Hide or Re
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -464,7 +465,7 @@ gate("keeps a negative nested weekly percentage UNPROVEN without Hide or Restore
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -492,7 +493,7 @@ gate("keeps a weekly window with an unrecognized property UNPROVEN without Hide 
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -523,7 +524,7 @@ gate("keeps otherwise valid accounts with duplicate weekly window names UNPROVEN
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -554,7 +555,7 @@ gate("keeps otherwise valid accounts with duplicate weekly window reset timestam
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -582,7 +583,7 @@ gate("keeps a non-canonical weekly window reset timestamp UNPROVEN without Hide 
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -610,7 +611,7 @@ gate("keeps a non-canonical selected-scope generated-at timestamp UNPROVEN witho
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -639,7 +640,7 @@ gate("keeps an account with an unrecognized property UNPROVEN without Hide or Re
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -668,7 +669,7 @@ gate("keeps a limits response with an unrecognized root property UNPROVEN withou
   await connect(panel);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
@@ -710,7 +711,7 @@ gate("keeps malformed local visibility preferences UNPROVEN without Restore guid
   await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.locator(".record:not(.state)")).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
@@ -741,7 +742,7 @@ gate("keeps otherwise valid local visibility preferences with an unrecognized ro
   await expect(home.getByRole("button", { name: "Restore account to everyday lists" })).toHaveCount(0);
   await panel.page.getByRole("tab", { name: "Accounts" }).click();
   const visibility = accountsPanel(panel).locator("#account-visibility-state");
-  await expect(visibility).toContainText("Account visibility is UNPROVEN");
+  await expect(visibility).toContainText("Account visibility could not be verified");
   await expect(visibility).not.toContainText(/account-[1-9][0-9]* · (Active|Saved|Hidden)/);
   await expect(visibility.locator(".record:not(.state)")).toHaveCount(0);
   await expect(visibility.getByRole("button", { name: "Hide account locally; credentials stay connected" })).toHaveCount(0);
