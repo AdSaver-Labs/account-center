@@ -902,6 +902,32 @@ gate("keeps a non-canonical agent-connection inventory timestamp UNPROVEN withou
   await expect(connections).not.toContainText("hermes / default");
 });
 
+gate("fails closed when an otherwise valid agent-connection record includes an unexpected property", async ({ panel }) => {
+  await panel.page.route("**/api/agent-connections", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "account-center.agent-connections.v1",
+        generatedAt: "2026-08-10T00:00:00.000Z",
+        inventory: [{
+          connectionRef: "connection-4e2ad5d32de1db5932cf9708",
+          runtime: "hermes",
+          state: "connected",
+          onboarding: { action: "connect-local-adapter" },
+          accounts: [],
+          unexpected: true
+        }]
+      })
+    });
+  });
+  await open(panel);
+  await connect(panel);
+  const connections = panel.page.locator("#agent-connection-state");
+  await expect(connections).toContainText("Agent connection inventory unavailable");
+  await expect(connections).toContainText("could not be verified");
+  await expect(connections).not.toContainText("hermes · connected");
+});
+
 gate("keeps a malformed scoped account lease UNPROVEN instead of claiming it verified", async ({ panel }) => {
   await panel.page.route("**/api/agent-connections", async (route) => {
     await route.fulfill({
