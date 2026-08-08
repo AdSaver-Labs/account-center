@@ -143,6 +143,18 @@ gate("renders accounts/routing and settings as truthful protected states", async
   await expect(settings).toContainText(/blocked/i);
 });
 
+gate("labels the selected fixture account Active while non-selected accounts remain Saved", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByLabel("Runtime & scope").selectOption("openclaw|default");
+  await expect(panel.page.getByRole("status")).toContainText("Observed scoped runtime data refreshed.");
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const accounts = accountsPanel(panel).locator("#account-visibility-state");
+  await expect(accounts.locator(".record strong")).toContainText(["account-1 · Active", "account-2 · Saved"]);
+  await expect(accounts.locator(".record strong").filter({ hasText: / · Active$/ })).toHaveCount(1);
+  await expect(accounts.locator(".record strong").filter({ hasText: / · Saved$/ })).toHaveCount(3);
+});
+
 gate("explains active, saved, and hidden accounts before offering local Hide or Restore", async ({ panel }) => {
   await open(panel);
   await connect(panel);
