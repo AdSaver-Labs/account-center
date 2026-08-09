@@ -165,6 +165,19 @@ gate("keeps More connection and sign-in help easy to scan on a narrow screen", a
   await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
 });
 
+gate("uses plain-language, fail-closed Guided auth status details", async ({ panel }) => {
+  await open(panel);
+  await openMore(panel);
+  const guided = panel.page.locator("#guided-view");
+  await expect(guided.locator("#guided-freshness")).toHaveText("Status unavailable");
+  await expect(guided.locator("#guided-freshness")).toHaveAttribute("aria-describedby", "guided-freshness-detail");
+  await expect(guided.locator("#guided-freshness-detail")).toContainText("No sign-in result is shown");
+  await connect(panel);
+  await expect(guided.locator("#guided-freshness")).toHaveText("Records checked");
+  await expect(guided.locator("#guided-freshness-detail")).toContainText("does not confirm that sign-in was completed");
+  await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
+});
+
 gate("names the selected scope for Home accounts without claiming an active route", async ({ panel }) => {
   await open(panel);
   await connect(panel);
