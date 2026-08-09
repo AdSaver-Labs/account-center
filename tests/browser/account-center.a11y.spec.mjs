@@ -201,6 +201,26 @@ gate("uses plain-language, fail-closed audit and operation snapshot details", as
   await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
 });
 
+gate("uses plain-language, fail-closed model-policy evidence details", async ({ panel }) => {
+  await open(panel);
+  await openMore(panel);
+  await openAdvancedDiagnostics(panel);
+  const models = panel.page.locator("#models-fallbacks-view");
+  await expect(models.locator("#models-fallbacks-badge")).toHaveText("Status unavailable");
+  await expect(models.locator("#models-fallbacks-badge")).toHaveAttribute("aria-describedby", "models-fallbacks-detail");
+  await expect(models.locator("#models-fallbacks-detail")).toContainText("No model setting or fallback is shown as current");
+  await connect(panel);
+  await expect(models.locator("#models-fallbacks-badge")).toHaveText("Read-only evidence");
+  await expect(models.locator("#models-fallbacks-detail")).toContainText("does not show a currently applied model setting or enable changes");
+  await expect(models).not.toContainText("UNPROVEN");
+  await panel.page.route("**/api/models?runtime=hermes&scope=default", async (route) => route.abort());
+  await panel.page.getByRole("button", { name: "Refresh status" }).click();
+  await expect(models.locator("#models-fallbacks-badge")).toHaveText("Status unavailable");
+  await expect(models).toContainText("No model is shown as selectable");
+  await expect(models).not.toContainText("UNPROVEN");
+  await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
+});
+
 gate("names the selected scope for Home accounts without claiming an active route", async ({ panel }) => {
   await open(panel);
   await connect(panel);
