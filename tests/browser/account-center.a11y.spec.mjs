@@ -128,6 +128,18 @@ gate("uses a calm Home, Accounts, and More navigation model", async ({ panel }) 
   await expect(morePanel(panel)).toContainText("Advanced");
 });
 
+gate("names the selected scope for Home accounts without claiming an active route", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  const homeScope = homePanel(panel).locator("#home-account-scope");
+  await expect(homeScope).toHaveText("Showing the verified account inventory for hermes / default. This list does not identify an active route.");
+
+  await panel.page.getByLabel("Runtime & scope").selectOption("openclaw|default");
+  await expect(panel.page.getByRole("status")).toContainText("Observed scoped runtime data refreshed.");
+  await expect(homeScope).toHaveText("Showing the verified account inventory for openclaw / default. This list does not identify an active route.");
+  await expect(homeScope).not.toContainText("Active:");
+});
+
 gate("renders accounts/routing and settings as truthful protected states", async ({ panel }) => {
   await open(panel);
   await connect(panel);
