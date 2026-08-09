@@ -65,7 +65,7 @@ async function open(panel) {
 async function connect(panel) {
   await panel.page.getByLabel("Launch token").fill(panel.token);
   await panel.page.getByRole("button", { name: "Refresh status" }).click();
-  await expect(panel.page.getByRole("status")).toContainText("workspace refreshed", { ignoreCase: true });
+  await expect(panel.page.locator("#notice")).toContainText("workspace refreshed", { ignoreCase: true });
 }
 
 async function openMore(panel) {
@@ -175,6 +175,29 @@ gate("uses plain-language, fail-closed Guided auth status details", async ({ pan
   await connect(panel);
   await expect(guided.locator("#guided-freshness")).toHaveText("Records checked");
   await expect(guided.locator("#guided-freshness-detail")).toContainText("does not confirm that sign-in was completed");
+  await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
+});
+
+gate("uses plain-language, fail-closed audit and operation snapshot details", async ({ panel }) => {
+  await open(panel);
+  await openMore(panel);
+  await openAdvancedDiagnostics(panel);
+  const audit = panel.page.locator("#audit-view");
+  const operations = audit.locator(".panel").filter({ has: panel.page.locator("#operation-freshness") });
+  await expect(audit.locator("#audit-freshness")).toHaveText("Status unavailable");
+  await expect(audit.locator("#audit-freshness")).toHaveAttribute("aria-describedby", "audit-freshness-detail");
+  await expect(audit.locator("#audit-freshness-detail")).toContainText("Previously loaded evidence is not shown as current");
+  await expect(operations.locator("#operation-freshness")).toHaveText("Status unavailable");
+  await expect(operations.locator("#operation-freshness")).toHaveAttribute("aria-describedby", "operation-freshness-detail");
+  await expect(operations.locator("#operation-freshness-detail")).toContainText("Previously loaded evidence is not shown as current");
+  await connect(panel);
+  await expect(audit.locator("#audit-freshness")).toHaveText("Records checked");
+  await expect(operations.locator("#operation-freshness")).toHaveText("Records checked");
+  await panel.page.getByLabel("Launch token").fill("invalid-fixture-token");
+  await audit.getByRole("button", { name: "Filter audit history" }).click();
+  await expect(audit.locator("#audit-freshness")).toHaveText("Status unavailable");
+  await operations.getByRole("button", { name: "Filter operation history" }).click();
+  await expect(operations.locator("#operation-freshness")).toHaveText("Status unavailable");
   await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
 });
 
