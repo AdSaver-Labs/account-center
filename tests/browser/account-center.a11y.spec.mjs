@@ -149,6 +149,22 @@ gate("keeps technical diagnostics behind an explicit Advanced disclosure", async
   await expect(advanced.locator("#audit-view")).toBeVisible();
 });
 
+gate("keeps More connection and sign-in help easy to scan on a narrow screen", async ({ panel }) => {
+  await panel.page.setViewportSize({ width: 320, height: 720 });
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const more = morePanel(panel);
+  const help = more.getByLabel("Everyday settings help");
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Local connection");
+  await expect(help).toContainText("Need to sign in?");
+  await expect(help.locator("article")).toHaveCount(2);
+  await expect(more.locator("#advanced-diagnostics")).not.toHaveAttribute("open", "");
+  await expect.poll(() => panel.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
+});
+
 gate("names the selected scope for Home accounts without claiming an active route", async ({ panel }) => {
   await open(panel);
   await connect(panel);

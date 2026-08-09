@@ -21,6 +21,9 @@ test("local control panel serves a calm accessible shell without weakening safet
     assert.match(html, /Visible accounts/);
     assert.doesNotMatch(html, /<h2>Model policy<\/h2>/);
     assert.match(html, /<h2>Settings<\/h2>/);
+    assert.match(html, /aria-label="Everyday settings help"/);
+    assert.match(html, /<h2>Local connection<\/h2>/);
+    assert.match(html, /<h2>Need to sign in\?<\/h2>/);
     assert.match(html, />Advanced</);
     assert.match(html, /Hidden locally only\. It can be restored to everyday lists; the connected credential and runtime state are preserved\./);
     assert.match(html, /Hide account locally; credentials stay connected/);
