@@ -140,6 +140,16 @@ gate("names the selected scope for Home accounts without claiming an active rout
   await expect(homeScope).not.toContainText("Active:");
 });
 
+gate("takes an attention-item guided-auth link to the accessible More section", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await homePanel(panel).getByRole("button", { name: "View guided auth" }).click();
+  await expect(panel.page.getByRole("tab", { name: "More" })).toHaveAttribute("aria-selected", "true");
+  await expect(morePanel(panel)).toBeVisible();
+  await expect(panel.page.locator("#guided-view")).toBeFocused();
+  await expect(panel.page.locator("#guided-view")).toContainText("Guided auth");
+});
+
 gate("renders accounts/routing and settings as truthful protected states", async ({ panel }) => {
   await open(panel);
   await connect(panel);
