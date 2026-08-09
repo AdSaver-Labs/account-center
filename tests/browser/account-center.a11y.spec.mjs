@@ -72,6 +72,11 @@ async function openMore(panel) {
   await panel.page.getByRole("tab", { name: "More" }).click();
 }
 
+async function openAdvancedDiagnostics(panel) {
+  const advanced = morePanel(panel).locator("#advanced-diagnostics");
+  if (!(await advanced.getAttribute("open"))) await advanced.locator("summary").click();
+}
+
 function homePanel(panel) { return panel.page.locator("#home-view"); }
 function accountsPanel(panel) { return panel.page.locator("#accounts-view"); }
 function morePanel(panel) { return panel.page.locator("#more-view"); }
@@ -126,6 +131,22 @@ gate("uses a calm Home, Accounts, and More navigation model", async ({ panel }) 
   await panel.page.getByRole("tab", { name: "More" }).click();
   await expect(morePanel(panel)).toContainText("Settings");
   await expect(morePanel(panel)).toContainText("Advanced");
+});
+
+gate("keeps technical diagnostics behind an explicit Advanced disclosure", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  await openMore(panel);
+  const advanced = morePanel(panel).locator("#advanced-diagnostics");
+  await expect(advanced).not.toHaveAttribute("open", "");
+  await expect(advanced.locator("#catalogs-view")).toBeHidden();
+  await expect(advanced.locator("#models-fallbacks-view")).toBeHidden();
+  await expect(advanced.locator("#audit-view")).toBeHidden();
+  await expect(advanced.locator("#settings-view")).toBeHidden();
+  await advanced.locator("summary").click();
+  await expect(advanced).toHaveAttribute("open", "");
+  await expect(advanced.locator("#catalogs-view")).toBeVisible();
+  await expect(advanced.locator("#audit-view")).toBeVisible();
 });
 
 gate("names the selected scope for Home accounts without claiming an active route", async ({ panel }) => {
@@ -2070,6 +2091,7 @@ gate("loads a redacted protected-operation detail through the bearer-protected A
   await open(panel);
   await connect(panel);
   await openMore(panel);
+  await openAdvancedDiagnostics(panel);
   const audit = morePanel(panel);
   await audit.getByRole("button", { name: "View protected operation details" }).click();
   const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
@@ -2083,6 +2105,7 @@ gate("clears protected-operation detail when the selected runtime context change
   await open(panel);
   await connect(panel);
   await openMore(panel);
+  await openAdvancedDiagnostics(panel);
   const audit = morePanel(panel);
   await audit.getByRole("button", { name: "View protected operation details" }).click();
   const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
@@ -2111,6 +2134,7 @@ gate("clears protected-operation detail before replacing its filtered history", 
   await open(panel);
   await connect(panel);
   await openMore(panel);
+  await openAdvancedDiagnostics(panel);
   const audit = morePanel(panel);
   await audit.getByRole("button", { name: "View protected operation details" }).click();
   const detail = panel.page.getByRole("region", { name: "Protected operation detail" });
