@@ -430,6 +430,85 @@ test("protected routes reject unsupported queries before durable stores or runti
   }
 });
 
+test("protected collection query matrix rejects duplicate and unknown selectors before collaborators", async () => {
+  // Collection handlers own their bounded query grammars. Keep those parsers at
+  // the same protected boundary as exact-route query rejection: none may reach
+  // status discovery or a local store when a selector is ambiguous or unknown.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("invalid_collection_query_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    const hostile = "private@example.test";
+    const paths: Array<[string, string]> = [
+      ["/api/models?runtime=hermes&runtime=openclaw", "invalid_query"],
+      ["/api/limits?scope=default", "invalid_query"],
+      ["/api/account-ui-preferences?runtime=hermes&scope=default&scope=default", "invalid_runtime_scope"],
+      ["/api/audit?runtime=hermes&runtime=openclaw", "invalid_query"],
+      ["/api/mutation-operations?scopeKind=default", "invalid_query"],
+      ["/api/auth-challenges?runtime=hermes&runtime=openclaw", "invalid_query"],
+      [`/api/models?probe=${encodeURIComponent(hostile)}`, "invalid_query"],
+      [`/api/limits?probe=${encodeURIComponent(hostile)}`, "invalid_query"],
+      [`/api/account-ui-preferences?probe=${encodeURIComponent(hostile)}`, "invalid_runtime_scope"],
+      [`/api/audit?probe=${encodeURIComponent(hostile)}`, "invalid_query"],
+      [`/api/mutation-operations?probe=${encodeURIComponent(hostile)}`, "invalid_query"],
+      [`/api/auth-challenges?probe=${encodeURIComponent(hostile)}`, "invalid_query"]
+    ];
+    for (const [path, error] of paths) {
+      const rejected = await request(address.port, path, "test-token");
+      const body = await rejected.json();
+      assert.equal(rejected.status, 400, path);
+      assert.deepEqual(body, { error }, path);
+      assert.equal(rejected.headers.get("cache-control"), "no-store", path);
+      assert.equal(JSON.stringify(body).includes(hostile), false, path);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected GET matrix rejects request bodies before status or durable collaborators", async () => {
+  // Every readable protected endpoint has one body-free representation. Prove a
+  // body cannot select a weaker handler, including canonical collection/detail
+  // URLs whose query parsing normally precedes runtime or durable access.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("read_body_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    for (const path of [
+      "/api/capabilities", "/api/status", "/api/scopes", "/api/agent-connections",
+      "/api/models?runtime=hermes&scope=default", "/api/limits?runtime=hermes&scope=default",
+      "/api/account-ui-preferences?runtime=hermes&scope=default", "/api/audit?runtime=hermes&scopeKind=default",
+      "/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=hermes&scopeKind=default",
+      "/api/mutation-operations?runtime=hermes&scopeKind=default",
+      "/api/mutation-operations/op_test?runtime=hermes&scopeKind=default",
+      "/api/auth-challenges?runtime=hermes&scope=default",
+      "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000"
+    ]) {
+      const rejected = await bodyRequest(address.port, path, "test-token", "GET", "private@example.test");
+      assert.equal(rejected.status, 413, path);
+      assert.deepEqual(rejected.body, { error: "request_body_not_allowed" }, path);
+      assert.equal(rejected.headers["cache-control"], "no-store", path);
+      assert.equal(JSON.stringify(rejected.body).includes("private@example.test"), false, path);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("read-only model catalog is bearer-protected, versioned, and reflects disabled policy without profile metadata", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
