@@ -41,7 +41,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 400, { error: "invalid_query" });
     }
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
-      if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
+      if (!sameOrigin(request, listenerOrigin)) {
+        request.resume();
+        return send(response, 403, { error: "origin_forbidden" });
+      }
       // Creation is a durable lifecycle mutation. Fail closed before accepting
       // input or discovering a runtime so a missing store cannot expose source
       // behavior or be mistaken for an actionable auth state.
@@ -110,13 +113,19 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!inventory?.accounts?.some((account) => account.accountRef === body.accountRef)) return send(response, 400, { error: "unknown_account_ref" });
       return send(response, 200, await options.accountUiPreferencesStore.setAccountState(scopeKey, body.accountRef, body.state));
     }
-    if (hasRequestBody(request)) {
-      request.resume();
-      return send(response, 413, { error: "request_body_not_allowed" });
-    }
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
-      if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
+      // Prove the browser request's listener-bound origin before considering
+      // any representation. This keeps a cross-origin body from selecting a
+      // different failure branch and drains it without parsing or durable work.
+      if (!sameOrigin(request, listenerOrigin)) {
+        request.resume();
+        return send(response, 403, { error: "origin_forbidden" });
+      }
+      if (hasRequestBody(request)) {
+        request.resume();
+        return send(response, 413, { error: "request_body_not_allowed" });
+      }
       // Cancellation is a durable lifecycle mutation. Refuse unavailable
       // dependencies before status discovery so a missing store cannot be
       // misrepresented as a missing record or expose runtime behavior.
@@ -130,6 +139,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (cancellation.kind === "not_found") return send(response, 404, { error: "not_found" });
       if (cancellation.kind !== "cancelled" && cancellation.kind !== "unchanged") return send(response, 500, { error: "internal_error" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(cancellation.challenge) });
+    }
+    if (hasRequestBody(request)) {
+      request.resume();
+      return send(response, 413, { error: "request_body_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore), Boolean(options.mutationRepository)));

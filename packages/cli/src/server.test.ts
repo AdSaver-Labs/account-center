@@ -176,6 +176,44 @@ test("protected API rejects bearer near-misses and unsafe mutation representatio
   }
 });
 
+test("guided-auth writes reject bearer, listener-origin, and body attacks before every collaborator", async () => {
+  // The start and cancel endpoints are the only protected writes. Each
+  // collaborator throws on access, so every fixed rejection here proves that
+  // hostile requests cannot reach status discovery, challenge/audit state, or
+  // lifecycle execution. Cancel also pins origin precedence over body shape.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("rejected_guided_auth_write_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const hostile = "private@example.test";
+  const startBody = JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: hostile });
+  const cancelPath = "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel";
+  try {
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { origin, contentType: "application/json", body: startBody }), 401, "unauthorized", hostile);
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", contentType: "application/json", body: startBody }), 403, "origin_forbidden", hostile);
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body: startBody }), 403, "origin_forbidden", hostile);
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "text/plain", body: hostile }), 415, "json_content_type_required", hostile);
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "application/json", body: `{\"target\":\"${"x".repeat(4_100)}\"}` }), 413, "request_body_too_large", hostile);
+
+    const cancel = (token: string | undefined, requestOrigin: string | undefined, body?: string) => fetch(`http://127.0.0.1:${address.port}${cancelPath}`, {
+      method: "POST",
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(requestOrigin ? { origin: requestOrigin } : {}), ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body } : {})
+    });
+    await assertHardenedJsonError(await cancel(undefined, origin, hostile), 401, "unauthorized", hostile);
+    await assertHardenedJsonError(await cancel("test-token", undefined, hostile), 403, "origin_forbidden", hostile);
+    await assertHardenedJsonError(await cancel("test-token", "https://attacker.invalid", hostile), 403, "origin_forbidden", hostile);
+    await assertHardenedJsonError(await cancel("test-token", origin, hostile), 413, "request_body_not_allowed", hostile);
+  } finally {
+    await app.close();
+  }
+});
+
 test("protected response failures share hardened headers and preference reads reject bodies before store access", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-response-contract-"));
   const suppliedText = "private@example.test";
