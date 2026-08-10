@@ -1074,6 +1074,42 @@ gate("confirms guided-auth cancellation and restores focus when cancellation is 
   await expect(morePanel(panel)).toContainText(/cancelled/i);
 });
 
+gate("fails closed on ambiguous or incomplete guided-auth cancellation capability declarations", async ({ panel }) => {
+  let alterCapabilities;
+  const cancellationPosts = [];
+  panel.page.on("request", (request) => {
+    if (request.method() === "POST" && /\/api\/auth-challenges\/auth_[a-f0-9-]{36}\/cancel$/.test(new URL(request.url()).pathname)) cancellationPosts.push(request.url());
+  });
+  await panel.page.route("**/api/capabilities", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (alterCapabilities) alterCapabilities(body);
+    await route.fulfill({ response, json: body });
+  });
+  const cancellation = (body) => body.actions.find((action) => action.id === "auth_challenges.cancel");
+  const cases = [
+    ["missing", (body) => { body.actions = body.actions.filter((action) => action.id !== "auth_challenges.cancel"); }],
+    ["duplicate", (body) => { body.actions.push({ ...cancellation(body) }); }],
+    ["conflicting duplicate", (body) => { body.actions.push({ ...cancellation(body), endpoint: { ...cancellation(body).endpoint, path: "/api/wrong" } }); }],
+    ["extra key", (body) => { cancellation(body).unexpected = true; }],
+    ["wrong method", (body) => { cancellation(body).endpoint.method = "GET"; }],
+    ["wrong endpoint", (body) => { cancellation(body).endpoint.path = "/api/auth-challenges/:id"; }],
+    ["wrong requirements", (body) => { cancellation(body).requires = [...cancellation(body).requires].reverse(); }],
+    ["incomplete requirements", (body) => { cancellation(body).requires = ["bearer_token"]; }],
+    ["blocked", (body) => { cancellation(body).state = "blocked"; cancellation(body).reason = "unavailable"; }]
+  ];
+  for (const [label, alter] of cases) {
+    alterCapabilities = alter;
+    await open(panel);
+    await connect(panel);
+    await openMore(panel);
+    const guided = morePanel(panel);
+    await expect(guided, label).toContainText("Cancellation is UNPROVEN: protected capability discovery is unavailable.");
+    await expect(guided.getByRole("button", { name: "Cancel pending challenge" }), label).toHaveCount(0);
+  }
+  expect(cancellationPosts).toEqual([]);
+});
+
 gate("renders malformed guided-auth inventory evidence as UNPROVEN instead of current lifecycle state", async ({ panel }) => {
   await panel.page.route("**/api/auth-challenges?runtime=hermes&scope=default", async (route) => {
     await route.fulfill({
