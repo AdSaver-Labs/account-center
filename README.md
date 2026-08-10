@@ -51,7 +51,7 @@ It should work with **any agent runtime**, not just Hermes or OpenClaw, by expos
 ## MVP CLI
 
 ```bash
-npm install
+npm ci
 npm test
 npm run typecheck
 npm run build
@@ -74,7 +74,40 @@ The CLI uses `tests/fixtures/status.fixture.json` by default and writes token-fr
 
 ## Local control panel
 
-After building, launch the local control panel on an ephemeral **loopback-only** port against the existing redacted OpenClaw/Sentinel status:
+### Supported clean Node 24 install, launch, and status check
+
+Use this release path on a fresh checkout with **Node 24** and its bundled npm. It deliberately uses the fixture source, an owner-only temporary token file, and temporary local panel state. It does not read live credentials or runtime configuration, route an account, change a model, start login, or delete anything.
+
+```bash
+npm ci
+npm run build
+umask 077
+token_file="$(node scripts/create-launch-token-file.mjs)"
+state_dir="$(mktemp -d -t account-center-panel-state.XXXXXX)"
+ACCOUNT_CENTER_DATA_DIR="$state_dir" node packages/cli/dist/index.js serve --port 0 --source fixture --token-file "$token_file"
+```
+
+The last command prints its exact `http://127.0.0.1:<port>/` address. Open that address only on this computer, then enter the token from the owner-only `$token_file` into the page. In a second terminal, the protected fixture status check is:
+
+```bash
+ACCOUNT_CENTER_LAUNCH_TOKEN="$(<"$token_file")"
+curl --fail --silent --show-error \
+  -H "Authorization: Bearer $ACCOUNT_CENTER_LAUNCH_TOKEN" \
+  http://127.0.0.1:<port>/api/status
+```
+
+Stop the panel with `Ctrl+C`, then clean up both temporary locations:
+
+```bash
+rm -rf "$state_dir" "$(dirname "$token_file")"
+unset ACCOUNT_CENTER_LAUNCH_TOKEN
+```
+
+`npm run verify:clean-install` independently proves this path from a clean temporary archive: it runs `npm ci` and the build, launches the fixture panel on an ephemeral loopback port, rejects missing and incorrect bearers, obtains redacted authenticated status, and removes all temporary state. The Node 24 quality-gates workflow runs that verification for every source change.
+
+### Runtime-connected panel (read-only status discovery)
+
+After building, launch the local control panel on an ephemeral **loopback-only** port against redacted OpenClaw/Sentinel status:
 
 ```bash
 umask 077
@@ -84,7 +117,7 @@ node packages/cli/dist/index.js serve --port 0 --source openclaw --token-file "$
 
 `--source openclaw` is read-only status discovery. It uses the configured OpenClaw workspace (or `ACCOUNT_CENTER_OPENCLAW_WORKSPACE`) and renders Hermes, OpenClaw, and Codex as connected, available, needs-auth, unavailable, or `UNPROVEN` only when the redacted status actually supports that state. For a safe local demo with no runtime reads, use `--source fixture` instead.
 
-The token-creation command actually prompts `Paste the launch token, then press Ctrl+D:` on standard error. Paste the token and press `Ctrl+D`; it accumulates standard input and, only at EOF, atomically creates one owner-only token file. Its standard output is only that file path (captured in `token_file`), never the token. The launcher prints the actual `127.0.0.1` URL, but never the token. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`, then remove the owner-only temporary directory with `rm -rf "$(dirname "$token_file")"`.
+The token-creation command generates a fresh token and atomically writes it to one owner-only file. Its standard output is only that file path (captured in `token_file`), never the token. The launcher prints the actual `127.0.0.1` URL, but never the token. Open the URL locally and enter the token into the page; it stays in page memory only. Do not put the token in a URL, shell history, issue, chat message, or redirected terminal log. Stop the panel with `Ctrl+C`, then remove the owner-only temporary directory with `rm -rf "$(dirname "$token_file")"`.
 
 The initial beta path is limited to protected status, limits, scopes, model catalog, local guided-auth challenge inventory/cancellation, and redacted audit/operation history. Routing, model changes, account deletion, and live guided-auth completion remain visibly blocked or `UNPROVEN` until their supported runtime contracts and proof gates exist.
 

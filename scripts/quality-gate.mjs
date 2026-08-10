@@ -6,6 +6,7 @@ const commands = [
   ["npm", ["test"]],
   ["npm", ["run", "typecheck"]],
   ["npm", ["run", "build"]],
+  ["npm", ["run", "verify:clean-install"]],
   ["npm", ["run", "test:a11y"]],
 ];
 

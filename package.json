@@ -16,6 +16,7 @@
     "test:hermes-plugin": "ACCOUNT_CENTER_ROOT=\"$PWD\" python3 -m unittest discover -s integrations/hermes-plugin -p 'test_*.py'",
     "test:owned-delete": "python3 -m unittest tests/test_owned_delete_transaction.py",
     "smoke:panel": "npm run build && node scripts/panel-smoke.mjs",
+    "verify:clean-install": "node scripts/clean-install-verify.mjs",
     "test:a11y": "npm run build && playwright test --config=playwright.a11y.config.mjs",
     "qa": "node scripts/quality-gate.mjs",
     "qa:security": "node scripts/quality-gate.mjs --security",
