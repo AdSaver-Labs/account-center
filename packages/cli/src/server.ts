@@ -58,6 +58,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       });
     }
     if (new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/account-ui-preferences") {
+      // Reject unsupported variants before parsing selected context, opening
+      // durable preferences, or discovering runtime state. This keeps method
+      // failures as bounded control-plane responses rather than source probes.
+      if (request.method !== "GET" && request.method !== "POST") {
+        response.setHeader("Allow", "GET, POST");
+        request.resume();
+        return send(response, 405, { error: "method_not_allowed" });
+      }
       // Preference reads are protected API reads, not a permissive exception to
       // the no-request-body contract. Reject before opening local state or
       // running status discovery so a body cannot create a weaker route variant.

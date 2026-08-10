@@ -212,6 +212,30 @@ test("protected response failures share hardened headers and preference reads re
   }
 });
 
+test("unsupported preference methods fail closed before local state or runtime discovery", async () => {
+  // An explicit invalid source makes accidental runtime discovery observable as
+  // a 500. The throwing store independently proves the 405 path opens neither
+  // durable preferences nor status before rejecting the method.
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    accountUiPreferencesStore: { view: async () => { throw new Error("preference_store_must_not_be_opened"); } } as unknown as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/account-ui-preferences?runtime=hermes&scope=default`, {
+      method: "DELETE",
+      headers: { authorization: "Bearer test-token" }
+    });
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get("allow"), "GET, POST");
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { error: "method_not_allowed" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("agent connection inventory is protected, redacted, and weekly-only", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
