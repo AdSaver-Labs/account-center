@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { executeAccountCenterCommand } from "./command-executor.js";
+import { executeAccountCenterCommand, executeGuidedAuthLifecycle } from "./command-executor.js";
 import { FixtureRuntimeAdapter } from "./runtime-adapters.js";
 import { createActiveScopeWarning, createMutationReview } from "./mutation-contract.js";
 import { MutationRepository } from "./mutation-repository.js";
+import { AuthChallengeStore } from "./auth-challenge-store.js";
+import { AuditStore } from "./audit-store.js";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -211,4 +213,21 @@ test("account delete requires the shared review/idempotency lifecycle and persis
   assert.equal(replay.mutation?.replayed, true);
   const persisted = await (await import("node:fs/promises")).readFile(join(root, "mutation-repository.v1.json"), "utf8");
   assert.doesNotMatch(persisted, /connected@example\.test|opaque-owned-delete/);
+});
+
+test("shared guided-auth lifecycle contract validates, redacts, and fails closed without runtime authority", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-shared-guided-auth-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const status = (await new FixtureRuntimeAdapter().readStatus());
+  const invalid = await executeGuidedAuthLifecycle({ command: "guided_auth.start", status, input: { mode: "add" } }, { challengeStore: challenges });
+  assert.deepEqual(invalid, { code: 400, kind: "invalid_request" });
+  const created = await executeGuidedAuthLifecycle({ command: "guided_auth.start", status, input: { mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: "private@example.test" } }, { challengeStore: challenges });
+  assert.equal(created.kind, "created");
+  const raw = await (await import("node:fs/promises")).readFile(join(root, "challenges.json"), "utf8");
+  assert.doesNotMatch(raw, /private@example\.test/);
+  const blocked = await executeGuidedAuthLifecycle({ command: "guided_auth.cancel", status, id: created.challenge.id }, { challengeStore: challenges });
+  assert.deepEqual(blocked, { code: 503, kind: "audit_unavailable" });
+  assert.equal((await challenges.getReadOnly(created.challenge.id))?.status, "pending");
+  const cancelled = await executeGuidedAuthLifecycle({ command: "guided_auth.cancel", status, id: created.challenge.id }, { challengeStore: challenges, auditStore: new AuditStore(join(root, "audit.json")) });
+  assert.equal(cancelled.kind, "cancelled");
 });

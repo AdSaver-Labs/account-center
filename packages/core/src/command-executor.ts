@@ -4,6 +4,11 @@ import type { RuntimeAdapter } from "./runtime-adapters.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { ActiveScopeWarning, createActiveScopeWarning, createMutationReview, MutationReview, MutationScope, verifyActiveScopeWarning, verifyMutationApply } from "./mutation-contract.js";
 import { MutationEvidence, MutationReceipt, MutationRepository, RouteScopeEvidence } from "./mutation-repository.js";
+import { AuditStore } from "./audit-store.js";
+import { AuthChallengeStore } from "./auth-challenge-store.js";
+import { AuthChallenge } from "./auth-challenges.js";
+import { isValidGuidedAuthStart } from "./guided-auth.js";
+import { executeGuidedAuthCancel, executeGuidedAuthStart } from "./guided-auth-lifecycle-executor.js";
 const mutationCapabilitySecret = randomBytes(32);
 const mutationCapabilityBrand = Symbol("account-center.executor-mutation-capability");
 type MutationCapabilityBinding = { action: AuditAction; target: string; provider: string; runtime: string; scope: MutationScope };
@@ -52,6 +57,30 @@ export interface CommandExecution {
   status?: AccountCenterStatus;
   guard?: { ok: boolean; reason: string; next?: string };
   mutation?: { applied: boolean; dryRun: boolean; liveRuntimeMutation?: boolean; receipt: AuditEvent; [key: string]: unknown };
+}
+
+/** Shared local lifecycle boundary for authenticated guided-auth POSTs. It has no runtime adapter, mutation capability, or terminal reauth authority. */
+export type GuidedAuthLifecycleRequest =
+  | { command: "guided_auth.start"; status: AccountCenterStatus; input: unknown }
+  | { command: "guided_auth.cancel"; status: AccountCenterStatus; id: string };
+export type GuidedAuthLifecycleExecution =
+  | { code: 201 | 200; kind: "created" | "reused"; challenge: AuthChallenge }
+  | { code: 200; kind: "cancelled" | "unchanged"; challenge: AuthChallenge }
+  | { code: 400; kind: "invalid_request" }
+  | { code: 404; kind: "not_found" }
+  | { code: 503; kind: "challenge_store_unavailable" | "audit_unavailable" };
+
+export async function executeGuidedAuthLifecycle(request: GuidedAuthLifecycleRequest, dependencies: { challengeStore?: AuthChallengeStore; auditStore?: AuditStore }): Promise<GuidedAuthLifecycleExecution> {
+  if (request.command === "guided_auth.start") {
+    if (!dependencies.challengeStore) return { code: 503, kind: "challenge_store_unavailable" };
+    if (!isValidGuidedAuthStart(request.status, request.input)) return { code: 400, kind: "invalid_request" };
+    const result = await executeGuidedAuthStart(request.input, { challengeStore: dependencies.challengeStore });
+    return { code: result.kind === "created" ? 201 : 200, ...result };
+  }
+  const result = await executeGuidedAuthCancel(request.id, dependencies);
+  if (result.kind === "audit_unavailable") return { code: 503, kind: result.kind };
+  if (result.kind === "not_found") return { code: 404, kind: result.kind };
+  return { code: 200, kind: result.kind, challenge: result.challenge! };
 }
 
 export async function executeAccountCenterCommand(request: CommandRequest, deps: { adapter: RuntimeAdapter; mutation?: { secret: string; repository: MutationRepository } }): Promise<CommandExecution> {

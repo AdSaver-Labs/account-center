@@ -1,6 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthCancel, executeGuidedAuthStart, honestOperationState, isValidGuidedAuthStart, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
 export interface AccountCenterServerOptions {
@@ -23,7 +23,6 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
-      if (!options.challengeStore) return send(response, 503, { error: "challenge_store_unavailable" });
       if (!isJsonContentType(request)) {
         request.resume();
         return send(response, 415, { error: "json_content_type_required" });
@@ -37,9 +36,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       }
       const adapter = createRuntimeAdapter(source as RuntimeSource);
       const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
-      if (!status || !isValidGuidedAuthStart(status, body)) return send(response, 400, { error: "invalid_guided_auth_request" });
-      const result = await executeGuidedAuthStart(body, { challengeStore: options.challengeStore });
-      return send(response, result.kind === "created" ? 201 : 200, {
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      const result = await executeGuidedAuthLifecycle({ command: "guided_auth.start", status, input: body }, { challengeStore: options.challengeStore });
+      if (result.kind === "challenge_store_unavailable") return send(response, 503, { error: result.kind });
+      if (result.kind === "invalid_request") return send(response, 400, { error: "invalid_guided_auth_request" });
+      if (result.kind !== "created" && result.kind !== "reused") return send(response, 500, { error: "internal_error" });
+      return send(response, result.code, {
         schemaVersion: "account-center.auth-challenge-start.v1",
         generatedAt: new Date().toISOString(),
         idempotent: result.kind === "reused",
@@ -73,9 +75,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
       if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
-      const cancellation = await executeGuidedAuthCancel(cancelId, { challengeStore: options.challengeStore, auditStore: options.auditStore });
+      const adapter = createRuntimeAdapter(source as RuntimeSource);
+      const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      const cancellation = await executeGuidedAuthLifecycle({ command: "guided_auth.cancel", status, id: cancelId }, { challengeStore: options.challengeStore, auditStore: options.auditStore });
       if (cancellation.kind === "audit_unavailable") return send(response, 503, { error: "audit_unavailable" });
-      if (cancellation.kind === "not_found" || !cancellation.challenge) return send(response, 404, { error: "not_found" });
+      if (cancellation.kind === "not_found") return send(response, 404, { error: "not_found" });
+      if (cancellation.kind !== "cancelled" && cancellation.kind !== "unchanged") return send(response, 500, { error: "internal_error" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(cancellation.challenge) });
     }
     const allowedMethods = endpointMethods(request.url);
