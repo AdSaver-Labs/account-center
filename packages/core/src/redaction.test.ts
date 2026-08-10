@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { redactJson, redactText } from "./redaction.js";
 
 test("redactText removes token-shaped values", () => {
-  const input = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456 and sk-abcdefghijklmnop";
+  const token = ["abcdefghijklm", "nopqrstuvwxyz", "123456"].join("");
+  const input = `Authorization: Bearer ${token} and sk-abcdefghijklmnop`;
   const output = redactText(input);
-  assert.equal(output.includes("abcdefghijklmnopqrstuvwxyz123456"), false);
+  assert.equal(output.includes(token), false);
   assert.equal(output.includes("sk-abcdefghijklmnop"), false);
   assert.match(output, /\[REDACTED\]/);
 });
