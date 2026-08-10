@@ -448,7 +448,7 @@ test("protected-route method matrix rejects every unsupported body-bearing varia
       ["/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=hermes&scopeKind=default", ["GET"]],
       ["/api/mutation-operations?runtime=hermes&scopeKind=default", ["GET"]], ["/api/mutation-operations/op_test?runtime=hermes&scopeKind=default", ["GET"]],
       ["/api/auth-challenges?runtime=hermes&scope=default", ["GET", "POST"]],
-      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", ["GET"]],
+      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=hermes&scope=default", ["GET"]],
       ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel", ["POST"]],
       ["/api/account-ui-preferences?runtime=hermes&scope=default", ["GET", "POST"]]
     ];
@@ -487,7 +487,7 @@ test("protected routes reject unsupported queries before durable stores or runti
     const routes: Array<[string, string]> = [
       ["/api/capabilities", "GET"], ["/api/status", "GET"], ["/api/scopes", "GET"], ["/api/agent-connections", "GET"],
       ["/api/audit/audit_00000000-0000-4000-8000-000000000000", "GET"], ["/api/mutation-operations/op_test", "GET"],
-      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", "GET"],
+      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=hermes&scope=default", "GET"],
       ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel", "POST"], ["/api/auth-challenges", "POST"]
     ];
     for (const [path, method] of routes) for (const query of [`?probe=${encodeURIComponent(hostile)}`, "?"]) {
@@ -568,7 +568,7 @@ test("protected GET matrix rejects request bodies before status or durable colla
       "/api/mutation-operations?runtime=hermes&scopeKind=default",
       "/api/mutation-operations/op_test?runtime=hermes&scopeKind=default",
       "/api/auth-challenges?runtime=hermes&scope=default",
-      "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000"
+      "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=hermes&scope=default"
     ]) {
       const rejected = await bodyRequest(address.port, path, "test-token", "GET", "private@example.test");
       assert.equal(rejected.status, 413, path);
@@ -863,7 +863,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.deepEqual(body.actions.find((action) => action.id === "models.list"), { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "runtime_scopes.list"), { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "durable_challenge_store"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "durable_challenge_store"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.start"), { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), {
       id: "auth_challenges.cancel",
@@ -927,7 +927,7 @@ test("unavailable protected local stores fail closed before runtime discovery an
     const hostileText = "private@example.test";
     for (const [path, error] of [
       ["/api/auth-challenges?runtime=hermes&scope=default", "auth_challenges_unavailable"],
-      ["/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000", "auth_challenges_unavailable"],
+      ["/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000?runtime=hermes&scope=default", "auth_challenges_unavailable"],
       ["/api/audit", "audit_unavailable"],
       ["/api/audit/audit_123e4567-e89b-12d3-a456-426614174000?runtime=hermes&scopeKind=default", "audit_unavailable"],
       ["/api/mutation-operations", "mutation_operations_unavailable"],
@@ -1654,13 +1654,13 @@ test("guided-auth challenge history is newest-first, cursor-paginated, and remai
   }
 });
 
-test("guided-auth challenge detail is bearer-protected, redacted, and returns not found for an unknown opaque id", async () => {
+test("guided-auth challenge detail is bearer-protected, redacted, and bound to its exact selected context", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
-  const challenge = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const challenge = await challenges.create({ mode: "add", provider: "openai", runtime: "hermes", target: "private@example.test", scope: "agent:main" });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
   const address = await app.listen();
-  const path = `/api/auth-challenges/${challenge.id}`;
+  const path = `/api/auth-challenges/${challenge.id}?runtime=hermes&scope=agent%3Amain`;
   try {
     assert.equal((await request(address.port, path)).status, 401);
     const accepted = await request(address.port, path, "test-token");
@@ -1671,7 +1671,15 @@ test("guided-auth challenge detail is bearer-protected, redacted, and returns no
     assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(Object.keys(body.challenge).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
-    assert.equal((await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", "test-token")).status, 404);
+    assert.equal((await request(address.port, `/api/auth-challenges/${challenge.id}?runtime=hermes&scope=default`, "test-token")).status, 404);
+    assert.equal((await request(address.port, `/api/auth-challenges/${challenge.id}?runtime=openclaw&scope=agent%3Amain`, "test-token")).status, 404);
+    for (const suffix of ["", "?runtime=hermes", "?scope=agent%3Amain", "?runtime=hermes&scope=agent%3Amain&scope=agent%3Amain", "?runtime=hermes&scope=agent%3Amain&probe=private%40example.test"]) {
+      const rejected = await request(address.port, `/api/auth-challenges/${challenge.id}${suffix}`, "test-token");
+      assert.equal(rejected.status, 400, suffix);
+      assert.deepEqual(await rejected.json(), { error: "invalid_query" }, suffix);
+      assert.equal(rejected.headers.get("cache-control"), "no-store", suffix);
+    }
+    assert.equal((await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=hermes&scope=agent%3Amain", "test-token")).status, 404);
   } finally {
     await app.close();
   }
@@ -1871,7 +1879,7 @@ test("protected guided-auth GET routes retain executor-validated context and nev
     const inventory = await request(address.port, "/api/auth-challenges?runtime=openclaw&scope=default", "test-token");
     assert.equal(inventory.status, 200);
     assert.equal((await inventory.json() as { challenges: Array<{ status: string }> }).challenges[0]?.status, "expired");
-    const detail = await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", "test-token");
+    const detail = await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=openclaw&scope=default", "test-token");
     assert.equal(detail.status, 200);
     assert.equal((await detail.json() as { challenge: { status: string } }).challenge.status, "expired");
     assert.equal(await readFile(path, "utf8"), durable);

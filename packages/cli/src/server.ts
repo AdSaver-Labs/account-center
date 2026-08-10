@@ -261,11 +261,20 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // a successful empty lifecycle history.
       return inventory ? send(response, 200, inventory) : send(response, 400, { error: "invalid_query" });
     }
-    const challengeId = authChallengeId(request.url);
+    const challengeId = authChallengeId(requestUrl.pathname);
     if (challengeId) {
+      const query = authChallengeDetailQuery(request.url ?? "/");
+      if (!query) return send(response, 400, { error: "invalid_query" });
       if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
-      const challenge = options.challengeStore ? await options.challengeStore.getReadOnly(challengeId) : undefined;
-      if (!challenge) return send(response, 404, { error: "not_found" });
+      // A detail is evidence for the selected runtime and scope, not an opaque
+      // ID escape hatch into another context. Verify current runtime authority
+      // before opening durable state, then bind the record exactly without
+      // disclosing whether the opaque ID exists in another context.
+      const observed = await observedRuntimeFromStatus(source, query.runtime);
+      if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
+      if (!observed) return send(response, 400, { error: "unknown_runtime_scope" });
+      const challenge = await options.challengeStore.getReadOnly(challengeId);
+      if (!challenge || challenge.runtime !== query.runtime || challenge.scope !== query.scope) return send(response, 404, { error: "not_found" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
     if (request.url === "/api/status") {
@@ -474,6 +483,17 @@ function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery 
   return { limit, ...(runtime === null ? {} : { runtime }), ...(scope === null ? {} : { scope }), ...(cursor === null ? {} : { cursor }) };
 }
 
+interface AuthChallengeDetailQuery { runtime: string; scope: string; }
+
+function authChallengeDetailQuery(path: string): AuthChallengeDetailQuery | undefined {
+  const parameters = new URL(path, "http://account-center.local").searchParams;
+  if ([...parameters.keys()].some((key) => key !== "runtime" && key !== "scope") || ["runtime", "scope"].some((key) => parameters.getAll(key).length !== 1)) return undefined;
+  const runtime = parameters.get("runtime");
+  const scope = parameters.get("scope");
+  if (!runtime || !scope || !isPublicRuntimeSelector(runtime) || !/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(scope)) return undefined;
+  return { runtime, scope };
+}
+
 function mutationOperationQuery(path: string): MutationOperationQuery | undefined {
   const parameters = new URL(path, "http://account-center.local").searchParams;
   if ([...parameters.keys()].some((key) => key !== "limit" && key !== "outcome" && key !== "action" && key !== "runtime" && key !== "scopeKind" && key !== "from" && key !== "to" && key !== "cursor") || ["limit", "outcome", "action", "runtime", "scopeKind", "from", "to", "cursor"].some((key) => parameters.getAll(key).length > 1)) return undefined;
@@ -577,6 +597,7 @@ function hasUnexpectedQuery(url: URL, rawPath: string | undefined, method: strin
   // contract even though the collection supports filtered GET reads.
   if (["/api/models", "/api/limits", "/api/audit", "/api/mutation-operations", "/api/account-ui-preferences"].includes(url.pathname)) return false;
   if (method === "GET" && (auditRecordId(url.pathname) || mutationOperationId(url.pathname))) return !durableDetailQuery(rawPath ?? url.pathname);
+  if (method === "GET" && authChallengeId(url.pathname)) return !authChallengeDetailQuery(rawPath ?? url.pathname);
   if (url.pathname === "/api/auth-challenges" && method === "GET") return false;
   return Boolean(endpointMethods(url.pathname));
 }
@@ -614,8 +635,8 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
         ? { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] }
         : { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "durable_challenge_store"] },
       challengeStoreAvailable
-        ? { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] }
-        : { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "durable_challenge_store"] },
+        ? { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope"] }
+        : { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store"] },
       challengeStoreAvailable
         ? { id: "auth_challenges.start", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges" }, requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] }
         : { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] },
@@ -825,7 +846,7 @@ function controlPanelHtml(): string {
       function isChallengeInventory(data) { return data && typeof data === 'object' && Object.keys(data).every(function (key) { return ['schemaVersion', 'generatedAt', 'challenges', 'nextCursor'].indexOf(key) !== -1; }) && data.schemaVersion === 'account-center.auth-challenges.v1' && isCanonicalTimestamp(data.generatedAt) && Array.isArray(data.challenges) && data.challenges.every(isChallengeDetail) && (data.nextCursor === undefined || typeof data.nextCursor === 'string' && /^auth_[a-f0-9-]{36}$/.test(data.nextCursor)); }
       function challengeDetailState(challenge) { var states = { pending: { badge: 'Pending', detail: 'Pending — complete verification outside Account Center. No credentials are held in this browser.' }, completed: { badge: 'Completed', detail: 'Completed — runtime routing verification is not reported by this read-only challenge record.' }, failed: { badge: 'Failed', detail: 'Failed — inspect a protected receipt when one is supplied; retry is unavailable until the protected API supports it.' }, cancelled: { badge: 'Cancelled', detail: 'Cancelled — no credentials were changed by cancellation.' }, expired: { badge: 'Expired', detail: 'Expired — start a new guided-auth challenge only when the protected API supports it.' } }; return states[challenge.status] || { badge: 'UNPROVEN', detail: 'UNPROVEN — guided-auth lifecycle state is not recognized.' }; }
       function renderChallengeDetail(challenge) { if (!isChallengeDetail(challenge)) { guidedDetail.innerHTML = '<article class="record state" data-ui-state="unproven" role="status"><strong>UNPROVEN — data unavailable</strong><p>Guided-auth challenge detail was malformed or incomplete. Refresh the challenge inventory and try again.</p><span class="pill warn">UNPROVEN</span></article>'; return; } var expiry = challenge.expiresAt ? 'Expires: ' + challenge.expiresAt : 'Expiry not reported'; var state = challengeDetailState(challenge); guidedDetail.innerHTML = '<article class="record"><strong>Challenge detail</strong><p>' + escapeHtml(challenge.mode) + ' · ' + escapeHtml(challenge.provider) + ' · ' + escapeHtml(challenge.runtime) + ' · ' + escapeHtml(scopeLabel(challenge.scope)) + '</p><p>' + escapeHtml(expiry) + ' · Created: ' + escapeHtml(challenge.createdAt) + ' · Updated: ' + escapeHtml(challenge.updatedAt) + '</p><p>' + escapeHtml(state.detail) + '</p><span class="pill">' + escapeHtml(state.badge) + '</span></article>'; }
-      async function loadChallengeDetail(id) { return api('/api/auth-challenges/' + encodeURIComponent(id)); }
+      async function loadChallengeDetail(id) { var parameters = new URLSearchParams(); if (selectedRuntime()) parameters.set('runtime', selectedRuntime()); if (selectedContext) parameters.set('scope', selectedContext.split('|').slice(1).join('|')); return api('/api/auth-challenges/' + encodeURIComponent(id) + '?' + parameters.toString()); }
       async function loadOperationDetail(id) { var parameters = new URLSearchParams(); if (selectedRuntime()) parameters.set('runtime', selectedRuntime()); parameters.set('scopeKind', 'default'); return api('/api/mutation-operations/' + encodeURIComponent(id) + '?' + parameters.toString()); }
       function unavailableRecord(label) { return '<article class="record" role="status"><strong>UNPROVEN — data unavailable</strong><p>' + escapeHtml(label) + ' could not be verified. Previously loaded evidence is not shown as current.</p><button class="quiet retry-workspace" type="button">Retry workspace data</button></article>'; }
       function renderAttention(challengeData, challengesUnavailable) { if (!latestStatus) return; var signals = []; var profiles = Array.isArray(latestStatus.profiles) ? latestStatus.profiles : []; profiles.forEach(function (profile) { var usage = profile.usage || {}; var firstWindow = usage.windows && usage.windows[0] || {}; if (usage.health === 'error' || usage.auth && usage.auth.state === 'reauth-needed') signals.push({ title: 'Authentication needs attention', detail: profile.label || profile.id, badge: 'reauth-needed' }); else if (!usage.readable || firstWindow.remainingPct == null || firstWindow.remainingPct < 10) signals.push({ title: 'Capacity needs review', detail: profile.label || profile.id, badge: firstWindow.remainingPct == null ? 'unreadable' : firstWindow.remainingPct + '% remaining' }); }); (latestStatus.warnings || []).forEach(function (warning) { signals.push({ title: 'Runtime warning', detail: warning, badge: 'review' }); }); if (challengesUnavailable) signals.push({ title: 'Guided-auth evidence is UNPROVEN', detail: 'Refresh workspace data before treating challenge status as current.', badge: 'unproven' }); else { var pending = challengeData && challengeData.challenges || []; pending.filter(function (item) { return item.status === 'pending'; }).forEach(function (item) { signals.push({ title: 'Pending guided auth', detail: item.mode + ' · ' + item.provider + ' · ' + item.runtime + ' · ' + scopeLabel(item.scope), badge: 'pending', guided: true }); }); } attentionCount.textContent = signals.length ? signals.length + (signals.length === 1 ? ' signal' : ' signals') : 'No signals'; attention.innerHTML = signals.length ? signals.map(function (item) { return '<article class="record"><strong>' + escapeHtml(item.title) + '</strong><p>' + escapeHtml(item.detail) + '</p><span class="pill">' + escapeHtml(item.badge) + '</span>' + (item.guided ? '<button class="quiet view-guided" type="button">View guided auth</button>' : '') + '</article>'; }).join('') : '<p class="empty">No recovery work is currently reported by verified local evidence.</p>'; }
