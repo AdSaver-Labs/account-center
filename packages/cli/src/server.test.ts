@@ -373,8 +373,8 @@ test("protected-route method matrix rejects every unsupported body-bearing varia
       ["/api/capabilities", ["GET"]], ["/api/status", ["GET"]], ["/api/scopes", ["GET"]],
       ["/api/models?runtime=hermes&scope=default", ["GET"]], ["/api/limits?runtime=hermes&scope=default", ["GET"]],
       ["/api/agent-connections", ["GET"]], ["/api/audit?runtime=hermes&scopeKind=default", ["GET"]],
-      ["/api/audit/audit_00000000-0000-4000-8000-000000000000", ["GET"]],
-      ["/api/mutation-operations?runtime=hermes&scopeKind=default", ["GET"]], ["/api/mutation-operations/op_test", ["GET"]],
+      ["/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=hermes&scopeKind=default", ["GET"]],
+      ["/api/mutation-operations?runtime=hermes&scopeKind=default", ["GET"]], ["/api/mutation-operations/op_test?runtime=hermes&scopeKind=default", ["GET"]],
       ["/api/auth-challenges?runtime=hermes&scope=default", ["GET", "POST"]],
       ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", ["GET"]],
       ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel", ["POST"]],
@@ -778,9 +778,9 @@ test("unavailable protected local stores fail closed before runtime discovery an
       ["/api/auth-challenges?runtime=hermes&scope=default", "auth_challenges_unavailable"],
       ["/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000", "auth_challenges_unavailable"],
       ["/api/audit", "audit_unavailable"],
-      ["/api/audit/audit_123e4567-e89b-12d3-a456-426614174000?runtime=hermes&scopeKind=default", "status_unavailable"],
+      ["/api/audit/audit_123e4567-e89b-12d3-a456-426614174000?runtime=hermes&scopeKind=default", "audit_unavailable"],
       ["/api/mutation-operations", "mutation_operations_unavailable"],
-      ["/api/mutation-operations/op_private_example?runtime=hermes&scopeKind=default", "status_unavailable"]
+      ["/api/mutation-operations/op_private_example?runtime=hermes&scopeKind=default", "mutation_operations_unavailable"]
     ]) await assertHardenedJsonError(await request(address.port, path, "test-token"), 503, error, hostileText);
     await assertHardenedJsonError(await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel`, {
       method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }

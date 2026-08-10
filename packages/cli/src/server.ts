@@ -137,16 +137,20 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (auditId) {
       const query = durableDetailQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const observed = await observedRuntimeFromStatus(source, query.runtime);
       if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
       if (!observed) return send(response, 400, { error: "unknown_runtime_scope" });
-      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const record = await auditRecordDetail(options.auditStore, auditId, query);
       return record ? send(response, 200, record) : send(response, 404, { error: "not_found" });
     }
     if (request.method === "GET" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/audit") {
       const query = auditQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      // Durable history is unavailable independently of current runtime
+      // observation. Reject it before discovery so a missing local store cannot
+      // become a probe of status behavior.
+      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       // A named runtime is an operator-selected current context, not an
       // arbitrary durable-history search. Prove it is still observed before
       // opening the local history store so a stale selector cannot look like
@@ -156,22 +160,23 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         if (observed === undefined) return send(response, 500, { error: "status_unavailable" });
         if (!observed) return send(response, 400, { error: "invalid_query" });
       }
-      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const history = await auditHistory(options.auditStore, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
     }
     if (request.method === "GET" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/mutation-operations") {
       const query = mutationOperationQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      // As with audit history, do not perform status discovery after a known
+      // unavailable durable dependency.
+      if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
       // Protected-operation history follows the same selected-runtime rule.
-      // Authoritative status validation intentionally precedes repository
-      // access, including unavailable or corrupt durable repositories.
+      // Once the available repository boundary is established, authoritative
+      // status validation still precedes any repository read.
       if (query.runtime) {
         const observed = await observedRuntimeFromStatus(source, query.runtime);
         if (observed === undefined) return send(response, 500, { error: "status_unavailable" });
         if (!observed) return send(response, 400, { error: "invalid_query" });
       }
-      if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
       const history = await mutationOperationHistory(options.mutationRepository, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
     }
@@ -179,10 +184,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (operationId) {
       const query = durableDetailQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
       const observed = await observedRuntimeFromStatus(source, query.runtime);
       if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
       if (!observed) return send(response, 400, { error: "unknown_runtime_scope" });
-      if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
       const operation = await mutationOperationDetail(options.mutationRepository, operationId, query);
       return operation ? send(response, 200, operation) : send(response, 404, { error: "not_found" });
     }
