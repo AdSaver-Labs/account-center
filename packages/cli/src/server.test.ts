@@ -840,6 +840,42 @@ test("selected protected histories fail closed on unavailable status before dura
   }
 });
 
+test("account preference contexts fail closed before local preference access", async () => {
+  // The store throws on either read or write. This proves neither a stale
+  // selected context nor unavailable authority can inspect or mutate owner-only
+  // preference state; the POST bodies also contain text that must not reflect.
+  const forbiddenPreferences = new Proxy({}, { get() { throw new Error("preference_state_must_not_be_accessed"); } }) as AccountUiPreferencesStore;
+  const preferenceRequests = (port: number, runtime: string) => [
+    request(port, `/api/account-ui-preferences?runtime=${runtime}&scope=default`, "test-token"),
+    fetch(`http://127.0.0.1:${port}/api/account-ui-preferences?runtime=${runtime}&scope=default`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ accountRef: "private@example.test", state: "hidden" })
+    })
+  ];
+  const unobservedApp = createAccountCenterServer({ token: "test-token", source: "fixture", accountUiPreferencesStore: forbiddenPreferences });
+  const unobservedAddress = await unobservedApp.listen();
+  try {
+    for (const response of preferenceRequests(unobservedAddress.port, "codex")) {
+      await assertHardenedJsonError(await response, 400, "unknown_runtime_scope", "private@example.test");
+    }
+  } finally {
+    await unobservedApp.close();
+  }
+
+  const unavailableApp = createAccountCenterServer({ token: "test-token", source: null, accountUiPreferencesStore: forbiddenPreferences });
+  const unavailableAddress = await unavailableApp.listen();
+  try {
+    // Hermes is observed in the fixture, so only unavailable authority—not an
+    // unobserved selector—can explain this fixed fail-closed response.
+    for (const response of preferenceRequests(unavailableAddress.port, "hermes")) {
+      await assertHardenedJsonError(await response, 503, "status_unavailable", "private@example.test");
+    }
+  } finally {
+    await unavailableApp.close();
+  }
+});
+
 test("guided-auth creation rejects an unavailable challenge store before runtime discovery", async () => {
   const hostileText = "private@example.test";
   // An explicit invalid source makes accidental status discovery observable as

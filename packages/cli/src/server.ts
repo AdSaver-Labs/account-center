@@ -86,9 +86,19 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!options.accountUiPreferencesStore) return send(response, 503, { error: "account_ui_preferences_unavailable" });
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query?.runtime || query.scope !== "default") return send(response, 400, { error: "invalid_runtime_scope" });
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
-      if (!status || !isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
+      // A missing authoritative snapshot is not evidence that the operator's
+      // selected context is invalid. Fail closed without reading or changing
+      // local preferences; only a present snapshot can disprove the context.
+      let status: AccountCenterStatus | undefined;
+      try {
+        const adapter = createRuntimeAdapter(source as RuntimeSource);
+        const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
+        status = result.code === 0 ? result.status : undefined;
+      } catch {
+        status = undefined;
+      }
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const scopeKey = `${query.runtime}|${query.scope}`;
       if (request.method === "GET") return send(response, 200, await options.accountUiPreferencesStore.view(scopeKey));
       if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
