@@ -778,9 +778,9 @@ test("unavailable protected local stores fail closed before runtime discovery an
       ["/api/auth-challenges?runtime=hermes&scope=default", "auth_challenges_unavailable"],
       ["/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000", "auth_challenges_unavailable"],
       ["/api/audit", "audit_unavailable"],
-      ["/api/audit/audit_123e4567-e89b-12d3-a456-426614174000", "audit_unavailable"],
+      ["/api/audit/audit_123e4567-e89b-12d3-a456-426614174000?runtime=hermes&scopeKind=default", "status_unavailable"],
       ["/api/mutation-operations", "mutation_operations_unavailable"],
-      ["/api/mutation-operations/op_private_example", "mutation_operations_unavailable"]
+      ["/api/mutation-operations/op_private_example?runtime=hermes&scopeKind=default", "status_unavailable"]
     ]) await assertHardenedJsonError(await request(address.port, path, "test-token"), 503, error, hostileText);
     await assertHardenedJsonError(await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel`, {
       method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }
@@ -935,11 +935,11 @@ test("audit evidence detail is bearer-protected, redacted, and does not expose r
     summary: "Route update for private@example.test was blocked.",
     warnings: ["no_live_mutation"],
     runtime: "openclaw",
-    scopeKind: "agent"
+    scopeKind: "default"
   });
   const app = createAccountCenterServer({ token: "test-token", auditStore });
   const address = await app.listen();
-  const path = `/api/audit/${record.id}`;
+  const path = `/api/audit/${record.id}?runtime=openclaw&scopeKind=default`;
   try {
     assert.equal((await request(address.port, path)).status, 401);
     const accepted = await request(address.port, path, "test-token");
@@ -957,14 +957,14 @@ test("audit evidence detail is bearer-protected, redacted, and does not expose r
       summary: "Route update for [REDACTED_EMAIL] was blocked.",
       warnings: ["no_live_mutation"],
       runtime: "openclaw",
-      scopeKind: "agent"
+      scopeKind: "default"
     });
     assert.equal(JSON.stringify(body).match(/private@example\.test|sensitive-request-digest/), null);
 
     const wrongMethod = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token" } });
     assert.equal(wrongMethod.status, 405);
     assert.equal(wrongMethod.headers.get("allow"), "GET");
-    const missing = await request(address.port, "/api/audit/audit_00000000-0000-4000-8000-000000000000", "test-token");
+    const missing = await request(address.port, "/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=openclaw&scopeKind=default", "test-token");
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: "not_found" });
   } finally {
@@ -1164,15 +1164,15 @@ test("protected operation detail is bearer-protected, redacted, and does not exp
   const claim = await repository.claim({
     idempotencyKey: "detail-idempotency-key-0000",
     requestDigest: "a".repeat(64),
-    audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", scopeIdDigest: "b".repeat(64), targetDigest: "c".repeat(64) }
+    audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "default", scopeIdDigest: "b".repeat(64), targetDigest: "c".repeat(64) }
   });
   if (claim.kind !== "execute") throw new Error("expected executable test operation");
   await repository.complete({ operationId: claim.operationId, outcome: "blocked", warningCodes: ["runtime_unavailable"] });
   const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
   const address = await app.listen();
   try {
-    assert.equal((await request(address.port, "/api/mutation-operations/op_detail")).status, 401);
-    const accepted = await request(address.port, "/api/mutation-operations/op_detail", "test-token");
+    assert.equal((await request(address.port, "/api/mutation-operations/op_detail?runtime=openclaw&scopeKind=default")).status, 401);
+    const accepted = await request(address.port, "/api/mutation-operations/op_detail?runtime=openclaw&scopeKind=default", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
     const body = await accepted.json() as { schemaVersion: string; generatedAt: string; operation: Record<string, unknown> };
@@ -1181,7 +1181,7 @@ test("protected operation detail is bearer-protected, redacted, and does not exp
     assert.deepEqual(body.operation, {
       operationId: "op_detail", state: "completed", outcome: "blocked",
       createdAt: body.operation.createdAt, completedAt: body.operation.completedAt,
-      audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", warningCodes: ["runtime_unavailable"] }
+      audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "default", warningCodes: ["runtime_unavailable"] }
     });
     assert.equal(JSON.stringify(body).match(/detail-idempotency|[abc]{64}/), null);
 
@@ -1191,12 +1191,46 @@ test("protected operation detail is bearer-protected, redacted, and does not exp
     assert.equal(wrongMethod.status, 405);
     assert.equal(wrongMethod.headers.get("allow"), "GET");
 
-    const missing = await request(address.port, "/api/mutation-operations/op_missing", "test-token");
+    const missing = await request(address.port, "/api/mutation-operations/op_missing?runtime=openclaw&scopeKind=default", "test-token");
     assert.equal(missing.status, 404);
     assert.deepEqual(await missing.json(), { error: "not_found" });
   } finally {
     await app.close();
   }
+});
+
+test("durable detail reads require observed default context before store access and do not enumerate mismatches", async () => {
+  const forbiddenAudit = new Proxy({}, { get() { throw new Error("detail_must_not_read_audit"); } }) as AuditStore;
+  const forbiddenOperations = new Proxy({}, { get() { throw new Error("detail_must_not_read_operations"); } }) as MutationRepository;
+  const unavailable = createAccountCenterServer({ token: "test-token", source: null, auditStore: forbiddenAudit, mutationRepository: forbiddenOperations });
+  const unavailableAddress = await unavailable.listen();
+  try {
+    for (const path of [
+      "/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=hermes&scopeKind=default",
+      "/api/mutation-operations/op_missing?runtime=hermes&scopeKind=default"
+    ]) await assertHardenedJsonError(await request(unavailableAddress.port, path, "test-token"), 503, "status_unavailable", "detail_must_not_read");
+  } finally { await unavailable.close(); }
+
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  const record = await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "a".repeat(64), summary: "private@example.test", warnings: [], runtime: "openclaw", scopeKind: "agent" });
+  const repository = new MutationRepository(join(root, "operations"), { operationId: () => "op_context" });
+  const claim = await repository.claim({ idempotencyKey: "detail-context-operation-key", requestDigest: "b".repeat(64), audit: { action: "route.use", provider: "openai", runtime: "openclaw", scopeKind: "agent", scopeIdDigest: "c".repeat(64), targetDigest: "d".repeat(64) } });
+  if (claim.kind !== "execute") throw new Error("expected operation");
+  await repository.complete({ operationId: claim.operationId, outcome: "blocked" });
+  const app = createAccountCenterServer({ token: "test-token", auditStore, mutationRepository: repository });
+  const address = await app.listen();
+  try {
+    for (const path of [
+      `/api/audit/${record.id}?runtime=openclaw&scopeKind=default`,
+      "/api/mutation-operations/op_context?runtime=openclaw&scopeKind=default"
+    ]) await assertHardenedJsonError(await request(address.port, path, "test-token"), 404, "not_found", "private@example.test");
+    for (const path of [
+      `/api/audit/${record.id}`,
+      `/api/audit/${record.id}?runtime=openclaw&scopeKind=agent`,
+      "/api/mutation-operations/op_context?runtime=openclaw&scopeKind=default&scopeKind=default"
+    ]) await assertHardenedJsonError(await request(address.port, path, "test-token"), 400, "invalid_query", "private@example.test");
+  } finally { await app.close(); }
 });
 
 test("mutation operation history is bounded, newest-first, and paginates with an opaque redacted cursor", async () => {
