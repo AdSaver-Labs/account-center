@@ -6,12 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
+import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
 }
 
-async function bodyRequest(port: number, path: string, token: string): Promise<{ status: number; body: unknown }> {
+async function bodyRequest(port: number, path: string, token: string): Promise<{ status: number; body: unknown; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
     const request = httpRequest({
       host: "127.0.0.1",
@@ -23,7 +24,7 @@ async function bodyRequest(port: number, path: string, token: string): Promise<{
       let text = "";
       response.setEncoding("utf8");
       response.on("data", (chunk: string) => { text += chunk; });
-      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) }));
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: JSON.parse(text), headers: response.headers }));
     });
     request.once("error", reject);
     request.end("{}");
@@ -52,6 +53,22 @@ async function rawChallengeRequest(port: number, options: { token?: string; orig
       ...(options.contentType ? { "content-type": options.contentType } : {})
     },
     ...(options.body === undefined ? {} : { body: options.body })
+  });
+}
+
+function assertHardenedJsonError(response: Response, expectedStatus: number, expectedError: string, suppliedText: string): Promise<void> {
+  return response.text().then((body) => {
+    assert.equal(response.status, expectedStatus);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
+    assert.equal(response.headers.get("content-security-policy"), "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+    assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(response.headers.get("x-frame-options"), "DENY");
+    assert.equal(response.headers.get("access-control-allow-origin"), null);
+    assert.deepEqual(JSON.parse(body), { error: expectedError });
+    assert.equal(body.length <= 4_096, true);
+    assert.equal(body.includes(suppliedText), false);
   });
 }
 
@@ -154,6 +171,42 @@ test("protected API rejects bearer near-misses and unsafe mutation representatio
     const oversized = await rawChallengeRequest(address.port, { token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/json; charset=utf-8", body: `{\"target\":\"${"x".repeat(4_100)}\"}` });
     assert.equal(oversized.status, 413);
     assert.deepEqual(await oversized.json(), { error: "request_body_too_large" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected response failures share hardened headers and preference reads reject bodies before store access", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-response-contract-"));
+  const suppliedText = "private@example.test";
+  const app = createAccountCenterServer({
+    token: "test-token",
+    challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json")),
+    accountUiPreferencesStore: { view: async () => { throw new Error("store_must_not_be_opened"); } } as unknown as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const panel = await fetch(`${origin}/`);
+    assert.equal(panel.status, 200);
+    assert.equal(panel.headers.get("cache-control"), "no-store");
+    assert.equal(panel.headers.get("content-type"), "text/html; charset=utf-8");
+    assert.equal(panel.headers.get("x-frame-options"), "DENY");
+
+    await assertHardenedJsonError(await request(address.port, "/api/status", `test-token-${suppliedText}`), 401, "unauthorized", suppliedText);
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body: JSON.stringify({ target: suppliedText }) }), 403, "origin_forbidden", suppliedText);
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "text/plain", body: suppliedText }), 415, "json_content_type_required", suppliedText);
+    await assertHardenedJsonError(await fetch(`${origin}/api/status`, { method: "POST", headers: { authorization: "Bearer test-token" } }), 405, "method_not_allowed", suppliedText);
+    await assertHardenedJsonError(await request(address.port, `/api/missing-${suppliedText}`, "test-token"), 404, "not_found", suppliedText);
+    const preferenceBodyRead = await bodyRequest(address.port, "/api/account-ui-preferences?runtime=hermes&scope=default", "test-token");
+    assert.deepEqual({ status: preferenceBodyRead.status, body: preferenceBodyRead.body }, { status: 413, body: { error: "request_body_not_allowed" } });
+    assert.equal(preferenceBodyRead.headers["cache-control"], "no-store");
+    assert.equal(preferenceBodyRead.headers["content-type"], "application/json; charset=utf-8");
+    assert.equal(preferenceBodyRead.headers["content-security-policy"], "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+    assert.equal(preferenceBodyRead.headers["referrer-policy"], "no-referrer");
+    assert.equal(preferenceBodyRead.headers["x-content-type-options"], "nosniff");
+    assert.equal(preferenceBodyRead.headers["x-frame-options"], "DENY");
+    assert.equal(preferenceBodyRead.headers["access-control-allow-origin"], undefined);
   } finally {
     await app.close();
   }
@@ -267,7 +320,8 @@ test("body-bearing API reads are rejected before status execution", async () => 
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
   try {
-    assert.deepEqual(await bodyRequest(address.port, "/api/status", "test-token"), {
+    const response = await bodyRequest(address.port, "/api/status", "test-token");
+    assert.deepEqual({ status: response.status, body: response.body }, {
       status: 413,
       body: { error: "request_body_not_allowed" }
     });

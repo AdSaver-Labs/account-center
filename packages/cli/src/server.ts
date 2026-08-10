@@ -51,6 +51,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       });
     }
     if (new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/account-ui-preferences") {
+      // Preference reads are protected API reads, not a permissive exception to
+      // the no-request-body contract. Reject before opening local state or
+      // running status discovery so a body cannot create a weaker route variant.
+      if (request.method === "GET" && hasRequestBody(request)) {
+        request.resume();
+        return send(response, 413, { error: "request_body_not_allowed" });
+      }
       if (!options.accountUiPreferencesStore) return send(response, 503, { error: "account_ui_preferences_unavailable" });
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query?.runtime || query.scope !== "default") return send(response, 400, { error: "invalid_runtime_scope" });
