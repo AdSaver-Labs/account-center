@@ -132,6 +132,15 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.method === "GET" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/audit") {
       const query = auditQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      // A named runtime is an operator-selected current context, not an
+      // arbitrary durable-history search. Prove it is still observed before
+      // opening the local history store so a stale selector cannot look like
+      // authoritative empty history.
+      if (query.runtime) {
+        const observed = await observedRuntimeFromStatus(source, query.runtime);
+        if (observed === undefined) return send(response, 500, { error: "status_unavailable" });
+        if (!observed) return send(response, 400, { error: "invalid_query" });
+      }
       if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const history = await auditHistory(options.auditStore, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
@@ -139,6 +148,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (request.method === "GET" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/mutation-operations") {
       const query = mutationOperationQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      // Protected-operation history follows the same selected-runtime rule.
+      // Authoritative status validation intentionally precedes repository
+      // access, including unavailable or corrupt durable repositories.
+      if (query.runtime) {
+        const observed = await observedRuntimeFromStatus(source, query.runtime);
+        if (observed === undefined) return send(response, 500, { error: "status_unavailable" });
+        if (!observed) return send(response, 400, { error: "invalid_query" });
+      }
       if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
       const history = await mutationOperationHistory(options.mutationRepository, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
@@ -364,6 +381,19 @@ function isObservedRuntimeScope(status: AccountCenterStatus, query: RuntimeInven
 
 function isObservedRuntime(status: AccountCenterStatus, runtime: string | undefined): boolean {
   return !runtime || status.runtimes.some((candidate) => candidate.key === runtime);
+}
+
+// Treat malformed source selection and failed status execution uniformly as
+// unavailable context. This keeps selected history fail-closed without letting
+// adapter implementation details select a different error or reach a store.
+async function observedRuntimeFromStatus(source: unknown, runtime: string): Promise<boolean | undefined> {
+  try {
+    const adapter = createRuntimeAdapter(source as RuntimeSource);
+    const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
+    return result.code === 0 && result.status ? isObservedRuntime(result.status, runtime) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery | undefined {

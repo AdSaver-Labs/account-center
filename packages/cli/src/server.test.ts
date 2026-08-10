@@ -801,6 +801,45 @@ test("unavailable protected local stores fail closed before runtime discovery an
   }
 });
 
+test("selected protected histories reject unobserved runtimes before durable history access", async () => {
+  // `codex` is a valid public selector but is absent from the fixture status.
+  // Throwing collaborators prove a stale selected context cannot become an
+  // authoritative-looking empty history.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("unobserved_runtime_must_not_access_history"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "fixture",
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository
+  });
+  const address = await app.listen();
+  try {
+    for (const path of ["/api/audit?runtime=codex", "/api/mutation-operations?runtime=codex"]) {
+      await assertHardenedJsonError(await request(address.port, path, "test-token"), 400, "invalid_query", "codex");
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("selected protected histories fail closed on unavailable status before durable history access", async () => {
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("unavailable_status_must_not_access_history"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository
+  });
+  const address = await app.listen();
+  try {
+    for (const path of ["/api/audit?runtime=hermes", "/api/mutation-operations?runtime=hermes"]) {
+      await assertHardenedJsonError(await request(address.port, path, "test-token"), 500, "status_unavailable", "hermes");
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("guided-auth creation rejects an unavailable challenge store before runtime discovery", async () => {
   const hostileText = "private@example.test";
   // An explicit invalid source makes accidental status discovery observable as
