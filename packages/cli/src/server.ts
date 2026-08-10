@@ -16,13 +16,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // Only an omitted source selects the fixture adapter. Any explicit value,
   // including undefined or null, remains untrusted input for the adapter to reject.
   const source = Object.prototype.hasOwnProperty.call(options, "source") ? options.source : "fixture";
+  let listenerOrigin: string | undefined;
   const server = createServer(async (request, response) => {
     try {
       setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
-      if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
+      if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
       if (!isJsonContentType(request)) {
         request.resume();
         return send(response, 415, { error: "json_content_type_required" });
@@ -59,7 +60,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const scopeKey = `${query.runtime}|${query.scope}`;
       if (request.method === "GET") return send(response, 200, await options.accountUiPreferencesStore.view(scopeKey));
       if (request.method !== "POST") { response.setHeader("Allow", "GET, POST"); return send(response, 405, { error: "method_not_allowed" }); }
-      if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
+      if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
       if (!isJsonContentType(request)) { request.resume(); return send(response, 415, { error: "json_content_type_required" }); }
       let body: unknown;
       try { body = await readJsonBody(request); } catch (error) { if (error instanceof RequestBodyError) return send(response, error.status, { error: error.code }); throw error; }
@@ -74,7 +75,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     }
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
-      if (!sameOrigin(request)) return send(response, 403, { error: "origin_forbidden" });
+      if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
       const adapter = createRuntimeAdapter(source as RuntimeSource);
       const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
       if (!status) return send(response, 503, { error: "status_unavailable" });
@@ -178,7 +179,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   return {
     async listen(port = 0): Promise<{ port: number }> {
       await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
-      return { port: (server.address() as AddressInfo).port };
+      const boundPort = (server.address() as AddressInfo).port;
+      listenerOrigin = `http://127.0.0.1:${boundPort}`;
+      return { port: boundPort };
     },
     async close(): Promise<void> {
       // A local control-plane caller (including a headless gate) can retain an
@@ -524,9 +527,11 @@ function isAccountUiPreferenceMutation(value: unknown): value is { accountRef: s
     /^account-[1-9][0-9]*$/.test((value as { accountRef?: unknown }).accountRef as string) &&
     ["hidden", "active"].includes((value as { state?: unknown }).state as string);
 }
-function sameOrigin(request: IncomingMessage): boolean {
+function sameOrigin(request: IncomingMessage, listenerOrigin: string | undefined): boolean {
+  // Request Host is attacker-controlled; accept only the origin derived from
+  // the loopback listener that this server actually opened.
   const origin = request.headers.origin;
-  return typeof origin === "string" && origin === `http://${request.headers.host}`;
+  return typeof origin === "string" && origin === listenerOrigin;
 }
 function setSafetyHeaders(response: ServerResponse): void {
   response.setHeader("Cache-Control", "no-store");

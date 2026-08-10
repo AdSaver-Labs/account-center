@@ -42,12 +42,13 @@ async function createChallenge(port: number, token: string, body: unknown, origi
   });
 }
 
-async function rawChallengeRequest(port: number, options: { token?: string; origin?: string; contentType?: string; body?: string }): Promise<Response> {
+async function rawChallengeRequest(port: number, options: { token?: string; origin?: string; host?: string; contentType?: string; body?: string }): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}/api/auth-challenges`, {
     method: "POST",
     headers: {
       ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
       ...(options.origin ? { origin: options.origin } : {}),
+      ...(options.host ? { host: options.host } : {}),
       ...(options.contentType ? { "content-type": options.contentType } : {})
     },
     ...(options.body === undefined ? {} : { body: options.body })
@@ -144,6 +145,9 @@ test("protected API rejects bearer near-misses and unsafe mutation representatio
     const crossOrigin = await rawChallengeRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body: validBody });
     assert.equal(crossOrigin.status, 403);
     assert.deepEqual(await crossOrigin.json(), { error: "origin_forbidden" });
+    const forgedHostAndOrigin = await rawChallengeRequest(address.port, { token: "test-token", host: "attacker.invalid", origin: "http://attacker.invalid", contentType: "application/json", body: validBody });
+    assert.equal(forgedHostAndOrigin.status, 403);
+    assert.deepEqual(await forgedHostAndOrigin.json(), { error: "origin_forbidden" });
     const form = await rawChallengeRequest(address.port, { token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/x-www-form-urlencoded", body: validBody });
     assert.equal(form.status, 415);
     assert.deepEqual(await form.json(), { error: "json_content_type_required" });
