@@ -404,6 +404,40 @@ gate("names the exact selected scope protected by local Hide and Restore", async
   await expect(visibility).toContainText("Changes stay in Openclaw / default. Other runtimes and scopes are unchanged.");
 });
 
+gate("fails closed on ambiguous or malformed account-visibility capability declarations", async ({ panel }) => {
+  let alterCapabilities;
+  const preferencePosts = [];
+  panel.page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/account-ui-preferences") preferencePosts.push(request.url());
+  });
+  await panel.page.route("**/api/capabilities", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (alterCapabilities) alterCapabilities(body);
+    await route.fulfill({ response, json: body });
+  });
+  const unavailable = (body) => { body.actions = body.actions.filter((action) => action.id !== "account_ui_preferences.mutate"); };
+  const valid = (body) => body.actions.find((action) => action.id === "account_ui_preferences.mutate");
+  const cases = [
+    ["missing", unavailable],
+    ["duplicate", (body) => { const action = valid(body); body.actions.push({ ...action }); }],
+    ["conflicting duplicate", (body) => { const action = valid(body); body.actions.push({ ...action, endpoint: { ...action.endpoint, path: "/api/wrong" } }); }],
+    ["malformed", (body) => { const action = valid(body); action.requires = ["bearer_token"]; }],
+    ["blocked", (body) => { const action = valid(body); action.state = "blocked"; action.reason = "unavailable"; }]
+  ];
+  for (const [label, alter] of cases) {
+    alterCapabilities = alter;
+    await open(panel);
+    await connect(panel);
+    await panel.page.getByRole("tab", { name: "Accounts" }).click();
+    const visibility = accountsPanel(panel).locator("#account-visibility-state");
+    await expect(visibility, label).toContainText("Account visibility controls unavailable");
+    await expect(visibility, label).toContainText("No account was hidden or restored.");
+    await expect(visibility.getByRole("button", { name: /Hide account locally|Restore account to everyday lists/ }), label).toHaveCount(0);
+  }
+  expect(preferencePosts).toEqual([]);
+});
+
 gate("hides then restores a fixture account without requesting credential deletion", async ({ panel }) => {
   await open(panel);
   await connect(panel);
