@@ -24,6 +24,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
       if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
+      // Creation is a durable lifecycle mutation. Fail closed before accepting
+      // input or discovering a runtime so a missing store cannot expose source
+      // behavior or be mistaken for an actionable auth state.
+      if (!options.challengeStore) {
+        request.resume();
+        return send(response, 503, { error: "challenge_store_unavailable" });
+      }
       if (!isJsonContentType(request)) {
         request.resume();
         return send(response, 415, { error: "json_content_type_required" });

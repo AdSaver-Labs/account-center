@@ -736,6 +736,24 @@ test("unavailable protected local stores fail closed before runtime discovery an
   }
 });
 
+test("guided-auth creation rejects an unavailable challenge store before runtime discovery", async () => {
+  const hostileText = "private@example.test";
+  // An explicit invalid source makes accidental status discovery observable as
+  // a different response. The missing durable dependency must win instead.
+  const app = createAccountCenterServer({ token: "test-token", source: null });
+  const address = await app.listen();
+  try {
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, {
+      token: "test-token",
+      origin: `http://127.0.0.1:${address.port}`,
+      contentType: "application/json",
+      body: JSON.stringify({ provider: "openai", runtime: "openclaw", scope: "default", mode: "add", target: hostileText })
+    }), 503, "challenge_store_unavailable", hostileText);
+  } finally {
+    await app.close();
+  }
+});
+
 test("audit history is bearer-protected, bounded, and redacted", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const auditStore = new AuditStore(join(root, "audit.json"));
