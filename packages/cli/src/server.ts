@@ -83,6 +83,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
     if (cancelId) {
       if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
+      // Cancellation is a durable lifecycle mutation. Refuse unavailable
+      // dependencies before status discovery so a missing store cannot be
+      // misrepresented as a missing record or expose runtime behavior.
+      if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
+      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const adapter = createRuntimeAdapter(source as RuntimeSource);
       const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
       if (!status) return send(response, 503, { error: "status_unavailable" });
@@ -98,26 +103,30 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 405, { error: "method_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
-    if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore)));
+    if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore), Boolean(options.mutationRepository)));
     const auditId = request.method === "GET" ? auditRecordId(request.url) : undefined;
     if (auditId) {
+      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const record = await auditRecordDetail(options.auditStore, auditId);
       return record ? send(response, 200, record) : send(response, 404, { error: "not_found" });
     }
     if (request.method === "GET" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/audit") {
       const query = auditQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
       const history = await auditHistory(options.auditStore, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
     }
     if (request.method === "GET" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/mutation-operations") {
       const query = mutationOperationQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
       const history = await mutationOperationHistory(options.mutationRepository, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
     }
     const operationId = request.method === "GET" ? mutationOperationId(request.url) : undefined;
     if (operationId) {
+      if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
       const operation = await mutationOperationDetail(options.mutationRepository, operationId);
       return operation ? send(response, 200, operation) : send(response, 404, { error: "not_found" });
     }
@@ -149,8 +158,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicRuntimeScopeCatalogView(result.status) : { error: "status_unavailable" });
     }
     if (pathname === "/api/auth-challenges") {
+      // Lifecycle history is durable local state. Do not turn an unavailable
+      // store into a successful-looking empty inventory or discover runtime
+      // state before rejecting the unavailable read.
       const query = authChallengeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
+      if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
       const adapter = createRuntimeAdapter(source as RuntimeSource);
       const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
       // A runtime filter is an operator-selected context, not a free-form
@@ -169,6 +182,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     }
     const challengeId = authChallengeId(request.url);
     if (challengeId) {
+      if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
       const challenge = options.challengeStore ? await options.challengeStore.getReadOnly(challengeId) : undefined;
       if (!challenge) return send(response, 404, { error: "not_found" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
@@ -461,7 +475,7 @@ function authChallengeId(path: string | undefined): string | undefined {
   return path?.match(/^\/api\/auth-challenges\/(auth_[a-f0-9-]{36})$/)?.[1];
 }
 
-function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boolean): unknown {
+function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boolean, mutationRepositoryAvailable: boolean): unknown {
   return {
     schemaVersion: "account-center.agent-capabilities.v1",
     target: "account-center",
@@ -476,18 +490,30 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
       { id: "agent_connections.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/agent-connections" }, requires: ["bearer_token"] },
       { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] },
       { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] },
-      { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] },
-      { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] },
+      challengeStoreAvailable
+        ? { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] }
+        : { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "durable_challenge_store"] },
+      challengeStoreAvailable
+        ? { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] }
+        : { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "durable_challenge_store"] },
       challengeStoreAvailable
         ? { id: "auth_challenges.start", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges" }, requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] }
         : { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] },
       challengeStoreAvailable && auditAvailable
         ? { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] }
         : { id: "auth_challenges.cancel", mode: "mutation", state: "blocked", reason: challengeStoreAvailable ? "durable_audit_store_unavailable" : "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] },
-      { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] },
-      { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id"] },
-      { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] },
-      { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] },
+      auditAvailable
+        ? { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] }
+        : { id: "audit.history", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "durable_audit_store"] },
+      auditAvailable
+        ? { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id"] }
+        : { id: "audit.detail", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "opaque_audit_id", "durable_audit_store"] },
+      mutationRepositoryAvailable
+        ? { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] }
+        : { id: "mutation_operations.history", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "mutation_repository"] },
+      mutationRepositoryAvailable
+        ? { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] }
+        : { id: "mutation_operations.detail", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "opaque_operation_id", "mutation_repository"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "account_center_cli_review_confirmation_required", requires: ["bearer_token", "exact_connected_target", "owned_exact_account_transaction", "explicit_confirmation", "idempotency_key", "verified_opaque_receipt"] },
       { id: "routes", mode: "mutation", state: "UNPROVEN", reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
       { id: "guided_auth", mode: "mutation", state: challengeStoreAvailable ? "available" : "blocked", ...(challengeStoreAvailable ? { reason: "local_challenge_only_no_runtime_or_credential_mutation" } : { reason: "durable_challenge_store_unavailable" }), requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] },

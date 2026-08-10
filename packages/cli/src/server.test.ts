@@ -646,8 +646,8 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.deepEqual(body.actions.find((action) => action.id === "limits.list"), { id: "limits.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/limits" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "models.list"), { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "runtime_scopes.list"), { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "durable_challenge_store"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.start"), { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), {
       id: "auth_challenges.cancel",
@@ -656,10 +656,10 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       reason: "durable_challenge_store_unavailable",
       requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"]
     });
-    assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "audit.detail"), { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.history"), { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.detail"), { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "durable_audit_store"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "audit.detail"), { id: "audit.detail", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "opaque_audit_id", "durable_audit_store"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.history"), { id: "mutation_operations.history", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "mutation_repository"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "mutation_operations.detail"), { id: "mutation_operations.detail", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "opaque_operation_id", "mutation_repository"] });
     assert.deepEqual(body.actions.find((action) => action.id === "account.delete"), {
       id: "account.delete",
       mode: "mutation",
@@ -698,6 +698,41 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.equal(JSON.stringify(body).match(/secret|password|accessToken|refreshToken/i), null);
   } finally {
     await app.close();
+  }
+});
+
+test("unavailable protected local stores fail closed before runtime discovery and never look like empty history", async () => {
+  // An explicit invalid source would produce an internal error if the
+  // challenge inventory reached runtime discovery. Its 503 therefore proves
+  // unavailable durable state is rejected first.
+  const app = createAccountCenterServer({ token: "test-token", source: undefined });
+  const address = await app.listen();
+  try {
+    const hostileText = "private@example.test";
+    for (const [path, error] of [
+      ["/api/auth-challenges?runtime=hermes&scope=default", "auth_challenges_unavailable"],
+      ["/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000", "auth_challenges_unavailable"],
+      ["/api/audit", "audit_unavailable"],
+      ["/api/audit/audit_123e4567-e89b-12d3-a456-426614174000", "audit_unavailable"],
+      ["/api/mutation-operations", "mutation_operations_unavailable"],
+      ["/api/mutation-operations/op_private_example", "mutation_operations_unavailable"]
+    ]) await assertHardenedJsonError(await request(address.port, path, "test-token"), 503, error, hostileText);
+    await assertHardenedJsonError(await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel`, {
+      method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }
+    }), 503, "auth_challenges_unavailable", hostileText);
+  } finally {
+    await app.close();
+  }
+
+  const root = await mkdtemp(join(tmpdir(), "account-center-unavailable-audit-"));
+  const auditUnavailableApp = createAccountCenterServer({ token: "test-token", source: undefined, challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json")) });
+  const auditUnavailableAddress = await auditUnavailableApp.listen();
+  try {
+    await assertHardenedJsonError(await fetch(`http://127.0.0.1:${auditUnavailableAddress.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel`, {
+      method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${auditUnavailableAddress.port}` }
+    }), 503, "audit_unavailable", "private@example.test");
+  } finally {
+    await auditUnavailableApp.close();
   }
 });
 
