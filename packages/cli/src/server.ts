@@ -120,7 +120,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!inventory?.accounts?.some((account) => account.accountRef === body.accountRef)) return send(response, 400, { error: "unknown_account_ref" });
       return send(response, 200, await options.accountUiPreferencesStore.setAccountState(scopeKey, body.accountRef, body.state));
     }
-    const cancelId = request.method === "POST" ? authChallengeCancelId(request.url) : undefined;
+    const cancelId = request.method === "POST" ? authChallengeCancelId(requestUrl.pathname) : undefined;
     if (cancelId) {
       // Prove the browser request's listener-bound origin before considering
       // any representation. This keeps a cross-origin body from selecting a
@@ -133,6 +133,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         request.resume();
         return send(response, 413, { error: "request_body_not_allowed" });
       }
+      // An opaque challenge ID is not cancellation authority. Bind it to the
+      // one runtime and scope currently selected by the operator before
+      // discovering status or opening either durable lifecycle store.
+      const query = authChallengeCancelQuery(request.url ?? "/");
+      if (!query) return send(response, 400, { error: "invalid_query" });
       // Cancellation is a durable lifecycle mutation. Refuse unavailable
       // dependencies before status discovery so a missing store cannot be
       // misrepresented as a missing record or expose runtime behavior.
@@ -141,6 +146,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const adapter = createRuntimeAdapter(source as RuntimeSource);
       const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
       if (!status) return send(response, 503, { error: "status_unavailable" });
+      if (!isObservedRuntime(status, query.runtime)) return send(response, 400, { error: "unknown_runtime_scope" });
+      // Do not let a selected context mutate a challenge from another context
+      // or turn its opaque ID into an existence oracle. This read happens
+      // before the lifecycle executor can mutate challenge/audit state.
+      const selected = await options.challengeStore.getReadOnly(cancelId);
+      if (!selected || selected.runtime !== query.runtime || selected.scope !== query.scope) return send(response, 404, { error: "not_found" });
       const cancellation = await executeGuidedAuthLifecycle({ command: "guided_auth.cancel", status, id: cancelId }, { challengeStore: options.challengeStore, auditStore: options.auditStore });
       if (cancellation.kind === "audit_unavailable") return send(response, 503, { error: "audit_unavailable" });
       if (cancellation.kind === "not_found") return send(response, 404, { error: "not_found" });
@@ -485,6 +496,12 @@ function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery 
 
 interface AuthChallengeDetailQuery { runtime: string; scope: string; }
 
+// Cancel has the same strict, exact selected-context contract as detail. Keep
+// one parser so a future selector change cannot make mutation broader than read.
+function authChallengeCancelQuery(path: string): AuthChallengeDetailQuery | undefined {
+  return authChallengeDetailQuery(path);
+}
+
 function authChallengeDetailQuery(path: string): AuthChallengeDetailQuery | undefined {
   const parameters = new URL(path, "http://account-center.local").searchParams;
   if ([...parameters.keys()].some((key) => key !== "runtime" && key !== "scope") || ["runtime", "scope"].some((key) => parameters.getAll(key).length !== 1)) return undefined;
@@ -598,6 +615,7 @@ function hasUnexpectedQuery(url: URL, rawPath: string | undefined, method: strin
   if (["/api/models", "/api/limits", "/api/audit", "/api/mutation-operations", "/api/account-ui-preferences"].includes(url.pathname)) return false;
   if (method === "GET" && (auditRecordId(url.pathname) || mutationOperationId(url.pathname))) return !durableDetailQuery(rawPath ?? url.pathname);
   if (method === "GET" && authChallengeId(url.pathname)) return !authChallengeDetailQuery(rawPath ?? url.pathname);
+  if (method === "POST" && authChallengeCancelId(url.pathname)) return !authChallengeCancelQuery(rawPath ?? url.pathname);
   if (url.pathname === "/api/auth-challenges" && method === "GET") return false;
   return Boolean(endpointMethods(url.pathname));
 }
@@ -641,8 +659,8 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
         ? { id: "auth_challenges.start", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges" }, requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] }
         : { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] },
       challengeStoreAvailable && auditAvailable
-        ? { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] }
-        : { id: "auth_challenges.cancel", mode: "mutation", state: "blocked", reason: challengeStoreAvailable ? "durable_audit_store_unavailable" : "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"] },
+        ? { id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"] }
+        : { id: "auth_challenges.cancel", mode: "mutation", state: "blocked", reason: challengeStoreAvailable ? "durable_audit_store_unavailable" : "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"] },
       auditAvailable
         ? { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] }
         : { id: "audit.history", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "durable_audit_store"] },
@@ -784,7 +802,7 @@ function controlPanelHtml(): string {
       function closeCancelChallengeDialog(restoreFocus) { if (cancellationInFlight) return; if (cancelChallengeDialog.open) cancelChallengeDialog.close(); cancelChallengeId = ''; cancelChallengeStatus.textContent = ''; if (restoreFocus) restoreCancelChallengeFocus(); }
       function dialogControls() { return Array.prototype.slice.call(cancelChallengeDialog.querySelectorAll('button:not([disabled])')); }
       function openCancelChallengeDialog(id, trigger) { if (!id || cancellationInFlight) return; cancelChallengeId = id; cancelChallengeTrigger = trigger; cancelChallengeDismiss.disabled = false; cancelChallengeConfirm.disabled = false; cancelChallengeConfirm.textContent = 'Cancel local challenge'; cancelChallengeDialog.dataset.state = 'ready'; cancelChallengeStatus.textContent = ''; cancelChallengeDialog.showModal(); cancelChallengeHeading.focus(); }
-      async function confirmCancelChallenge() { if (!cancelChallengeId || cancellationInFlight) return; cancellationInFlight = true; cancelChallengeDialog.dataset.state = 'submitting'; cancelChallengeDismiss.disabled = true; cancelChallengeConfirm.disabled = true; cancelChallengeConfirm.textContent = 'Cancelling…'; cancelChallengeStatus.textContent = 'Cancelling the local guided-auth challenge.'; setNotice('Cancelling the pending guided-auth challenge…', 'loading'); try { await api('/api/auth-challenges/' + encodeURIComponent(cancelChallengeId) + '/cancel', { method: 'POST' }); var incomplete = await loadWorkspace(); cancellationInFlight = false; closeCancelChallengeDialog(false); setNotice(incomplete ? 'Guided-auth challenge cancelled; some evidence is UNPROVEN.' : 'Guided-auth challenge cancelled. No credentials were changed.', incomplete ? 'error' : 'ready'); } catch (_) { cancellationInFlight = false; cancelChallengeDialog.dataset.state = 'ready'; cancelChallengeDismiss.disabled = false; cancelChallengeConfirm.disabled = false; cancelChallengeConfirm.textContent = 'Cancel local challenge'; cancelChallengeStatus.textContent = 'Cancellation could not be verified. You can keep the challenge or retry cancellation.'; cancelChallengeHeading.focus(); setNotice('The guided-auth challenge could not be cancelled. Refresh to verify its state.', 'error'); } }
+      async function confirmCancelChallenge() { if (!cancelChallengeId || cancellationInFlight) return; var context = selectedScopeQuery(); if (!context) { setNotice('Select a readable runtime and scope before cancelling a guided-auth challenge.', 'error'); return; } cancellationInFlight = true; cancelChallengeDialog.dataset.state = 'submitting'; cancelChallengeDismiss.disabled = true; cancelChallengeConfirm.disabled = true; cancelChallengeConfirm.textContent = 'Cancelling…'; cancelChallengeStatus.textContent = 'Cancelling the local guided-auth challenge.'; setNotice('Cancelling the pending guided-auth challenge…', 'loading'); try { await api('/api/auth-challenges/' + encodeURIComponent(cancelChallengeId) + '/cancel' + context, { method: 'POST' }); var incomplete = await loadWorkspace(); cancellationInFlight = false; closeCancelChallengeDialog(false); setNotice(incomplete ? 'Guided-auth challenge cancelled; some evidence is UNPROVEN.' : 'Guided-auth challenge cancelled. No credentials were changed.', incomplete ? 'error' : 'ready'); } catch (_) { cancellationInFlight = false; cancelChallengeDialog.dataset.state = 'ready'; cancelChallengeDismiss.disabled = false; cancelChallengeConfirm.disabled = false; cancelChallengeConfirm.textContent = 'Cancel local challenge'; cancelChallengeStatus.textContent = 'Cancellation could not be verified. You can keep the challenge or retry cancellation.'; cancelChallengeHeading.focus(); setNotice('The guided-auth challenge could not be cancelled. Refresh to verify its state.', 'error'); } }
       cancelChallengeDismiss.addEventListener('click', function () { closeCancelChallengeDialog(true); });
       cancelChallengeConfirm.addEventListener('click', confirmCancelChallenge);
       cancelChallengeDialog.addEventListener('cancel', function (event) { event.preventDefault(); if (!cancellationInFlight) closeCancelChallengeDialog(true); });

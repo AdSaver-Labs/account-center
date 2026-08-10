@@ -1032,7 +1032,9 @@ gate("confirms guided-auth cancellation and restores focus when cancellation is 
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
   await trigger.click();
+  const cancelRequest = panel.page.waitForRequest((request) => request.method() === "POST" && /\/api\/auth-challenges\/auth_[a-f0-9-]{36}\/cancel\?runtime=hermes&scope=default$/.test(request.url()));
   await panel.page.getByRole("button", { name: "Cancel local challenge" }).click();
+  await cancelRequest;
   await expect(dialog).toBeHidden();
   await expect(panel.page.locator("#notice")).toContainText(/challenge cancelled/i);
   await expect(morePanel(panel)).toContainText(/cancelled/i);

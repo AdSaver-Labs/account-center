@@ -870,7 +870,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
       mode: "mutation",
       state: "blocked",
       reason: "durable_challenge_store_unavailable",
-      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"]
+      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"]
     });
     assert.deepEqual(body.actions.find((action) => action.id === "audit.history"), { id: "audit.history", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "durable_audit_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "audit.detail"), { id: "audit.detail", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "opaque_audit_id", "durable_audit_store"] });
@@ -933,7 +933,7 @@ test("unavailable protected local stores fail closed before runtime discovery an
       ["/api/mutation-operations", "mutation_operations_unavailable"],
       ["/api/mutation-operations/op_private_example?runtime=hermes&scopeKind=default", "mutation_operations_unavailable"]
     ]) await assertHardenedJsonError(await request(address.port, path, "test-token"), 503, error, hostileText);
-    await assertHardenedJsonError(await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel`, {
+    await assertHardenedJsonError(await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel?runtime=hermes&scope=default`, {
       method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }
     }), 503, "auth_challenges_unavailable", hostileText);
   } finally {
@@ -944,7 +944,7 @@ test("unavailable protected local stores fail closed before runtime discovery an
   const auditUnavailableApp = createAccountCenterServer({ token: "test-token", source: undefined, challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json")) });
   const auditUnavailableAddress = await auditUnavailableApp.listen();
   try {
-    await assertHardenedJsonError(await fetch(`http://127.0.0.1:${auditUnavailableAddress.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel`, {
+    await assertHardenedJsonError(await fetch(`http://127.0.0.1:${auditUnavailableAddress.port}/api/auth-challenges/auth_123e4567-e89b-12d3-a456-426614174000/cancel?runtime=hermes&scope=default`, {
       method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${auditUnavailableAddress.port}` }
     }), 503, "audit_unavailable", "private@example.test");
   } finally {
@@ -1724,7 +1724,7 @@ test("guided-auth cancellation capability remains blocked when durable challenge
       mode: "mutation",
       state: "blocked",
       reason: "durable_challenge_store_unavailable",
-      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"]
+      requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"]
     });
   } finally {
     await app.close();
@@ -1735,10 +1735,10 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
   const auditStore = new AuditStore(join(root, "audit.json"));
-  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
   const address = await app.listen();
-  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  const path = `/api/auth-challenges/${challenge.id}/cancel?runtime=openclaw&scope=default`;
   try {
     assert.equal((await request(address.port, path)).status, 401);
     assert.equal((await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers: { authorization: "Bearer test-token", origin: "http://attacker.invalid" } })).status, 403);
@@ -1755,7 +1755,7 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
     const capabilities = await request(address.port, "/api/capabilities", "test-token");
     const capabilityBody = await capabilities.json() as { actions: Array<{ id: string; mode: string; state: string; endpoint?: { method: string; path: string }; requires: string[] }> };
     assert.deepEqual(capabilityBody.actions.find((action) => action.id === "auth_challenges.cancel"), {
-      id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "durable_challenge_store", "durable_audit_store"]
+      id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"]
     });
     const audit = await request(address.port, "/api/audit", "test-token");
     assert.equal(audit.status, 200);
@@ -1767,7 +1767,7 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
       summary: "Local guided-auth challenge cancelled."
     }]);
     assert.equal(JSON.stringify(auditBody).match(/private@example\.test|auth_[a-f0-9-]{36}|[a-f0-9]{64}/), null);
-    assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` } })).status, 404);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel?runtime=openclaw&scope=default`, { method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` } })).status, 404);
   } finally {
     await app.close();
   }
@@ -1778,12 +1778,12 @@ test("guided-auth cancellation fails closed before changing challenge state when
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
   const auditPath = join(root, "audit.json");
   const auditStore = new AuditStore(auditPath);
-  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" });
   await writeFile(auditPath, "{not valid durable audit evidence");
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
   const address = await app.listen();
   try {
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/${challenge.id}/cancel`, {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/${challenge.id}/cancel?runtime=openclaw&scope=default`, {
       method: "POST",
       headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }
     });
@@ -1799,10 +1799,10 @@ test("repeating a guided-auth cancellation is idempotent and does not duplicate 
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
   const auditStore = new AuditStore(join(root, "audit.json"));
-  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main" });
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
   const address = await app.listen();
-  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  const path = `/api/auth-challenges/${challenge.id}/cancel?runtime=openclaw&scope=default`;
   const headers = { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` };
   try {
     const first = await fetch(`http://127.0.0.1:${address.port}${path}`, { method: "POST", headers });
@@ -1827,12 +1827,12 @@ test("cancelling an elapsed guided-auth challenge reports expiry without recordi
     provider: "openai",
     runtime: "openclaw",
     target: "private@example.test",
-    scope: "agent:main",
+    scope: "default",
     expiresAt: "2020-01-01T00:00:00.000Z"
   });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
   const address = await app.listen();
-  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  const path = `/api/auth-challenges/${challenge.id}/cancel?runtime=openclaw&scope=default`;
   try {
     const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
       method: "POST",
@@ -1863,6 +1863,39 @@ test("guided-auth cancellation rejects request bodies before changing local chal
     assert.equal(rejected.status, 413);
     assert.deepEqual(await rejected.json(), { error: "request_body_not_allowed" });
     assert.equal((await challenges.get(challenge.id))?.status, "pending");
+  } finally {
+    await app.close();
+  }
+});
+
+test("guided-auth cancellation binds an opaque ID to one selected runtime and scope before lifecycle mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
+  const challenges = new AuthChallengeStore(join(root, "challenges.json"));
+  const auditStore = new AuditStore(join(root, "audit.json"));
+  const challenge = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default" });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges, auditStore });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const headers = { authorization: "Bearer test-token", origin };
+  const path = `/api/auth-challenges/${challenge.id}/cancel`;
+  try {
+    for (const suffix of ["", "?runtime=openclaw", "?scope=default", "?runtime=openclaw&scope=default&scope=default", "?runtime=openclaw&scope=default&extra=1", "?runtime=OpenClaw&scope=default", "?runtime=openclaw&scope=default%0A"]) {
+      const response = await fetch(`${origin}${path}${suffix}`, { method: "POST", headers });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "invalid_query" });
+      assert.equal((await challenges.get(challenge.id))?.status, "pending");
+      assert.equal((await auditStore.list()).length, 0);
+    }
+    const [unknown, crossRuntime, crossScope] = await Promise.all([
+      fetch(`${origin}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel?runtime=openclaw&scope=default`, { method: "POST", headers }),
+      fetch(`${origin}${path}?runtime=hermes&scope=default`, { method: "POST", headers }),
+      fetch(`${origin}${path}?runtime=openclaw&scope=agent%3Amain`, { method: "POST", headers })
+    ]);
+    const failures = await Promise.all([unknown, crossRuntime, crossScope].map(async (response) => ({ status: response.status, cache: response.headers.get("cache-control"), body: await response.text() })));
+    assert.deepEqual(failures, Array(3).fill({ status: 404, cache: "no-store", body: '{"error":"not_found"}' }));
+    assert.equal((await challenges.get(challenge.id))?.status, "pending");
+    assert.equal((await auditStore.list()).length, 0);
+    assert.equal((await fetch(`${origin}${path}?runtime=openclaw&scope=default`, { method: "POST", headers })).status, 200);
   } finally {
     await app.close();
   }
