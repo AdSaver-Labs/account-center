@@ -22,6 +22,16 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
+    // Recognized protected endpoints have a finite method contract. Enforce it
+    // before route-specific body handling, durable state access, or runtime
+    // discovery so an unsupported body-bearing request cannot probe a later
+    // control-flow branch.
+    const allowedMethods = endpointMethods(request.url);
+    if (allowedMethods && !allowedMethods.includes(request.method ?? "")) {
+      response.setHeader("Allow", allowedMethods.join(", "));
+      request.resume();
+      return send(response, 405, { error: "method_not_allowed" });
+    }
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
       if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
       // Creation is a durable lifecycle mutation. Fail closed before accepting
@@ -58,14 +68,6 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       });
     }
     if (new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/account-ui-preferences") {
-      // Reject unsupported variants before parsing selected context, opening
-      // durable preferences, or discovering runtime state. This keeps method
-      // failures as bounded control-plane responses rather than source probes.
-      if (request.method !== "GET" && request.method !== "POST") {
-        response.setHeader("Allow", "GET, POST");
-        request.resume();
-        return send(response, 405, { error: "method_not_allowed" });
-      }
       // Preference reads are protected API reads, not a permissive exception to
       // the no-request-body contract. Reject before opening local state or
       // running status discovery so a body cannot create a weaker route variant.
@@ -81,7 +83,6 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!status || !isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const scopeKey = `${query.runtime}|${query.scope}`;
       if (request.method === "GET") return send(response, 200, await options.accountUiPreferencesStore.view(scopeKey));
-      if (request.method !== "POST") { response.setHeader("Allow", "GET, POST"); return send(response, 405, { error: "method_not_allowed" }); }
       if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
       if (!isJsonContentType(request)) { request.resume(); return send(response, 415, { error: "json_content_type_required" }); }
       let body: unknown;
@@ -111,11 +112,6 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (cancellation.kind === "not_found") return send(response, 404, { error: "not_found" });
       if (cancellation.kind !== "cancelled" && cancellation.kind !== "unchanged") return send(response, 500, { error: "internal_error" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge-cancel.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(cancellation.challenge) });
-    }
-    const allowedMethods = endpointMethods(request.url);
-    if (allowedMethods && !allowedMethods.includes(request.method ?? "")) {
-      response.setHeader("Allow", allowedMethods.join(", "));
-      return send(response, 405, { error: "method_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
     if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore), Boolean(options.mutationRepository)));
@@ -469,7 +465,8 @@ function authChallengeView(challenge: Awaited<ReturnType<AuthChallengeStore["cre
 function endpointMethods(path: string | undefined): string[] | undefined {
   const pathname = path ? new URL(path, "http://account-center.local").pathname : undefined;
   if (pathname === "/api/auth-challenges") return ["GET", "POST"];
-  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/agent-connections", "/api/scopes", "/api/status", "/api/account-ui-preferences"].includes(pathname ?? "")) return ["GET"];
+  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/agent-connections", "/api/scopes", "/api/status"].includes(pathname ?? "")) return ["GET"];
+  if (pathname === "/api/account-ui-preferences") return ["GET", "POST"];
   if (mutationOperationId(pathname) || auditRecordId(pathname)) return ["GET"];
   if (authChallengeCancelId(pathname)) return ["POST"];
   if (authChallengeId(pathname)) return ["GET"];

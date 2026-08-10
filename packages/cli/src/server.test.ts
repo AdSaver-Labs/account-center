@@ -12,22 +12,22 @@ async function request(port: number, path: string, token?: string): Promise<Resp
   return fetch(`http://127.0.0.1:${port}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
 }
 
-async function bodyRequest(port: number, path: string, token: string): Promise<{ status: number; body: unknown; headers: Record<string, string | string[] | undefined> }> {
+async function bodyRequest(port: number, path: string, token: string | undefined, method = "GET", body = "{}"): Promise<{ status: number; body: unknown; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
     const request = httpRequest({
       host: "127.0.0.1",
       port,
       path,
-      method: "GET",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "content-length": "2" }
+      method,
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) }
     }, (response) => {
       let text = "";
       response.setEncoding("utf8");
       response.on("data", (chunk: string) => { text += chunk; });
-      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: JSON.parse(text), headers: response.headers }));
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: text ? JSON.parse(text) : undefined, headers: response.headers }));
     });
     request.once("error", reject);
-    request.end("{}");
+    request.end(body);
   });
 }
 
@@ -354,36 +354,46 @@ test("body-bearing API reads are rejected before status execution", async () => 
   }
 });
 
-test("protected endpoint method rejection advertises the fixed allowed method", async () => {
-  const app = createAccountCenterServer({ token: "test-token" });
+test("protected-route method matrix rejects every unsupported body-bearing variant before collaborators", async () => {
+  // Every collaborator throws on property access. A 405 from every matrix row
+  // therefore proves rejection precedes durable-state access and runtime work.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("rejected_method_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
   const address = await app.listen();
   try {
-    const status = await fetch(`http://127.0.0.1:${address.port}/api/status`, {
-      method: "POST",
-      headers: { authorization: "Bearer test-token" }
-    });
-    assert.equal(status.status, 405);
-    assert.equal(status.headers.get("allow"), "GET");
-
-    const filteredAudit = await fetch(`http://127.0.0.1:${address.port}/api/audit?outcome=blocked`, {
-      method: "POST",
-      headers: { authorization: "Bearer test-token" }
-    });
-    assert.equal(filteredAudit.status, 405);
-    assert.equal(filteredAudit.headers.get("allow"), "GET");
-
-    const authChallenges = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges`, {
-      method: "PUT",
-      headers: { authorization: "Bearer test-token" }
-    });
-    assert.equal(authChallenges.status, 405);
-    assert.equal(authChallenges.headers.get("allow"), "GET, POST");
-
-    const cancel = await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel`, {
-      headers: { authorization: "Bearer test-token" }
-    });
-    assert.equal(cancel.status, 405);
-    assert.equal(cancel.headers.get("allow"), "POST");
+    const hostile = "private@example.test";
+    const routes: Array<[string, string[]]> = [
+      ["/api/capabilities", ["GET"]], ["/api/status", ["GET"]], ["/api/scopes", ["GET"]],
+      ["/api/models?runtime=hermes&scope=default", ["GET"]], ["/api/limits?runtime=hermes&scope=default", ["GET"]],
+      ["/api/agent-connections", ["GET"]], ["/api/audit?runtime=hermes&scopeKind=default", ["GET"]],
+      ["/api/audit/audit_00000000-0000-4000-8000-000000000000", ["GET"]],
+      ["/api/mutation-operations?runtime=hermes&scopeKind=default", ["GET"]], ["/api/mutation-operations/op_test", ["GET"]],
+      ["/api/auth-challenges?runtime=hermes&scope=default", ["GET", "POST"]],
+      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", ["GET"]],
+      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel", ["POST"]],
+      ["/api/account-ui-preferences?runtime=hermes&scope=default", ["GET", "POST"]]
+    ];
+    for (const [path, allowed] of routes) for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) {
+      if (allowed.includes(method)) continue;
+      const rejected = await bodyRequest(address.port, path, "test-token", method, hostile);
+      assert.equal(rejected.status, 405, `${method} ${path}`);
+      assert.equal(rejected.headers.allow, allowed.join(", "), `${method} ${path}`);
+      assert.equal(rejected.headers["cache-control"], "no-store", `${method} ${path}`);
+      // Node correctly suppresses a response body for HEAD, even though the
+      // handler selected the same fixed error status and headers.
+      assert.deepEqual(rejected.body, method === "HEAD" ? undefined : { error: "method_not_allowed" }, `${method} ${path}`);
+      assert.equal(JSON.stringify(rejected.body ?? null).includes(hostile), false, `${method} ${path}`);
+      const unauthorized = await bodyRequest(address.port, path, undefined, method, hostile);
+      assert.equal(unauthorized.status, 401, `unauthorized ${method} ${path}`);
+      assert.deepEqual(unauthorized.body, method === "HEAD" ? undefined : { error: "unauthorized" }, `unauthorized ${method} ${path}`);
+    }
   } finally {
     await app.close();
   }
