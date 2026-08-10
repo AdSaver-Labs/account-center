@@ -399,6 +399,37 @@ test("protected-route method matrix rejects every unsupported body-bearing varia
   }
 });
 
+test("protected routes reject unsupported queries before durable stores or runtime discovery", async () => {
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("invalid_query_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    const hostile = "private@example.test";
+    const routes: Array<[string, string]> = [
+      ["/api/capabilities", "GET"], ["/api/status", "GET"], ["/api/scopes", "GET"], ["/api/agent-connections", "GET"],
+      ["/api/audit/audit_00000000-0000-4000-8000-000000000000", "GET"], ["/api/mutation-operations/op_test", "GET"],
+      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000", "GET"],
+      ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel", "POST"], ["/api/auth-challenges", "POST"]
+    ];
+    for (const [path, method] of routes) for (const query of [`?probe=${encodeURIComponent(hostile)}`, "?"]) {
+      const rejected = await bodyRequest(address.port, `${path}${query}`, "test-token", method, hostile);
+      assert.equal(rejected.status, 400, `${method} ${path}${query}`);
+      assert.deepEqual(rejected.body, { error: "invalid_query" }, `${method} ${path}${query}`);
+      assert.equal(rejected.headers["cache-control"], "no-store", `${method} ${path}${query}`);
+      assert.equal(JSON.stringify(rejected.body).includes(hostile), false, `${method} ${path}${query}`);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("read-only model catalog is bearer-protected, versioned, and reflects disabled policy without profile metadata", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();

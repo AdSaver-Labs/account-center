@@ -32,6 +32,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       request.resume();
       return send(response, 405, { error: "method_not_allowed" });
     }
+    // Dynamic detail and mutation endpoints have no query contract. Reject an
+    // unexpected query at the protected boundary instead of letting it change
+    // route matching later (and potentially reach a store as a near-match).
+    const requestUrl = new URL(request.url ?? "/", "http://account-center.local");
+    if (hasUnexpectedQuery(requestUrl, request.url, request.method)) {
+      request.resume();
+      return send(response, 400, { error: "invalid_query" });
+    }
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
       if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
       // Creation is a durable lifecycle mutation. Fail closed before accepting
@@ -471,6 +479,18 @@ function endpointMethods(path: string | undefined): string[] | undefined {
   if (authChallengeCancelId(pathname)) return ["POST"];
   if (authChallengeId(pathname)) return ["GET"];
   return undefined;
+}
+
+function hasUnexpectedQuery(url: URL, rawPath: string | undefined, method: string | undefined): boolean {
+  // URL.search is empty for a bare trailing `?`, but that still represents a
+  // query component and must not turn an exact route into a near-match.
+  if (!rawPath?.includes("?")) return false;
+  // These collection and inventory endpoints each validate their own bounded
+  // query vocabulary below. POST challenge creation deliberately has no query
+  // contract even though the collection supports filtered GET reads.
+  if (["/api/models", "/api/limits", "/api/audit", "/api/mutation-operations", "/api/account-ui-preferences"].includes(url.pathname)) return false;
+  if (url.pathname === "/api/auth-challenges" && method === "GET") return false;
+  return Boolean(endpointMethods(url.pathname));
 }
 
 function mutationOperationId(path: string | undefined): string | undefined {
