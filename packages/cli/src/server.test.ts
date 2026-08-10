@@ -56,6 +56,18 @@ async function rawChallengeRequest(port: number, options: { token?: string; orig
   });
 }
 
+async function rawPreferenceRequest(port: number, options: { token?: string; origin?: string; contentType?: string; body?: string }): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/api/account-ui-preferences?runtime=hermes&scope=default`, {
+    method: "POST",
+    headers: {
+      ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+      ...(options.origin ? { origin: options.origin } : {}),
+      ...(options.contentType ? { "content-type": options.contentType } : {})
+    },
+    ...(options.body === undefined ? {} : { body: options.body })
+  });
+}
+
 function assertHardenedJsonError(response: Response, expectedStatus: number, expectedError: string, suppliedText: string): Promise<void> {
   return response.text().then((body) => {
     assert.equal(response.status, expectedStatus);
@@ -209,6 +221,28 @@ test("guided-auth writes reject bearer, listener-origin, and body attacks before
     await assertHardenedJsonError(await cancel("test-token", undefined, hostile), 403, "origin_forbidden", hostile);
     await assertHardenedJsonError(await cancel("test-token", "https://attacker.invalid", hostile), 403, "origin_forbidden", hostile);
     await assertHardenedJsonError(await cancel("test-token", origin, hostile), 413, "request_body_not_allowed", hostile);
+  } finally {
+    await app.close();
+  }
+});
+
+test("preference updates reject bearer and listener-origin attacks before every collaborator", async () => {
+  // The source and store both throw on access. Fixed rejections therefore prove
+  // hostile writes cannot inspect runtime state or open local preferences.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("rejected_preference_write_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const hostile = "private@example.test";
+  const body = JSON.stringify({ accountRef: hostile, state: "hidden" });
+  try {
+    await assertHardenedJsonError(await rawPreferenceRequest(address.port, { origin, contentType: "application/json", body }), 401, "unauthorized", hostile);
+    await assertHardenedJsonError(await rawPreferenceRequest(address.port, { token: "test-token", contentType: "application/json", body }), 403, "origin_forbidden", hostile);
+    await assertHardenedJsonError(await rawPreferenceRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body }), 403, "origin_forbidden", hostile);
   } finally {
     await app.close();
   }

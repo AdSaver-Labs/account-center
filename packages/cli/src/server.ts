@@ -86,6 +86,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         request.resume();
         return send(response, 413, { error: "request_body_not_allowed" });
       }
+      // A preference update changes protected local state. Prove the browser
+      // request came from this listener before inspecting its selected context,
+      // opening the preference store, or discovering runtime status. Draining
+      // keeps a hostile body from holding the local connection open.
+      if (request.method === "POST" && !sameOrigin(request, listenerOrigin)) {
+        request.resume();
+        return send(response, 403, { error: "origin_forbidden" });
+      }
       if (!options.accountUiPreferencesStore) return send(response, 503, { error: "account_ui_preferences_unavailable" });
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query?.runtime || query.scope !== "default") return send(response, 400, { error: "invalid_runtime_scope" });
@@ -104,7 +112,6 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const scopeKey = `${query.runtime}|${query.scope}`;
       if (request.method === "GET") return send(response, 200, await options.accountUiPreferencesStore.view(scopeKey));
-      if (!sameOrigin(request, listenerOrigin)) return send(response, 403, { error: "origin_forbidden" });
       if (!isJsonContentType(request)) { request.resume(); return send(response, 415, { error: "json_content_type_required" }); }
       let body: unknown;
       try { body = await readJsonBody(request); } catch (error) { if (error instanceof RequestBodyError) return send(response, error.status, { error: error.code }); throw error; }
