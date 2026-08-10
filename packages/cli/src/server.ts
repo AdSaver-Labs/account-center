@@ -665,14 +665,14 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
         ? { id: "audit.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit" }, requires: ["bearer_token"] }
         : { id: "audit.history", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "durable_audit_store"] },
       auditAvailable
-        ? { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id"] }
-        : { id: "audit.detail", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "opaque_audit_id", "durable_audit_store"] },
+        ? { id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id", "explicit_runtime_scope"] }
+        : { id: "audit.detail", mode: "read", state: "blocked", reason: "durable_audit_store_unavailable", requires: ["bearer_token", "opaque_audit_id", "explicit_runtime_scope", "durable_audit_store"] },
       mutationRepositoryAvailable
         ? { id: "mutation_operations.history", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations" }, requires: ["bearer_token"] }
         : { id: "mutation_operations.history", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "mutation_repository"] },
       mutationRepositoryAvailable
-        ? { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id"] }
-        : { id: "mutation_operations.detail", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "opaque_operation_id", "mutation_repository"] },
+        ? { id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id", "explicit_runtime_scope"] }
+        : { id: "mutation_operations.detail", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "opaque_operation_id", "explicit_runtime_scope", "mutation_repository"] },
       { id: "account.delete", mode: "mutation", state: "blocked", reason: "account_center_cli_review_confirmation_required", requires: ["bearer_token", "exact_connected_target", "owned_exact_account_transaction", "explicit_confirmation", "idempotency_key", "verified_opaque_receipt"] },
       { id: "routes", mode: "mutation", state: "UNPROVEN", reason: "protected_route_contract_missing_scoped_review_idempotency_runtime_proof", requires: ["bearer_token", "explicit_runtime_scope", "dry_run", "explicit_confirmation", "idempotency_key"] },
       { id: "guided_auth", mode: "mutation", state: challengeStoreAvailable ? "available" : "blocked", ...(challengeStoreAvailable ? { reason: "local_challenge_only_no_runtime_or_credential_mutation" } : { reason: "durable_challenge_store_unavailable" }), requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] },
