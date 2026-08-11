@@ -146,8 +146,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // misrepresented as a missing record or expose runtime behavior.
       if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
       if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
+      // Runtime authority is required before an opaque ID can select durable
+      // lifecycle state. Normalize adapter construction, command failures, and
+      // unusable snapshots at the shared boundary so cancellation never falls
+      // through to the generic error handler or opens either store on doubt.
+      const status = await authoritativeStatus(source);
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntime(status, query.runtime)) return send(response, 400, { error: "unknown_runtime_scope" });
       // Do not let a selected context mutate a challenge from another context

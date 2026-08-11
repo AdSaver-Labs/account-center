@@ -1851,6 +1851,50 @@ test("guided-auth cancellation capability remains blocked when durable challenge
   }
 });
 
+test("guided-auth cancellation fails closed on unavailable status before opening lifecycle stores", async () => {
+  const hostile = "private@example.test";
+  const id = "auth_00000000-0000-4000-8000-000000000000";
+  // These collaborators make any read, write, or lifecycle handoff observable.
+  // A valid selected context ensures unavailable authority—not parsing or a
+  // dependency branch—selects the fixed response.
+  const forbiddenChallenges = new Proxy({}, { get() { throw new Error("challenge_store_must_not_be_opened"); } }) as AuthChallengeStore;
+  const forbiddenAudit = new Proxy({}, { get() { throw new Error("audit_store_must_not_be_opened"); } }) as AuditStore;
+
+  async function assertUnavailableCancel(source: unknown): Promise<void> {
+    const app = createAccountCenterServer({ token: "test-token", source, challengeStore: forbiddenChallenges, auditStore: forbiddenAudit });
+    const address = await app.listen();
+    try {
+      await assertHardenedJsonError(await fetch(`http://127.0.0.1:${address.port}/api/auth-challenges/${id}/cancel?runtime=openclaw&scope=default`, {
+        method: "POST", headers: { authorization: "Bearer test-token", origin: `http://127.0.0.1:${address.port}` }
+      }), 503, "status_unavailable", hostile);
+    } finally {
+      await app.close();
+    }
+  }
+
+  await assertUnavailableCancel(null);
+  await assertUnavailableCancel("/srv/private/account-center/adapter private@example.test");
+
+  const directory = await mkdtemp(join(tmpdir(), "account-center-failed-cancel-status-"));
+  const command = join(directory, "status-failure.js");
+  await writeFile(command, `process.stderr.write(${JSON.stringify(hostile)}); process.exit(1);\n`);
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = `${process.execPath} ${command}`;
+  process.env.ACCOUNT_CENTER_GENERIC_ARGS = "";
+  try {
+    await assertUnavailableCancel("generic-command");
+    process.env.ACCOUNT_CENTER_GENERIC_COMMAND = process.execPath;
+    process.env.ACCOUNT_CENTER_GENERIC_ARGS = "-e \"process.stdout.write('{}')\"";
+    await assertUnavailableCancel("generic-command");
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
+  }
+});
+
 test("guided-auth cancellation is same-origin, bearer-protected, durable, redacted, and records bounded audit evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
