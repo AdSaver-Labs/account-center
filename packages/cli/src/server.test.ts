@@ -1154,7 +1154,7 @@ test("unavailable protected local stores fail closed before runtime discovery an
   }
 });
 
-test("selected protected histories reject unobserved runtimes before durable history access", async () => {
+test("selected protected histories require the observed exact default scope before durable history access", async () => {
   // `codex` is a valid public selector but is absent from the fixture status.
   // Throwing collaborators prove a stale selected context cannot become an
   // authoritative-looking empty history.
@@ -1167,8 +1167,8 @@ test("selected protected histories reject unobserved runtimes before durable his
   });
   const address = await app.listen();
   try {
-    for (const path of ["/api/audit?runtime=codex", "/api/mutation-operations?runtime=codex"]) {
-      await assertHardenedJsonError(await request(address.port, path, "test-token"), 400, "invalid_query", "codex");
+    for (const path of ["/api/audit?runtime=codex&scopeKind=default", "/api/mutation-operations?runtime=codex&scopeKind=default"]) {
+      await assertHardenedJsonError(await request(address.port, path, "test-token"), 400, "unknown_runtime_scope", "codex");
     }
   } finally {
     await app.close();
@@ -1185,9 +1185,37 @@ test("selected protected histories match durable detail 503 status-unavailable s
   });
   const address = await app.listen();
   try {
-    for (const path of ["/api/audit?runtime=hermes", "/api/mutation-operations?runtime=hermes"]) {
+    for (const path of ["/api/audit?runtime=hermes&scopeKind=default", "/api/mutation-operations?runtime=hermes&scopeKind=default"]) {
       await assertHardenedJsonError(await request(address.port, path, "test-token"), 503, "status_unavailable", "hermes");
     }
+  } finally {
+    await app.close();
+  }
+});
+
+test("unsupported selected history scopes reject before status or durable collaborators", async () => {
+  const hostile = "agent:private@example.test%0A";
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("selected_history_must_not_open_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository
+  });
+  const address = await app.listen();
+  try {
+    for (const path of [
+      "/api/audit?runtime=hermes",
+      "/api/mutation-operations?runtime=hermes",
+      "/api/audit?scopeKind=default",
+      "/api/mutation-operations?scopeKind=default",
+      "/api/audit?runtime=hermes&scopeKind=agent",
+      "/api/mutation-operations?runtime=hermes&scopeKind=profile",
+      "/api/audit?runtime=hermes&scopeKind=session",
+      "/api/mutation-operations?runtime=hermes&scopeKind=all",
+      `/api/audit?runtime=hermes&scopeKind=${hostile}`,
+      `/api/mutation-operations?runtime=hermes&scopeKind=${hostile}`
+    ]) await assertHardenedJsonError(await request(address.port, path, "test-token"), 400, "invalid_query", "private@example.test");
   } finally {
     await app.close();
   }
@@ -1469,15 +1497,15 @@ test("audit history filters an exact safe action category without broadening the
   }
 });
 
-test("audit history filters redacted runtime and scope-kind context without exposing scope identifiers", async () => {
+test("audit history filters the observed exact default runtime context without exposing scope identifiers", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const auditStore = new AuditStore(join(root, "audit.json"));
-  await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "a".repeat(64), summary: "OpenClaw route change for private@example.test", warnings: [], runtime: "openclaw", scopeKind: "agent" });
-  await auditStore.append({ action: "model.use", outcome: "unproven", proofState: "unproven", requestDigest: "b".repeat(64), summary: "Hermes model change for private@example.test", warnings: [], runtime: "hermes", scopeKind: "profile" });
+  await auditStore.append({ action: "route.use", outcome: "blocked", proofState: "unproven", requestDigest: "a".repeat(64), summary: "OpenClaw route change for private@example.test", warnings: [], runtime: "openclaw", scopeKind: "default" });
+  await auditStore.append({ action: "model.use", outcome: "unproven", proofState: "unproven", requestDigest: "b".repeat(64), summary: "Hermes model change for private@example.test", warnings: [], runtime: "hermes", scopeKind: "default" });
   const app = createAccountCenterServer({ token: "test-token", auditStore });
   const address = await app.listen();
   try {
-    const filtered = await request(address.port, "/api/audit?runtime=openclaw&scopeKind=agent", "test-token");
+    const filtered = await request(address.port, "/api/audit?runtime=openclaw&scopeKind=default", "test-token");
     assert.equal(filtered.status, 200);
     const body = await filtered.json() as { records: Array<{ id: string; createdAt: string; action: string; runtime?: string; scopeKind?: string }> };
     assert.deepEqual(body.records, [{
@@ -1489,7 +1517,7 @@ test("audit history filters redacted runtime and scope-kind context without expo
       summary: "OpenClaw route change for [REDACTED_EMAIL]",
       warnings: [],
       runtime: "openclaw",
-      scopeKind: "agent"
+      scopeKind: "default"
     }]);
     assert.equal(JSON.stringify(body).match(/private@example\.test|[ab]{64}/), null);
 
@@ -1697,7 +1725,7 @@ test("mutation operation history is bounded, newest-first, and paginates with an
     assert.deepEqual(filteredBody.operations.map(({ operationId, outcome }) => ({ operationId, outcome })), [{ operationId: "op_page_2", outcome: "blocked" }]);
     assert.equal(filteredBody.nextCursor, null);
 
-    const noMatch = await request(address.port, "/api/mutation-operations?outcome=applied&runtime=hermes", "test-token");
+    const noMatch = await request(address.port, "/api/mutation-operations?outcome=applied&runtime=hermes&scopeKind=default", "test-token");
     assert.equal(noMatch.status, 200);
     const noMatchBody = await noMatch.json() as { operations: Array<Record<string, unknown>>; nextCursor: string | null };
     assert.deepEqual(noMatchBody.operations, []);
@@ -1714,7 +1742,7 @@ test("mutation operation history is bounded, newest-first, and paginates with an
   }
 });
 
-test("mutation operation history filters by the redacted runtime and scope kind", async () => {
+test("mutation operation history filters by the observed exact default runtime context", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   let sequence = 0;
   const repository = new MutationRepository(join(root, "mutations"), { operationId: () => `op_filter_${++sequence}` });
@@ -1734,11 +1762,11 @@ test("mutation operation history filters by the redacted runtime and scope kind"
   const app = createAccountCenterServer({ token: "test-token", mutationRepository: repository });
   const address = await app.listen();
   try {
-    const filtered = await request(address.port, "/api/mutation-operations?runtime=openclaw&scopeKind=agent", "test-token");
+    const filtered = await request(address.port, "/api/mutation-operations?runtime=openclaw&scopeKind=default", "test-token");
     assert.equal(filtered.status, 200);
     const body = await filtered.json() as { operations: Array<{ operationId: string; audit: { runtime: string; scopeKind: string } }> };
     assert.deepEqual(body.operations.map(({ operationId, audit }) => ({ operationId, runtime: audit.runtime, scopeKind: audit.scopeKind })), [
-      { operationId: "op_filter_6", runtime: "openclaw", scopeKind: "agent" }
+      { operationId: "op_filter_2", runtime: "openclaw", scopeKind: "default" }
     ]);
     assert.equal(JSON.stringify(body).match(/operation-filter|[ab]{64}/), null);
 

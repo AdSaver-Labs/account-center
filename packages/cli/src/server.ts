@@ -197,14 +197,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // observation. Reject it before discovery so a missing local store cannot
       // become a probe of status behavior.
       if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
-      // A named runtime is an operator-selected current context, not an
-      // arbitrary durable-history search. Prove it is still observed before
-      // opening the local history store so a stale selector cannot look like
-      // authoritative empty history.
+      // A named runtime is an operator-selected exact public context, not an
+      // arbitrary durable-history search. Prove its one catalog-authorized
+      // default scope before opening the local history store so a stale or
+      // named selector cannot look like authoritative empty history.
       if (query.runtime) {
-        const observed = await observedRuntimeFromStatus(source, query.runtime);
-        if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
-        if (!observed) return send(response, 400, { error: "invalid_query" });
+        const status = await authoritativeStatus(source);
+        if (!status) return send(response, 503, { error: "status_unavailable" });
+        if (!hasAuthoritativeSelectedHistoryContext(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       }
       const history = await auditHistory(options.auditStore, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
@@ -215,13 +215,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // As with audit history, do not perform status discovery after a known
       // unavailable durable dependency.
       if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
-      // Protected-operation history follows the same selected-runtime rule.
+      // Protected-operation history follows the same exact public selected-
+      // scope rule as audit history.
       // Once the available repository boundary is established, authoritative
       // status validation still precedes any repository read.
       if (query.runtime) {
-        const observed = await observedRuntimeFromStatus(source, query.runtime);
-        if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
-        if (!observed) return send(response, 400, { error: "invalid_query" });
+        const status = await authoritativeStatus(source);
+        if (!status) return send(response, 503, { error: "status_unavailable" });
+        if (!hasAuthoritativeSelectedHistoryContext(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       }
       const history = await mutationOperationHistory(options.mutationRepository, query);
       return history ? send(response, 200, history) : send(response, 400, { error: "invalid_query" });
@@ -346,7 +347,7 @@ async function authChallengeInventory(store: AuthChallengeStore | undefined, que
   };
 }
 
-interface AuditQuery { limit: number; outcome?: AuditRecord["outcome"]; action?: string; runtime?: string; scopeKind?: NonNullable<AuditRecord["scopeKind"]>; from?: string; to?: string; cursor?: string; }
+interface AuditQuery { limit: number; outcome?: AuditRecord["outcome"]; action?: string; runtime?: string; scopeKind?: "default"; from?: string; to?: string; cursor?: string; }
 
 async function auditHistory(store: AuditStore | undefined, query: AuditQuery = { limit: 50 }): Promise<unknown | undefined> {
   const matching = store ? (await store.list({ limit: 1_000 })).filter((record) =>
@@ -403,16 +404,16 @@ function auditQuery(path: string): AuditQuery | undefined {
   const runtime = parameters.get("runtime");
   if (runtime !== null && !isPublicRuntimeSelector(runtime)) return undefined;
   const scopeKind = parameters.get("scopeKind");
-  if (scopeKind !== null && !["agent", "profile", "session", "default", "all"].includes(scopeKind)) return undefined;
-  // Scope context is meaningful only alongside its concrete runtime. Never
-  // silently turn an exact selected-context filter into an app-wide one.
-  if (scopeKind !== null && runtime === null) return undefined;
+  // Unscoped history is an intentionally aggregate local view. Any selected
+  // runtime must carry the only current public exact-scope contract: default.
+  // Never interpret named scope kinds as a valid selected-history authority.
+  if ((runtime === null) !== (scopeKind === null) || (scopeKind !== null && scopeKind !== "default")) return undefined;
   const from = parameters.get("from");
   const to = parameters.get("to");
   if ((from !== null && !isUtcCalendarDate(from)) || (to !== null && !isUtcCalendarDate(to)) || (from !== null && to !== null && from > to)) return undefined;
   const cursor = parameters.get("cursor");
   if (cursor !== null && !/^audit_[a-f0-9-]{36}$/.test(cursor)) return undefined;
-  return { limit, ...(outcome === null ? {} : { outcome: outcome as AuditRecord["outcome"] }), ...(action === null ? {} : { action }), ...(runtime === null ? {} : { runtime }), ...(scopeKind === null ? {} : { scopeKind: scopeKind as NonNullable<AuditRecord["scopeKind"]> }), ...(from === null ? {} : { from }), ...(to === null ? {} : { to }), ...(cursor === null ? {} : { cursor }) };
+  return { limit, ...(outcome === null ? {} : { outcome: outcome as AuditRecord["outcome"] }), ...(action === null ? {} : { action }), ...(runtime === null ? {} : { runtime }), ...(scopeKind === null ? {} : { scopeKind: "default" as const }), ...(from === null ? {} : { from }), ...(to === null ? {} : { to }), ...(cursor === null ? {} : { cursor }) };
 }
 
 function isUtcCalendarDate(value: string): boolean {
@@ -427,7 +428,7 @@ interface MutationOperationQuery {
   outcome?: "applied" | "not_applied" | "blocked" | "failed";
   action?: string;
   runtime?: string;
-  scopeKind?: "agent" | "profile" | "session" | "default" | "all";
+  scopeKind?: "default";
   from?: string;
   to?: string;
   cursor?: string;
@@ -470,6 +471,13 @@ function isObservedRuntimeScope(status: AccountCenterStatus, query: RuntimeInven
 
 function isObservedRuntime(status: AccountCenterStatus, runtime: string | undefined): boolean {
   return !runtime || status.runtimes.some((candidate) => candidate.key === runtime);
+}
+
+// Collections may be read without a selector as explicitly aggregate local
+// history. Once a caller selects a runtime, though, both durable collections
+// share the same public authority boundary as other scoped protected reads.
+function hasAuthoritativeSelectedHistoryContext(status: AccountCenterStatus, query: { runtime?: string; scopeKind?: "default" }): boolean {
+  return Boolean(query.runtime) && query.scopeKind === "default" && isObservedRuntimeScope(status, { runtime: query.runtime, scope: "default" });
 }
 
 // Treat malformed source selection and failed status execution uniformly as
@@ -544,10 +552,10 @@ function mutationOperationQuery(path: string): MutationOperationQuery | undefine
   const runtime = parameters.get("runtime");
   if (runtime !== null && !isPublicRuntimeSelector(runtime)) return undefined;
   const scopeKind = parameters.get("scopeKind");
-  if (scopeKind !== null && !["agent", "profile", "session", "default", "all"].includes(scopeKind)) return undefined;
-  // Scope kind alone is not an exact selected context. Require its runtime so
-  // an operator cannot accidentally broaden a scoped history read across runtimes.
-  if (scopeKind !== null && runtime === null) return undefined;
+  // Preserve only an explicit unscoped aggregate read. A selected runtime is
+  // accepted solely with the catalog's exact default scope, never a historical
+  // agent/profile/session/all selector that could imply unsupported authority.
+  if ((runtime === null) !== (scopeKind === null) || (scopeKind !== null && scopeKind !== "default")) return undefined;
   const from = parameters.get("from");
   const to = parameters.get("to");
   if ((from !== null && !isUtcCalendarDate(from)) || (to !== null && !isUtcCalendarDate(to)) || (from !== null && to !== null && from > to)) return undefined;
@@ -558,7 +566,7 @@ function mutationOperationQuery(path: string): MutationOperationQuery | undefine
     ...(outcome === null ? {} : { outcome: outcome as MutationOperationQuery["outcome"] }),
     ...(action === null ? {} : { action }),
     ...(runtime === null ? {} : { runtime }),
-    ...(scopeKind === null ? {} : { scopeKind: scopeKind as MutationOperationQuery["scopeKind"] }),
+    ...(scopeKind === null ? {} : { scopeKind: "default" as const }),
     ...(from === null ? {} : { from }),
     ...(to === null ? {} : { to }),
     ...(cursor === null ? {} : { cursor })
