@@ -60,6 +60,8 @@ const gate = test.extend({
 
 async function open(panel) {
   await panel.page.goto(panel.baseURL, { waitUntil: "domcontentloaded" });
+  const skip = panel.page.getByRole("button", { name: "Skip for now" });
+  if (await skip.isVisible()) await skip.click();
 }
 
 async function connect(panel) {
@@ -133,6 +135,34 @@ gate("uses a calm Home, Accounts, and More navigation model", async ({ panel }) 
   await expect(morePanel(panel)).toContainText("Advanced");
 });
 
+gate("offers a skippable, replayable first-run welcome without loading runtime data", async ({ panel }) => {
+  await panel.page.goto(panel.baseURL, { waitUntil: "domcontentloaded" });
+  const welcome = panel.page.locator("#onboarding-dialog");
+  await expect(welcome).toBeVisible();
+  await expect(welcome).toContainText("A local, redacted control panel");
+  await expect(welcome).toContainText("does not connect to a runtime");
+  await welcome.getByRole("button", { name: "Skip for now" }).click();
+  await expect(welcome).toBeHidden();
+  await expect(panel.page.getByLabel("Launch token")).toBeFocused();
+  await openMore(panel);
+  await panel.page.getByRole("button", { name: "Replay welcome" }).click();
+  await expect(welcome).toBeVisible();
+  await expect(welcome).toContainText("Step 1 of 4");
+  await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
+});
+
+gate("keeps first-run safety boundaries readable on a narrow screen", async ({ panel }) => {
+  await panel.page.setViewportSize({ width: 320, height: 720 });
+  await panel.page.goto(panel.baseURL, { waitUntil: "domcontentloaded" });
+  const welcome = panel.page.locator("#onboarding-dialog");
+  await welcome.getByRole("button", { name: "Continue" }).click();
+  await welcome.getByRole("button", { name: "Continue" }).click();
+  await expect(welcome).toContainText("Only supported actions are offered");
+  await expect(welcome).toContainText("Routing, model changes, and runtime sign-in changes remain unavailable without proof");
+  await expect.poll(() => panel.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
+});
+
 gate("keeps technical diagnostics behind an explicit Advanced disclosure", async ({ panel }) => {
   await open(panel);
   await connect(panel);
@@ -159,7 +189,8 @@ gate("keeps More connection and sign-in help easy to scan on a narrow screen", a
   await expect(help).toBeVisible();
   await expect(help).toContainText("Local connection");
   await expect(help).toContainText("Need to sign in?");
-  await expect(help.locator("article")).toHaveCount(2);
+  await expect(help).toContainText("Getting started");
+  await expect(help.locator("article")).toHaveCount(3);
   await expect(more.locator("#advanced-diagnostics")).not.toHaveAttribute("open", "");
   await expect.poll(() => panel.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());

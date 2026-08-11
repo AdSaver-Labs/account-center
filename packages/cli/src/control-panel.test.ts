@@ -24,6 +24,13 @@ test("local control panel serves a calm accessible shell without weakening safet
     assert.match(html, /aria-label="Everyday settings help"/);
     assert.match(html, /<h2>Local connection<\/h2>/);
     assert.match(html, /<h2>Need to sign in\?<\/h2>/);
+    assert.match(html, /id="onboarding-dialog"/);
+    assert.match(html, /Welcome to Account Center/);
+    assert.match(html, /Skip for now/);
+    assert.match(html, /id="replay-onboarding"[^>]*>Replay welcome/);
+    assert.match(html, /Only supported actions are offered/);
+    assert.match(html, /Routing, model changes, and runtime sign-in changes remain unavailable without proof/);
+    assert.doesNotMatch(html, /localStorage|sessionStorage/);
     assert.match(html, /id="guided-freshness" aria-describedby="guided-freshness-detail">Status unavailable/);
     assert.match(html, /Guided-auth records have not been checked\. No sign-in result is shown\./);
     assert.match(html, /id="audit-freshness" aria-describedby="audit-freshness-detail">Status unavailable/);
