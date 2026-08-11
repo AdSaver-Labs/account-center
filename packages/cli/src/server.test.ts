@@ -1149,16 +1149,45 @@ test("account preference contexts fail closed before local preference access", a
     await unobservedApp.close();
   }
 
-  const unavailableApp = createAccountCenterServer({ token: "test-token", source: null, accountUiPreferencesStore: forbiddenPreferences });
-  const unavailableAddress = await unavailableApp.listen();
-  try {
-    // Hermes is observed in the fixture, so only unavailable authority—not an
-    // unobserved selector—can explain this fixed fail-closed response.
-    for (const response of preferenceRequests(unavailableAddress.port, "hermes")) {
-      await assertHardenedJsonError(await response, 503, "status_unavailable", "private@example.test");
+  async function assertUnavailablePreferences(source: unknown): Promise<void> {
+    const unavailableApp = createAccountCenterServer({ token: "test-token", source, accountUiPreferencesStore: forbiddenPreferences });
+    const unavailableAddress = await unavailableApp.listen();
+    try {
+      // Hermes is observed in the fixture, so only unavailable authority—not an
+      // unobserved selector—can explain this fixed fail-closed response.
+      for (const response of preferenceRequests(unavailableAddress.port, "hermes")) {
+        await assertHardenedJsonError(await response, 503, "status_unavailable", "private@example.test");
+      }
+    } finally {
+      await unavailableApp.close();
     }
+  }
+
+  // Explicit null and undefined both reject adapter construction; neither may
+  // turn a protected preference read or update into durable collaborator work.
+  await assertUnavailablePreferences(null);
+  await assertUnavailablePreferences(undefined);
+
+  const directory = await mkdtemp(join(tmpdir(), "account-center-failed-preference-status-"));
+  const command = join(directory, "status-failure.js");
+  const hostileDiagnostic = "adapter-private@example.test";
+  await writeFile(command, `process.stderr.write(${JSON.stringify(hostileDiagnostic)}); process.exit(1);\n`);
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = `${process.execPath} ${command}`;
+  process.env.ACCOUNT_CENTER_GENERIC_ARGS = "";
+  try {
+    await assertUnavailablePreferences("generic-command");
+    // Invoke Node directly for the zero-exit case: its only output is an
+    // unusable object, so this is distinct from the preceding non-zero command.
+    process.env.ACCOUNT_CENTER_GENERIC_COMMAND = process.execPath;
+    process.env.ACCOUNT_CENTER_GENERIC_ARGS = "-e \"process.stdout.write('{}')\"";
+    await assertUnavailablePreferences("generic-command");
   } finally {
-    await unavailableApp.close();
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
   }
 });
 

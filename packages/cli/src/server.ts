@@ -101,16 +101,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query?.runtime || query.scope !== "default") return send(response, 400, { error: "invalid_runtime_scope" });
       // A missing authoritative snapshot is not evidence that the operator's
-      // selected context is invalid. Fail closed without reading or changing
-      // local preferences; only a present snapshot can disprove the context.
-      let status: AccountCenterStatus | undefined;
-      try {
-        const adapter = createRuntimeAdapter(source as RuntimeSource);
-        const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-        status = result.code === 0 ? result.status : undefined;
-      } catch {
-        status = undefined;
-      }
+      // selected context is invalid. Use the shared fail-closed authority
+      // boundary before reading or changing local preferences, so this
+      // protected mutation cannot drift from the normalized adapter-rejected,
+      // command-failed, and unusable-status contract.
+      const status = await authoritativeStatus(source);
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const scopeKey = `${query.runtime}|${query.scope}`;
