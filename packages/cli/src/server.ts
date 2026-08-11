@@ -226,28 +226,26 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/models") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-      if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
-      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicModelCatalogView(result.status, query.runtime) : { error: "status_unavailable" });
+      const status = await authoritativeStatus(source);
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "invalid_query" });
+      return send(response, 200, publicModelCatalogView(status, query.runtime));
     }
     if (pathname === "/api/limits") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-      if (result.status && !isObservedRuntimeScope(result.status, query)) return send(response, 400, { error: "invalid_query" });
-      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicLimitsInventoryView(result.status, query.runtime) : { error: "status_unavailable" });
+      const status = await authoritativeStatus(source);
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "invalid_query" });
+      return send(response, 200, publicLimitsInventoryView(status, query.runtime));
     }
     if (pathname === "/api/agent-connections") {
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicAgentConnectionInventoryView(result.status) : { error: "status_unavailable" });
+      const status = await authoritativeStatus(source);
+      return status ? send(response, 200, publicAgentConnectionInventoryView(status)) : send(response, 503, { error: "status_unavailable" });
     }
     if (request.url === "/api/scopes") {
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-      return send(response, result.code === 0 && result.status ? 200 : 500, result.status ? publicRuntimeScopeCatalogView(result.status) : { error: "status_unavailable" });
+      const status = await authoritativeStatus(source);
+      return status ? send(response, 200, publicRuntimeScopeCatalogView(status)) : send(response, 503, { error: "status_unavailable" });
     }
     if (pathname === "/api/auth-challenges") {
       // Lifecycle history is durable local state. Do not turn an unavailable
@@ -256,15 +254,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const query = authChallengeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
       if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
+      const status = await authoritativeStatus(source);
       // A runtime filter is an operator-selected context, not a free-form
       // history search. Do not turn a stale or mistyped runtime into a
       // misleading empty challenge list. Named historical scopes can still be
       // read for an observed runtime; scope discovery remains authoritative for
       // which contexts the UI may offer as selected contexts.
-      if (result.status && !isObservedRuntime(result.status, query.runtime)) return send(response, 400, { error: "invalid_query" });
-      if (result.code !== 0 || !result.status) return send(response, 500, { error: "status_unavailable" });
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      if (!isObservedRuntime(status, query.runtime)) return send(response, 400, { error: "invalid_query" });
       const inventory = await authChallengeInventory(options.challengeStore, query);
       // A syntactically opaque cursor can still be stale, mismatched to this
       // selected context, or fabricated. Reject it rather than returning an
@@ -464,10 +461,18 @@ function isObservedRuntime(status: AccountCenterStatus, runtime: string | undefi
 // unavailable context. This keeps selected history fail-closed without letting
 // adapter implementation details select a different error or reach a store.
 async function observedRuntimeFromStatus(source: unknown, runtime: string): Promise<boolean | undefined> {
+  const status = await authoritativeStatus(source);
+  return status ? isObservedRuntime(status, runtime) : undefined;
+}
+
+// Inventory views must not turn an adapter rejection or failed status command
+// into a generic server error. Their public data is authoritative only when a
+// successful status execution produced a snapshot.
+async function authoritativeStatus(source: unknown): Promise<AccountCenterStatus | undefined> {
   try {
     const adapter = createRuntimeAdapter(source as RuntimeSource);
     const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-    return result.code === 0 && result.status ? isObservedRuntime(result.status, runtime) : undefined;
+    return result.code === 0 ? result.status : undefined;
   } catch {
     return undefined;
   }

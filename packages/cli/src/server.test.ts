@@ -718,6 +718,53 @@ test("selected default-scope inventory reads require an exact observed runtime s
   }
 });
 
+test("protected inventories fail closed on unavailable status without reflecting adapter failures or opening challenge state", async () => {
+  const hostile = "private@example.test adapter failure";
+  const inventoryPaths = [
+    "/api/models?runtime=hermes&scope=default",
+    "/api/limits?runtime=hermes&scope=default",
+    "/api/agent-connections",
+    "/api/scopes",
+    "/api/auth-challenges?runtime=hermes&scope=default"
+  ];
+  const forbiddenChallenges = new Proxy({}, { get() { throw new Error("challenge_store_must_not_be_opened"); } }) as AuthChallengeStore;
+
+  async function assertUnavailableInventories(source: unknown): Promise<void> {
+    const app = createAccountCenterServer({ token: "test-token", source, challengeStore: forbiddenChallenges });
+    const address = await app.listen();
+    try {
+      for (const path of inventoryPaths) {
+        await assertHardenedJsonError(await request(address.port, path, "test-token"), 503, "status_unavailable", hostile);
+      }
+      // Parsing remains ahead of status discovery: malformed and repeated
+      // selectors must retain their fixed client-error contract.
+      for (const path of ["/api/models?runtime=hermes&runtime=openclaw", "/api/limits?scope=default"]) {
+        await assertHardenedJsonError(await request(address.port, path, "test-token"), 400, "invalid_query", hostile);
+      }
+    } finally {
+      await app.close();
+    }
+  }
+
+  await assertUnavailableInventories(null);
+
+  const directory = await mkdtemp(join(tmpdir(), "account-center-failed-status-"));
+  const command = join(directory, "status-failure.js");
+  await writeFile(command, `process.stderr.write(${JSON.stringify(hostile)}); process.exit(1);\n`);
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = `${process.execPath} ${command}`;
+  process.env.ACCOUNT_CENTER_GENERIC_ARGS = "";
+  try {
+    await assertUnavailableInventories("generic-command");
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
+  }
+});
+
 test("read-only runtime scope catalog is bearer-protected, versioned, and exposes no profile metadata", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
