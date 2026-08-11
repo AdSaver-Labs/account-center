@@ -63,8 +63,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         if (error instanceof RequestBodyError) return send(response, error.status, { error: error.code });
         throw error;
       }
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const status = (await executeAccountCenterCommand({ command: "status" }, { adapter })).status;
+      // Starting a challenge needs a present authoritative snapshot. Treat a
+      // rejected adapter/command exactly like an absent status so runtime
+      // diagnostics cannot escape through this protected mutation or cause a
+      // generic 500 after the request has passed its input boundary.
+      const status = await authoritativeStatus(source);
       if (!status) return send(response, 503, { error: "status_unavailable" });
       const result = await executeGuidedAuthLifecycle({ command: "guided_auth.start", status, input: body }, { challengeStore: options.challengeStore });
       if (result.kind === "challenge_store_unavailable") return send(response, 503, { error: result.kind });

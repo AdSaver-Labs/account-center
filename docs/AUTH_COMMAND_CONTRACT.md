@@ -69,7 +69,7 @@ provider + runtime + normalizedEmail + scopeKind + scopeId
 
 Account Center challenge state is authoritative for the app/API. Runtime worker/session/result files are adapter artifacts reconciled back into Account Center state.
 
-The supported local initiation endpoint is bearer-protected, same-origin `POST /api/auth-challenges`. Its JSON body is exactly `mode`, `provider`, `runtime`, `scope`, and `target`; only an observed runtime with the authoritative `default` scope is currently accepted. `target` is a valid email used only to derive the durable mode-specific uniqueness key and is never returned or stored. Replaying the same active mode/provider/runtime/email/scope returns the existing redacted challenge with `idempotent: true`; `add` and `reauth` never share that key.
+The supported local initiation endpoint is bearer-protected, same-origin `POST /api/auth-challenges`. Its JSON body is exactly `mode`, `provider`, `runtime`, `scope`, and `target`; only an observed runtime with the authoritative `default` scope is currently accepted. `target` is a valid email used only to derive the durable mode-specific uniqueness key and is never returned or stored. Replaying the same active mode/provider/runtime/email/scope returns the existing redacted challenge with `idempotent: true`; `add` and `reauth` never share that key. If authoritative runtime status is unavailable or fails, an otherwise valid start returns the fixed no-store `503 {"error":"status_unavailable"}` before any challenge state is read or written; it never returns adapter diagnostics or creates a challenge.
 
 ## Post-operation proof
 

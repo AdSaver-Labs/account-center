@@ -1093,6 +1093,45 @@ test("guided-auth creation rejects an unavailable challenge store before runtime
   }
 });
 
+test("guided-auth creation fails closed on unavailable status before opening challenge state", async () => {
+  const hostile = "private@example.test";
+  const adapterFailure = "adapter failure";
+  const forbiddenChallenges = new Proxy({}, { get() { throw new Error("challenge_store_must_not_be_opened"); } }) as AuthChallengeStore;
+  // Keep the request semantically valid: the status boundary, not lifecycle
+  // validation, must determine this result.
+  const validBody = JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: hostile });
+
+  async function assertUnavailableStart(source: unknown): Promise<void> {
+    const app = createAccountCenterServer({ token: "test-token", source, challengeStore: forbiddenChallenges });
+    const address = await app.listen();
+    try {
+      await assertHardenedJsonError(await rawChallengeRequest(address.port, {
+        token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/json", body: validBody
+      }), 503, "status_unavailable", hostile);
+    } finally {
+      await app.close();
+    }
+  }
+
+  await assertUnavailableStart(null);
+
+  const directory = await mkdtemp(join(tmpdir(), "account-center-failed-start-status-"));
+  const command = join(directory, "status-failure.js");
+  await writeFile(command, `process.stderr.write(${JSON.stringify(adapterFailure)}); process.exit(1);\n`);
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = `${process.execPath} ${command}`;
+  process.env.ACCOUNT_CENTER_GENERIC_ARGS = "";
+  try {
+    await assertUnavailableStart("generic-command");
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
+  }
+});
+
 test("audit history is bearer-protected, bounded, and redacted", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const auditStore = new AuditStore(join(root, "audit.json"));
