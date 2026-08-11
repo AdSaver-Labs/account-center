@@ -169,7 +169,16 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 413, { error: "request_body_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
-    if (request.method === "GET" && request.url === "/api/capabilities") return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore), Boolean(options.mutationRepository), Boolean(options.accountUiPreferencesStore)));
+    // Capability discovery is itself an authority-dependent protected read:
+    // advertising a local action while the current runtime cannot be verified
+    // would let a panel mistake stale store presence for an executable action.
+    // Establish authority before even constructing the manifest so unavailable
+    // adapters cannot leak diagnostics or cause any durable collaborator work.
+    if (request.method === "GET" && request.url === "/api/capabilities") {
+      const status = await authoritativeStatus(source);
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore), Boolean(options.mutationRepository), Boolean(options.accountUiPreferencesStore)));
+    }
     const auditId = request.method === "GET" ? auditRecordId(requestUrl.pathname) : undefined;
     if (auditId) {
       const query = durableDetailQuery(request.url ?? "/");

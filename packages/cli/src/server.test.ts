@@ -992,6 +992,66 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
   }
 });
 
+test("capability discovery fails closed on unavailable authority before constructing a manifest or opening durable collaborators", async () => {
+  // The hostile source would previously return a 200 manifest based only on
+  // store presence. Throwing collaborators ensure the unavailable-authority
+  // response cannot inspect durable state while redacting source diagnostics.
+  const hostileSource = "/srv/private/account-center/adapter --source=production";
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("capabilities_must_not_open_durable_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: hostileSource,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    await assertHardenedJsonError(await request(address.port, "/api/capabilities", "test-token"), 503, "status_unavailable", hostileSource);
+  } finally {
+    await app.close();
+  }
+});
+
+test("capability discovery uses the same fixed unavailable contract for absent, non-zero, and unusable authority", async () => {
+  for (const [source, hostileText] of [[null, "null"], [undefined, "undefined"]] as const) {
+    const app = createAccountCenterServer({ token: "test-token", source });
+    const address = await app.listen();
+    try {
+      await assertHardenedJsonError(await request(address.port, "/api/capabilities", "test-token"), 503, "status_unavailable", hostileText);
+    } finally {
+      await app.close();
+    }
+  }
+
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = process.execPath;
+  try {
+    let app = createAccountCenterServer({ token: "test-token", source: "generic-command" });
+    let address = await app.listen();
+    try {
+      await assertHardenedJsonError(await request(address.port, "/api/capabilities", "test-token"), 503, "status_unavailable", "--json");
+    } finally {
+      await app.close();
+    }
+    process.env.ACCOUNT_CENTER_GENERIC_ARGS = "-e \"process.stdout.write('{}')\"";
+    app = createAccountCenterServer({ token: "test-token", source: "generic-command" });
+    address = await app.listen();
+    try {
+      await assertHardenedJsonError(await request(address.port, "/api/capabilities", "test-token"), 503, "status_unavailable", "{} ");
+    } finally {
+      await app.close();
+    }
+  } finally {
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
+  }
+});
+
 test("unavailable protected local stores fail closed before runtime discovery and never look like empty history", async () => {
   // An explicit invalid source would produce an internal error if the
   // challenge inventory reached runtime discovery. Its 503 therefore proves
