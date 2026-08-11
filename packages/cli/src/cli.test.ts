@@ -1182,3 +1182,24 @@ test("/auth default output stays within the public status boundary", async () =>
     else process.env.ACCOUNT_CENTER_SOURCE = previousSource;
   }
 });
+
+test("Codex mutation-shaped CLI commands are blocked before runner or durable collaborators", async () => {
+  let calls = 0;
+  const runner = async () => { calls += 1; return { code: 0, stdout: "{}", stderr: "" }; };
+  for (const argv of [
+    ["routes", "use", "account-1", "--runtime", "codex", "--apply", "--json"],
+    ["accounts", "delete", "account-1", "--runtime", "codex", "--apply", "--json"],
+    ["models", "enable", "openai/model", "--runtime", "codex", "--apply", "--json"],
+    ["reauth", "start", "account-1", "--runtime", "codex", "--apply", "--json"],
+    ["auth", "/auth", "use", "account-1", "--runtime", "codex", "--apply", "--json"],
+    ["routes", "use", "account-1", "--runtime=codex", "--apply", "--json"],
+    ["guard", "--ensure-route", "--runtime=codex", "--apply", "--json"]
+  ]) {
+    const result = await runCli(argv, process.cwd(), { runner });
+    assert.equal(result.code, 2);
+    const view = JSON.parse(result.stdout);
+    assert.equal(view.state, "BLOCKED");
+    assert.equal(view.liveRuntimeMutation, false);
+  }
+  assert.equal(calls, 0);
+});

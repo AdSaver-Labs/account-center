@@ -103,6 +103,21 @@ test("public runtime scope catalog omits distinct unknown runtime keys without c
   });
 });
 
+test("Codex capability declarations remain read-only in public status and scope catalogs", () => {
+  const status = {
+    schemaVersion: "account-center.status.v1", generatedAt: "2026-07-17T12:00:00.000Z", noSecrets: true, source: "openclaw",
+    providers: [], profiles: [], routes: [], leases: [], reauth: [], audit: [], warnings: [],
+    policy: { minFiveHourRemainingPct: 0, minWeeklyRemainingPct: 0, allowBackupWhenNormalAvailable: false, disabledModels: [], staleAfterSeconds: 60 },
+    runtimes: [{ key: "codex", displayName: "private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }]
+  } as unknown as AccountCenterStatus;
+  const expected = { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false };
+  assert.deepEqual(publicStatusView(status).runtimes, [{ key: "codex", capabilities: expected }]);
+  assert.deepEqual(publicRuntimeScopeCatalogView(status), {
+    schemaVersion: "account-center.runtime-scopes.v1", generatedAt: "2026-07-17T12:00:00.000Z",
+    scopes: [{ runtime: "codex", scope: { kind: "default", id: "default" }, capabilities: expected }]
+  });
+});
+
 test("model truth remains bounded when catalog evidence is missing, malformed, stale, contradictory, or cross-runtime", () => {
   const status = {
     schemaVersion: "account-center.status.v1",

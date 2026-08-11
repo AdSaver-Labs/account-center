@@ -71,12 +71,7 @@ export function publicStatusView(status: AccountCenterStatus): PublicStatusView 
     source: publicSourceCategory(status.source),
     verificationState: "UNPROVEN",
     ...(isoTimestamp(status.generatedAt) ? { generatedAt: status.generatedAt } : {}),
-    runtimes: status.runtimes.map((runtime) => ({ key: publicRuntime(runtime.key), capabilities: {
-      readStatus: runtime.capabilities.readStatus === true,
-      mutateRoutes: runtime.capabilities.mutateRoutes === true,
-      startReauth: runtime.capabilities.startReauth === true,
-      mutateModels: runtime.capabilities.mutateModels === true
-    } })),
+    runtimes: status.runtimes.map((runtime) => ({ key: publicRuntime(runtime.key), capabilities: publicRuntimeCapabilities(runtime.key, runtime.capabilities) })),
     profiles: status.profiles.map((profile, index) => {
       const account = `account-${index + 1}`;
       return {
@@ -217,12 +212,12 @@ export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unkn
     const key = publicCatalogRuntime(runtime.key);
     if (!key) continue;
     const existing = scopes.get(key);
-    scopes.set(key, {
+    scopes.set(key, publicRuntimeCapabilities(key, {
       readStatus: existing?.readStatus === true || runtime.capabilities.readStatus === true,
       mutateRoutes: existing?.mutateRoutes === true || (trustsMutationCapabilities && runtime.capabilities.mutateRoutes === true),
       startReauth: existing?.startReauth === true || (trustsMutationCapabilities && runtime.capabilities.startReauth === true),
       mutateModels: existing?.mutateModels === true || (trustsMutationCapabilities && runtime.capabilities.mutateModels === true)
-    });
+    }));
   }
   return {
     schemaVersion: "account-center.runtime-scopes.v1",
@@ -232,6 +227,16 @@ export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unkn
       scope: { kind: "default", id: "default" },
       capabilities
     }))
+  };
+}
+
+/** Codex discovery is read-only until an exact native scoped write surface exists. */
+function publicRuntimeCapabilities(runtime: string, capabilities: { readStatus: boolean; mutateRoutes: boolean; startReauth: boolean; mutateModels: boolean }) {
+  return {
+    readStatus: capabilities.readStatus === true,
+    mutateRoutes: runtime === "codex" ? false : capabilities.mutateRoutes === true,
+    startReauth: runtime === "codex" ? false : capabilities.startReauth === true,
+    mutateModels: runtime === "codex" ? false : capabilities.mutateModels === true
   };
 }
 

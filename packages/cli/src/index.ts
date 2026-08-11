@@ -83,6 +83,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
       return { code: 1, stdout: "", stderr: `${error instanceof Error ? error.message : String(error)}\n` };
     }
   }
+  if (options.runtime === "codex" && isMutationCommand(command, subcommand, argv)) return codexReadOnlyFailure(options, command, subcommand);
   let adapter;
   try {
     adapter = createRuntimeAdapter(options.source, { cwd, runner: deps.runner });
@@ -208,11 +209,19 @@ export async function runCli(argv: string[], cwd = process.cwd(), deps: { runner
   return { code: 1, stdout: "", stderr: `Unknown command. Run account-center help.\n` };
 }
 
+function isMutationCommand(command: string | undefined, subcommand: string | undefined, argv: string[]): boolean {
+  return (command === "guard" && argv.includes("--ensure-route")) ||
+    (command === "routes" && ["auto", "use", "remove"].includes(subcommand ?? "")) ||
+    (command === "accounts" && ["disable", "enable", "delete"].includes(subcommand ?? "")) ||
+    (command === "models" && ["disable", "enable"].includes(subcommand ?? "")) ||
+    (command === "reauth" && subcommand === "start");
+}
+
 function parseOptions(argv: string[], cwd: string): CliOptions {
   return {
     json: argv.includes("--json"),
     provider: valueAfter(argv, "--provider") ?? "openai",
-    runtime: valueAfter(argv, "--runtime") ?? "openclaw",
+    runtime: runtimeOptionValue(argv) ?? "openclaw",
     scope: valueAfter(argv, "--scope") ?? "default",
     authMode: valueAfter(argv, "--mode"),
     model: valueAfter(argv, "--model"),
@@ -239,6 +248,11 @@ function parseAuditListLimit(value: string | undefined): number {
 function isOptionValue(argv: string[], arg: string): boolean {
   const index = argv.indexOf(arg);
   return index > 0 && argv[index - 1]?.startsWith("--") && !arg.startsWith("--");
+}
+
+function runtimeOptionValue(argv: string[]): string | undefined {
+  const equals = argv.find((arg) => arg.startsWith("--runtime="));
+  return equals ? equals.slice("--runtime=".length) : valueAfter(argv, "--runtime");
 }
 
 function valueAfter(argv: string[], key: string): string | undefined {
@@ -587,6 +601,22 @@ function genericCommandFailure(options: CliOptions, command?: string, subcommand
     state: "UNPROVEN" as const
   };
   return { code: 2, stdout: options.json ? json(view) : "Account Center: command UNPROVEN\nSource: generic-command\n" };
+}
+
+function codexReadOnlyFailure(options: CliOptions, command?: string, subcommand?: string): CliResult {
+  const action = command === "routes"
+    ? subcommand === "use" ? "route.use" : subcommand === "remove" ? "route.remove" : "route.auto"
+    : command === "accounts"
+      ? subcommand === "delete" ? "account.delete" : subcommand === "enable" ? "account.enable" : "account.disable"
+      : command === "models"
+        ? subcommand === "enable" ? "model.enable" : "model.disable"
+        : command === "reauth" ? "auth.reauth" : "guard.ensure_route";
+  const view: PublicMutationView = {
+    schemaVersion: "account-center.public-mutation.v1", verificationState: "UNPROVEN", applied: false, dryRun: true,
+    liveRuntimeMutation: false, state: "BLOCKED",
+    receipt: { id: "receipt-redacted", action, dryRun: true, target: "redacted-target" }
+  };
+  return { code: 2, stdout: options.json ? json(view) : renderMutation(view) };
 }
 
 
