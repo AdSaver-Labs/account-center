@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
@@ -707,7 +708,28 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
 }
 
 function authorized(request: IncomingMessage, token: string): boolean {
-  return request.headers.authorization === `Bearer ${token}`;
+  // Do not use the normalized `headers.authorization` value here: Node can
+  // discard duplicate singleton headers. Protected routes must fail closed on
+  // duplicate credentials rather than silently selecting one of them.
+  const authorizationValues = request.rawHeaders.flatMap((value, index) =>
+    index % 2 === 0 && value.toLowerCase() === "authorization" ? [request.rawHeaders[index + 1] ?? ""] : []
+  );
+  if (authorizationValues.length !== 1) return false;
+  const credential = bearerCredential(authorizationValues[0]);
+  if (!credential) return false;
+
+  // Hash both values before comparing so the constant-time primitive always
+  // receives fixed-size buffers, including for credentials of hostile length.
+  const suppliedDigest = createHash("sha256").update(credential, "utf8").digest();
+  const expectedDigest = createHash("sha256").update(token, "utf8").digest();
+  return timingSafeEqual(suppliedDigest, expectedDigest);
+}
+function bearerCredential(value: string): string | undefined {
+  // Bearer grammar is intentionally closed: exactly one canonical scheme,
+  // one separating space, and a non-empty single token. This rejects folded,
+  // comma-joined, and near-miss authorization forms before any collaborator.
+  const match = /^Bearer ([^\s,]+)$/.exec(value);
+  return match?.[1];
 }
 function hasRequestBody(request: IncomingMessage): boolean {
   return request.headers["transfer-encoding"] !== undefined || (request.headers["content-length"] !== undefined && request.headers["content-length"] !== "0");

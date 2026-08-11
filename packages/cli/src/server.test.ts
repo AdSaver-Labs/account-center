@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
@@ -65,6 +66,31 @@ async function rawPreferenceRequest(port: number, options: { token?: string; ori
       ...(options.contentType ? { "content-type": options.contentType } : {})
     },
     ...(options.body === undefined ? {} : { body: options.body })
+  });
+}
+
+async function rawAuthorizationChallengeRequest(port: number, authorization: string | string[], body: string): Promise<{ status: number; body: unknown; headers: Record<string, string | string[] | undefined> }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.once("error", reject);
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      const [head, text = ""] = response.split("\r\n\r\n", 2);
+      const [statusLine = "", ...headerLines] = head.split("\r\n");
+      const status = Number(/^HTTP\/\d\.\d (\d{3})/.exec(statusLine)?.[1] ?? 0);
+      const headers: Record<string, string> = {};
+      for (const line of headerLines) {
+        const separator = line.indexOf(":");
+        if (separator > 0) headers[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+      }
+      resolve({ status, body: text ? JSON.parse(text) : undefined, headers });
+    });
+    socket.on("connect", () => {
+      const credentials = (Array.isArray(authorization) ? authorization : [authorization]).map((value) => `Authorization: ${value}\r\n`).join("");
+      socket.end(`POST /api/auth-challenges HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${credentials}Origin: http://127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+    });
   });
 }
 
@@ -183,6 +209,47 @@ test("protected API rejects bearer near-misses and unsafe mutation representatio
     const oversized = await rawChallengeRequest(address.port, { token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/json; charset=utf-8", body: `{\"target\":\"${"x".repeat(4_100)}\"}` });
     assert.equal(oversized.status, 413);
     assert.deepEqual(await oversized.json(), { error: "request_body_too_large" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected API rejects malformed and duplicate bearer credentials before every collaborator", async () => {
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("rejected_bearer_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const hostile = "private@example.test";
+  const body = JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: hostile });
+  try {
+    for (const authorization of [
+      "bearer test-token",
+      "Bearer",
+      "Bearer  test-token",
+      "Bearer test-token extra",
+      "Basic test-token",
+      "Bearer test-token, Bearer other-token",
+      "Bearer x-test-token",
+      "Bearer test-token-x",
+      "Bearer x",
+      `Bearer ${"x".repeat(8_192)}`,
+      ["Bearer test-token", "Bearer test-token"]
+    ] as Array<string | string[]>) {
+      const response = await rawAuthorizationChallengeRequest(address.port, authorization, body);
+      assert.equal(response.status, 401);
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.deepEqual(response.body, { error: "unauthorized" });
+      assert.equal(JSON.stringify(response.body).includes(hostile), false);
+    }
+    const accepted = await rawAuthorizationChallengeRequest(address.port, "Bearer test-token", body);
+    assert.equal(accepted.status, 503);
+    assert.deepEqual(accepted.body, { error: "status_unavailable" });
   } finally {
     await app.close();
   }
