@@ -31,5 +31,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Functional, type, build, browser, accessibility gate
         run: npm run qa
+      - name: Clean-install release verification
+        run: npm run verify:clean-install
+      - name: Fixture-only panel smoke
+        run: npm run smoke:panel
       - name: Dependency and tracked-secret gate
         run: npm run qa:security
