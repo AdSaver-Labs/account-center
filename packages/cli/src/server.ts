@@ -270,13 +270,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!query) return send(response, 400, { error: "invalid_query" });
       if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
       const status = await authoritativeStatus(source);
-      // A runtime filter is an operator-selected context, not a free-form
-      // history search. Do not turn a stale or mistyped runtime into a
-      // misleading empty challenge list. Named historical scopes can still be
-      // read for an observed runtime; scope discovery remains authoritative for
-      // which contexts the UI may offer as selected contexts.
+      // A selected runtime/scope is authority-bound context, not a free-form
+      // history search. Do not turn a stale runtime or unpublished named scope
+      // into a misleading empty list (or let it open another scope's durable
+      // lifecycle history). An intentionally unscoped inventory remains the
+      // documented aggregate protected read; every supplied scope is exact.
       if (!status) return send(response, 503, { error: "status_unavailable" });
-      if (!isObservedRuntime(status, query.runtime)) return send(response, 400, { error: "invalid_query" });
+      if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const inventory = await authChallengeInventory(options.challengeStore, query);
       // A syntactically opaque cursor can still be stale, mismatched to this
       // selected context, or fabricated. Reject it rather than returning an
