@@ -332,10 +332,7 @@ test("status API fails closed for a hostile adapter source label without echoing
   const address = await app.listen();
   try {
     const response = await request(address.port, "/api/status", "test-token");
-    assert.equal(response.status, 500);
-    const body = await response.text();
-    assert.deepEqual(JSON.parse(body), { error: "internal_error" });
-    assert.equal(body.includes(hostileSource), false);
+    await assertHardenedJsonError(response, 503, "status_unavailable", hostileSource);
   } finally {
     await app.close();
   }
@@ -346,8 +343,7 @@ test("status API fails closed for an explicit null source instead of selecting t
   const address = await app.listen();
   try {
     const response = await request(address.port, "/api/status", "test-token");
-    assert.equal(response.status, 500);
-    assert.deepEqual(await response.json(), { error: "internal_error" });
+    await assertHardenedJsonError(response, 503, "status_unavailable", "null");
   } finally {
     await app.close();
   }
@@ -358,10 +354,41 @@ test("status API fails closed for an explicitly undefined source instead of sele
   const address = await app.listen();
   try {
     const response = await request(address.port, "/api/status", "test-token");
-    assert.equal(response.status, 500);
-    assert.deepEqual(await response.json(), { error: "internal_error" });
+    await assertHardenedJsonError(response, 503, "status_unavailable", "undefined");
   } finally {
     await app.close();
+  }
+});
+
+test("status API fails closed when the authoritative status command exits non-zero", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = process.execPath;
+  const app = createAccountCenterServer({ token: "test-token", source: "generic-command" });
+  const address = await app.listen();
+  try {
+    await assertHardenedJsonError(await request(address.port, "/api/status", "test-token"), 503, "status_unavailable", "--json");
+  } finally {
+    await app.close();
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+  }
+});
+
+test("status API fails closed when a zero-exit status command returns no usable snapshot", async () => {
+  const previousCommand = process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+  const previousArgs = process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+  process.env.ACCOUNT_CENTER_GENERIC_COMMAND = process.execPath;
+  process.env.ACCOUNT_CENTER_GENERIC_ARGS = "-e \"process.stdout.write('{}')\"";
+  const app = createAccountCenterServer({ token: "test-token", source: "generic-command" });
+  const address = await app.listen();
+  try {
+    await assertHardenedJsonError(await request(address.port, "/api/status", "test-token"), 503, "status_unavailable", "{} ");
+  } finally {
+    await app.close();
+    if (previousCommand === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_COMMAND;
+    else process.env.ACCOUNT_CENTER_GENERIC_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.ACCOUNT_CENTER_GENERIC_ARGS;
+    else process.env.ACCOUNT_CENTER_GENERIC_ARGS = previousArgs;
   }
 });
 

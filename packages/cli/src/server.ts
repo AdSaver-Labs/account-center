@@ -289,9 +289,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
     if (request.url === "/api/status") {
-      const adapter = createRuntimeAdapter(source as RuntimeSource);
-      const result = await executeAccountCenterCommand({ command: "status" }, { adapter });
-      return send(response, result.code === 0 ? 200 : 500, result.status ? publicStatusView(result.status) : { error: "status_unavailable" });
+      const status = await authoritativeStatus(source);
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      return send(response, 200, publicStatusView(status));
     }
       return send(response, 404, { error: "not_found" });
     } catch {
