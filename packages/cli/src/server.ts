@@ -188,7 +188,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // authoritative empty history.
       if (query.runtime) {
         const observed = await observedRuntimeFromStatus(source, query.runtime);
-        if (observed === undefined) return send(response, 500, { error: "status_unavailable" });
+        if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
         if (!observed) return send(response, 400, { error: "invalid_query" });
       }
       const history = await auditHistory(options.auditStore, query);
@@ -205,7 +205,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // status validation still precedes any repository read.
       if (query.runtime) {
         const observed = await observedRuntimeFromStatus(source, query.runtime);
-        if (observed === undefined) return send(response, 500, { error: "status_unavailable" });
+        if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
         if (!observed) return send(response, 400, { error: "invalid_query" });
       }
       const history = await mutationOperationHistory(options.mutationRepository, query);

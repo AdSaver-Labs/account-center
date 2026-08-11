@@ -974,7 +974,7 @@ test("selected protected histories reject unobserved runtimes before durable his
   }
 });
 
-test("selected protected histories fail closed on unavailable status before durable history access", async () => {
+test("selected protected histories match durable detail 503 status-unavailable semantics before durable access", async () => {
   const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("unavailable_status_must_not_access_history"); } });
   const app = createAccountCenterServer({
     token: "test-token",
@@ -985,7 +985,7 @@ test("selected protected histories fail closed on unavailable status before dura
   const address = await app.listen();
   try {
     for (const path of ["/api/audit?runtime=hermes", "/api/mutation-operations?runtime=hermes"]) {
-      await assertHardenedJsonError(await request(address.port, path, "test-token"), 500, "status_unavailable", "hermes");
+      await assertHardenedJsonError(await request(address.port, path, "test-token"), 503, "status_unavailable", "hermes");
     }
   } finally {
     await app.close();
