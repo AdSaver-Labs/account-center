@@ -148,7 +148,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // through to the generic error handler or opens either store on doubt.
       const status = await authoritativeStatus(source);
       if (!status) return send(response, 503, { error: "status_unavailable" });
-      if (!isObservedRuntime(status, query.runtime)) return send(response, 400, { error: "unknown_runtime_scope" });
+      // The public scope catalog currently authorizes only a runtime's exact
+      // default scope. Do not let a syntactically valid historical-looking
+      // scope select a cancellation context before that scope is published as
+      // authoritative evidence.
+      if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       // Do not let a selected context mutate a challenge from another context
       // or turn its opaque ID into an existence oracle. This read happens
       // before the lifecycle executor can mutate challenge/audit state.
@@ -286,12 +290,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!query) return send(response, 400, { error: "invalid_query" });
       if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
       // A detail is evidence for the selected runtime and scope, not an opaque
-      // ID escape hatch into another context. Verify current runtime authority
-      // before opening durable state, then bind the record exactly without
+      // ID escape hatch into another context. Verify the current exact public
+      // context before opening durable state, then bind the record without
       // disclosing whether the opaque ID exists in another context.
-      const observed = await observedRuntimeFromStatus(source, query.runtime);
-      if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
-      if (!observed) return send(response, 400, { error: "unknown_runtime_scope" });
+      const status = await authoritativeStatus(source);
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const challenge = await options.challengeStore.getReadOnly(challengeId);
       if (!challenge || challenge.runtime !== query.runtime || challenge.scope !== query.scope) return send(response, 404, { error: "not_found" });
       return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });

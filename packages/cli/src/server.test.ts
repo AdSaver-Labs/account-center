@@ -1930,13 +1930,13 @@ test("guided-auth challenge history is newest-first, cursor-paginated, and remai
   }
 });
 
-test("guided-auth challenge detail is bearer-protected, redacted, and bound to its exact selected context", async () => {
+test("guided-auth challenge detail is bearer-protected, redacted, and bound to its authoritative exact selected context", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
-  const challenge = await challenges.create({ mode: "add", provider: "openai", runtime: "hermes", target: "private@example.test", scope: "agent:main" });
+  const challenge = await challenges.create({ mode: "add", provider: "openai", runtime: "hermes", target: "private@example.test", scope: "default" });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
   const address = await app.listen();
-  const path = `/api/auth-challenges/${challenge.id}?runtime=hermes&scope=agent%3Amain`;
+  const path = `/api/auth-challenges/${challenge.id}?runtime=hermes&scope=default`;
   try {
     assert.equal((await request(address.port, path)).status, 401);
     const accepted = await request(address.port, path, "test-token");
@@ -1947,15 +1947,36 @@ test("guided-auth challenge detail is bearer-protected, redacted, and bound to i
     assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(Object.keys(body.challenge).sort(), ["createdAt", "id", "mode", "provider", "runtime", "scope", "status", "updatedAt"]);
     assert.equal(JSON.stringify(body).includes("private@example.test"), false);
-    assert.equal((await request(address.port, `/api/auth-challenges/${challenge.id}?runtime=hermes&scope=default`, "test-token")).status, 404);
-    assert.equal((await request(address.port, `/api/auth-challenges/${challenge.id}?runtime=openclaw&scope=agent%3Amain`, "test-token")).status, 404);
-    for (const suffix of ["", "?runtime=hermes", "?scope=agent%3Amain", "?runtime=hermes&scope=agent%3Amain&scope=agent%3Amain", "?runtime=hermes&scope=agent%3Amain&probe=private%40example.test"]) {
+    const unpublishedScope = await request(address.port, `/api/auth-challenges/${challenge.id}?runtime=hermes&scope=agent%3Amain`, "test-token");
+    assert.equal(unpublishedScope.status, 400);
+    assert.deepEqual(await unpublishedScope.json(), { error: "unknown_runtime_scope" });
+    assert.equal((await request(address.port, `/api/auth-challenges/${challenge.id}?runtime=openclaw&scope=default`, "test-token")).status, 404);
+    for (const suffix of ["", "?runtime=hermes", "?scope=default", "?runtime=hermes&scope=default&scope=default", "?runtime=hermes&scope=default&probe=private%40example.test"]) {
       const rejected = await request(address.port, `/api/auth-challenges/${challenge.id}${suffix}`, "test-token");
       assert.equal(rejected.status, 400, suffix);
       assert.deepEqual(await rejected.json(), { error: "invalid_query" }, suffix);
       assert.equal(rejected.headers.get("cache-control"), "no-store", suffix);
     }
-    assert.equal((await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=hermes&scope=agent%3Amain", "test-token")).status, 404);
+    assert.equal((await request(address.port, "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=hermes&scope=default", "test-token")).status, 404);
+  } finally {
+    await app.close();
+  }
+});
+
+test("guided-auth detail and cancellation reject an unpublished exact scope before durable lifecycle access", async () => {
+  const id = "auth_00000000-0000-4000-8000-000000000000";
+  const forbiddenChallenges = new Proxy({}, { get() { throw new Error("unpublished_scope_must_not_open_challenge_store"); } }) as AuthChallengeStore;
+  const forbiddenAudit = new Proxy({}, { get() { throw new Error("unpublished_scope_must_not_open_audit_store"); } }) as AuditStore;
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: forbiddenChallenges, auditStore: forbiddenAudit });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const detailPath = `/api/auth-challenges/${id}?runtime=hermes&scope=agent%3Amain`;
+  const cancelPath = `/api/auth-challenges/${id}/cancel?runtime=hermes&scope=agent%3Amain`;
+  try {
+    await assertHardenedJsonError(await fetch(`${origin}${detailPath}`, { headers: { authorization: "Bearer test-token" } }), 400, "unknown_runtime_scope", "unpublished_scope_must_not_open");
+    await assertHardenedJsonError(await fetch(`${origin}${cancelPath}`, {
+      method: "POST", headers: { authorization: "Bearer test-token", origin }
+    }), 400, "unknown_runtime_scope", "unpublished_scope_must_not_open");
   } finally {
     await app.close();
   }
@@ -2218,7 +2239,11 @@ test("guided-auth cancellation binds an opaque ID to one selected runtime and sc
       fetch(`${origin}${path}?runtime=openclaw&scope=agent%3Amain`, { method: "POST", headers })
     ]);
     const failures = await Promise.all([unknown, crossRuntime, crossScope].map(async (response) => ({ status: response.status, cache: response.headers.get("cache-control"), body: await response.text() })));
-    assert.deepEqual(failures, Array(3).fill({ status: 404, cache: "no-store", body: '{"error":"not_found"}' }));
+    assert.deepEqual(failures, [
+      { status: 404, cache: "no-store", body: '{"error":"not_found"}' },
+      { status: 404, cache: "no-store", body: '{"error":"not_found"}' },
+      { status: 400, cache: "no-store", body: '{"error":"unknown_runtime_scope"}' }
+    ]);
     assert.equal((await challenges.get(challenge.id))?.status, "pending");
     assert.equal((await auditStore.list()).length, 0);
     assert.equal((await fetch(`${origin}${path}?runtime=openclaw&scope=default`, { method: "POST", headers })).status, 200);
