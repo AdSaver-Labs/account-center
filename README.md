@@ -103,7 +103,7 @@ rm -rf "$state_dir" "$(dirname "$token_file")"
 unset ACCOUNT_CENTER_LAUNCH_TOKEN
 ```
 
-`npm run verify:clean-install` independently proves this path from a clean temporary archive: it runs `npm ci` and the build, launches the fixture panel on an ephemeral loopback port, rejects missing and incorrect bearers, obtains redacted authenticated status, and removes all temporary state. The Node 24 quality-gates workflow runs that verification for every source change.
+`npm run verify:clean-install` independently proves this path from a clean temporary archive: it runs `npm ci` and the build, launches the fixture panel on an ephemeral loopback port, rejects missing and incorrect bearers, obtains redacted authenticated status and the explicitly selected `runtime=hermes&scope=default` account-visibility preference view, and removes all temporary state. The Node 24 quality-gates workflow runs that verification for every source change.
 
 ### Runtime-connected panel (read-only status discovery)
 
@@ -129,7 +129,7 @@ Before opening the panel, or after updating it, run:
 npm run smoke:panel
 ```
 
-This starts a temporary loopback-only fixture panel, verifies the protected status and token-free account-visibility preference endpoint, then removes its temporary state. It does not read live credentials, route an account, or delete anything.
+This starts a temporary loopback-only fixture panel, verifies protected status and the bearer-protected account-visibility preference endpoint for the fixture's explicit `runtime=hermes&scope=default` selection, then removes its temporary state. Its preference projection is token-free and redacted. It does not read live credentials, route an account, or delete anything.
 
 ### Account visibility
 

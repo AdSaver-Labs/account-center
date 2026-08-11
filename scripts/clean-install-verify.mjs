@@ -82,6 +82,11 @@ try {
   assert.equal(status.schemaVersion, "account-center.public-status.v1", "authenticated status must be public and redacted");
   assert.equal("token" in status, false, "status must not expose a top-level launch token");
   assert.equal(serializedStatus.includes(token), false, "status must not expose the launch token at any depth");
+  const preferencesResponse = await fetch(`${base}/api/account-ui-preferences?runtime=hermes&scope=default`, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(preferencesResponse.status, 200, "panel must return authenticated scoped fixture account visibility preferences");
+  const preferences = await preferencesResponse.json();
+  assert.deepEqual(preferences, { schemaVersion: "account-center.account-ui-preferences.v1", hiddenAccountRefs: [] }, "preferences must be a versioned, redacted empty fixture projection");
+  assert.equal(JSON.stringify(preferences).includes(token), false, "preferences must not expose the launch token at any depth");
   process.stdout.write("Account Center clean Node install verification: passed\n");
 } finally {
   await stopPanel();
