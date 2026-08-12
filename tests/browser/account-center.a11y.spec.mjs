@@ -1244,7 +1244,7 @@ gate("keeps a non-canonical runtime scope catalog timestamp UNPROVEN without sel
 });
 
 gate("keeps a non-canonical agent-connection inventory timestamp UNPROVEN without exposing connections", async ({ panel }) => {
-  await panel.page.route("**/api/agent-connections", async (route) => {
+  await panel.page.route("**/api/agent-connections?*", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -1270,7 +1270,7 @@ gate("keeps a non-canonical agent-connection inventory timestamp UNPROVEN withou
 });
 
 gate("fails closed when an otherwise valid agent-connection record includes an unexpected property", async ({ panel }) => {
-  await panel.page.route("**/api/agent-connections", async (route) => {
+  await panel.page.route("**/api/agent-connections?*", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -1296,7 +1296,7 @@ gate("fails closed when an otherwise valid agent-connection record includes an u
 });
 
 gate("keeps a malformed scoped account lease UNPROVEN instead of claiming it verified", async ({ panel }) => {
-  await panel.page.route("**/api/agent-connections", async (route) => {
+  await panel.page.route("**/api/agent-connections?*", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -1334,7 +1334,7 @@ gate("keeps a malformed scoped account lease UNPROVEN instead of claiming it ver
 });
 
 gate("renders the verified label only for a fully matching scoped account lease", async ({ panel }) => {
-  await panel.page.route("**/api/agent-connections", async (route) => {
+  await panel.page.route("**/api/agent-connections?*", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -1372,7 +1372,7 @@ gate("renders the verified label only for a fully matching scoped account lease"
 });
 
 gate("fails closed when a scoped account lease includes an unexpected property", async ({ panel }) => {
-  await panel.page.route("**/api/agent-connections", async (route) => {
+  await panel.page.route("**/api/agent-connections?*", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({

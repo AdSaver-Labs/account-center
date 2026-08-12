@@ -22,7 +22,7 @@ Each agent must be explicitly connected once. Every connected agent sees every c
 
 ## Canonical redacted contract
 
-`GET /api/agent-connections` is an owner-only, bearer-protected read endpoint returning `account-center.agent-connections.v1`. It contains only opaque `connection-*` and `account-*` references, exact runtime/scope, explicit redacted pairing state (`paired-verified`, `paired-unverified`, or `unpaired`), weekly capacity, route state, and local onboarding guidance. It contains no email, profile label, provider credential, OAuth artifact, or five-hour availability window.
+`GET /api/agent-connections?runtime=<hermes|openclaw>&scope=default` is an owner-only, bearer-protected read endpoint returning `account-center.agent-connections.v1`. Both selectors are required exactly once and must be observed in the authoritative status snapshot; missing, duplicate, malformed, or unobserved selectors fail closed. It returns only the selected runtime's opaque `connection-*` and `account-*` references for that authoritative public scope, explicit redacted pairing state (`paired-verified`, `paired-unverified`, or `unpaired`), weekly capacity, route state, and local onboarding guidance. It contains no email, profile label, provider credential, OAuth artifact, or five-hour availability window.
 
 When an adapter resolves a local credential for one exact account, Account Center returns a `account-center.scoped-account-lease.v1` record. A lease is valid only for its listed runtime and scope. It is not transferable to another agent or runtime. `needs-auth` is the required state for an unresolved local credential, even when the same redacted account is usable in a different runtime.
 

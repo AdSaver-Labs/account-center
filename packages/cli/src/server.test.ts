@@ -375,17 +375,29 @@ test("unsupported preference methods fail closed before local state or runtime d
   }
 });
 
-test("agent connection inventory is protected, redacted, and weekly-only", async () => {
+test("agent connection inventory requires an exact observed context and is protected, redacted, and weekly-only", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
   try {
     assert.equal((await request(address.port, "/api/agent-connections")).status, 401);
-    const accepted = await request(address.port, "/api/agent-connections", "test-token");
+    for (const path of [
+      "/api/agent-connections",
+      "/api/agent-connections?runtime=hermes",
+      "/api/agent-connections?scope=default",
+      "/api/agent-connections?runtime=hermes&scope=default&scope=default",
+      "/api/agent-connections?runtime=codex&scope=default",
+      "/api/agent-connections?runtime=hermes&scope=agent:qa"
+    ]) {
+      const rejected = await request(address.port, path, "test-token");
+      assert.equal(rejected.status, 400, path);
+      assert.deepEqual(await rejected.json(), { error: "invalid_query" }, path);
+      assert.equal(rejected.headers.get("cache-control"), "no-store", path);
+    }
+    const accepted = await request(address.port, "/api/agent-connections?runtime=openclaw&scope=default", "test-token");
     assert.equal(accepted.status, 200);
     const body = await accepted.json() as { inventory: Array<{ runtime: string; state: string; accounts: Array<{ accountRef: string; state: string; pairing: string; weeklyRemainingPct: number | null; lease?: unknown }> }> };
     assert.deepEqual(body.inventory.map((item) => ({ runtime: item.runtime, state: item.state, account: item.accounts[0] })), [
-      { runtime: "openclaw", state: "connected", account: { accountRef: "account-1", state: "usable", pairing: "paired-verified", weeklyRemainingPct: 68, routeState: "selected", lease: { schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-connection-7ccd485d48f8e6adc2d8b251-account-1", connectionRef: "connection-7ccd485d48f8e6adc2d8b251", accountRef: "account-1", runtime: "openclaw", state: "verified" } } },
-      { runtime: "hermes", state: "needs-auth", account: { accountRef: "account-1", state: "needs-auth", pairing: "paired-unverified", weeklyRemainingPct: 68, routeState: "not-routed" } }
+      { runtime: "openclaw", state: "connected", account: { accountRef: "account-1", state: "usable", pairing: "paired-verified", weeklyRemainingPct: 68, routeState: "selected", lease: { schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-connection-7ccd485d48f8e6adc2d8b251-account-1", connectionRef: "connection-7ccd485d48f8e6adc2d8b251", accountRef: "account-1", runtime: "openclaw", state: "verified" } } }
     ]);
     assert.equal(JSON.stringify(body).match(/helper-|five-hour|token|secret|agent:|--scope|connect-agent/i), null);
   } finally {
@@ -538,7 +550,7 @@ test("protected-route method matrix rejects every unsupported body-bearing varia
     const routes: Array<[string, string[]]> = [
       ["/api/capabilities", ["GET"]], ["/api/status", ["GET"]], ["/api/scopes", ["GET"]],
       ["/api/models?runtime=hermes&scope=default", ["GET"]], ["/api/limits?runtime=hermes&scope=default", ["GET"]],
-      ["/api/agent-connections", ["GET"]], ["/api/audit?runtime=hermes&scopeKind=default", ["GET"]],
+      ["/api/agent-connections?runtime=hermes&scope=default", ["GET"]], ["/api/audit?runtime=hermes&scopeKind=default", ["GET"]],
       ["/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=hermes&scopeKind=default", ["GET"]],
       ["/api/mutation-operations?runtime=hermes&scopeKind=default", ["GET"]], ["/api/mutation-operations/op_test?runtime=hermes&scopeKind=default", ["GET"]],
       ["/api/auth-challenges?runtime=hermes&scope=default", ["GET", "POST"]],
@@ -579,17 +591,18 @@ test("protected routes reject unsupported queries before durable stores or runti
   try {
     const hostile = "private@example.test";
     const routes: Array<[string, string]> = [
-      ["/api/capabilities", "GET"], ["/api/status", "GET"], ["/api/scopes", "GET"], ["/api/agent-connections", "GET"],
+      ["/api/capabilities", "GET"], ["/api/status", "GET"], ["/api/scopes", "GET"], ["/api/agent-connections?runtime=hermes&scope=default", "GET"],
       ["/api/audit/audit_00000000-0000-4000-8000-000000000000", "GET"], ["/api/mutation-operations/op_test", "GET"],
       ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000?runtime=hermes&scope=default", "GET"],
       ["/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel", "POST"], ["/api/auth-challenges", "POST"]
     ];
-    for (const [path, method] of routes) for (const query of [`?probe=${encodeURIComponent(hostile)}`, "?"]) {
-      const rejected = await bodyRequest(address.port, `${path}${query}`, "test-token", method, hostile);
-      assert.equal(rejected.status, 400, `${method} ${path}${query}`);
-      assert.deepEqual(rejected.body, { error: "invalid_query" }, `${method} ${path}${query}`);
-      assert.equal(rejected.headers["cache-control"], "no-store", `${method} ${path}${query}`);
-      assert.equal(JSON.stringify(rejected.body).includes(hostile), false, `${method} ${path}${query}`);
+    for (const [path, method] of routes) for (const query of [`${path.includes("?") ? "&" : "?"}probe=${encodeURIComponent(hostile)}`, "?"]) {
+      const target = query === "?" ? `${path}?` : `${path}${query}`;
+      const rejected = await bodyRequest(address.port, target, "test-token", method, hostile);
+      assert.equal(rejected.status, 400, `${method} ${target}`);
+      assert.deepEqual(rejected.body, { error: "invalid_query" }, `${method} ${target}`);
+      assert.equal(rejected.headers["cache-control"], "no-store", `${method} ${target}`);
+      assert.equal(JSON.stringify(rejected.body).includes(hostile), false, `${method} ${target}`);
     }
   } finally {
     await app.close();
@@ -655,7 +668,7 @@ test("protected GET matrix rejects request bodies before status or durable colla
   const address = await app.listen();
   try {
     for (const path of [
-      "/api/capabilities", "/api/status", "/api/scopes", "/api/agent-connections",
+      "/api/capabilities", "/api/status", "/api/scopes", "/api/agent-connections?runtime=hermes&scope=default",
       "/api/models?runtime=hermes&scope=default", "/api/limits?runtime=hermes&scope=default",
       "/api/account-ui-preferences?runtime=hermes&scope=default", "/api/audit?runtime=hermes&scopeKind=default",
       "/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=hermes&scopeKind=default",
@@ -817,7 +830,7 @@ test("protected inventories fail closed on unavailable status without reflecting
   const inventoryPaths = [
     "/api/models?runtime=hermes&scope=default",
     "/api/limits?runtime=hermes&scope=default",
-    "/api/agent-connections",
+    "/api/agent-connections?runtime=hermes&scope=default",
     "/api/scopes",
     "/api/auth-challenges?runtime=hermes&scope=default"
   ];

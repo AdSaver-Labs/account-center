@@ -37,9 +37,15 @@ export interface AgentConnectionInventory {
  * inventory. It never accepts credential material and never borrows a proof
  * from another runtime/scope.
  */
-export function publicAgentConnectionInventoryView(status: AccountCenterStatus): AgentConnectionInventory {
+export function publicAgentConnectionInventoryView(status: AccountCenterStatus, selected: { runtime: "hermes" | "openclaw"; scope: string }): AgentConnectionInventory {
   const accountRefById = new Map(status.profiles.map((profile, index) => [profile.id, `account-${index + 1}`]));
-  const knownConnections = (status.agentConnections ?? []).filter(isSupportedConnection);
+  // The caller has already verified this selector against authoritative status.
+  // The selected public scope is verified by the caller against authoritative
+  // status. Connection scopes themselves stay private, so this projection is
+  // bounded by the selected runtime rather than disclosing that private label.
+  const knownConnections = (status.agentConnections ?? [])
+    .filter(isSupportedConnection)
+    .filter((connection) => connection.runtime === selected.runtime);
   return {
     schemaVersion: "account-center.agent-connections.v1",
     generatedAt: validTimestamp(status.generatedAt) ? status.generatedAt : "unknown",

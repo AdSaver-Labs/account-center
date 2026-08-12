@@ -3,17 +3,16 @@ import assert from "node:assert/strict";
 import { loadFixtureStatus } from "./fixtures.js";
 import { publicAgentConnectionInventoryView, verifyAgentConnection } from "./agent-connections.js";
 
-test("one redacted account is visible through Hermes and OpenClaw without credential output", async () => {
-  const inventory = publicAgentConnectionInventoryView(await loadFixtureStatus());
+test("one redacted account inventory is visible through OpenClaw without credential output", async () => {
+  const inventory = publicAgentConnectionInventoryView(await loadFixtureStatus(), { runtime: "openclaw", scope: "default" });
   assert.deepEqual(inventory.inventory.map((connection) => ({ runtime: connection.runtime, accounts: connection.accounts.length, first: connection.accounts[0]?.accountRef, weekly: connection.accounts[0]?.weeklyRemainingPct })), [
-    { runtime: "openclaw", accounts: 4, first: "account-1", weekly: 68 },
-    { runtime: "hermes", accounts: 4, first: "account-1", weekly: 68 }
+    { runtime: "openclaw", accounts: 4, first: "account-1", weekly: 68 }
   ]);
   assert.equal(JSON.stringify(inventory).match(/helper-|token|secret|five-hour/i), null);
 });
 
 test("unresolved Hermes credentials are needs-auth and never borrow OpenClaw proof", async () => {
-  const inventory = publicAgentConnectionInventoryView(await loadFixtureStatus());
+  const inventory = publicAgentConnectionInventoryView(await loadFixtureStatus(), { runtime: "hermes", scope: "default" });
   const hermes = inventory.inventory.find((connection) => connection.runtime === "hermes");
   assert.equal(hermes?.state, "needs-auth");
   assert.deepEqual(hermes?.accounts[0], { accountRef: "account-1", state: "needs-auth", pairing: "paired-unverified", weeklyRemainingPct: 68, routeState: "not-routed" });
@@ -26,7 +25,7 @@ test("successful Hermes verification creates only a scoped redacted lease", asyn
   const connection = status.agentConnections?.find((candidate) => candidate.runtime === "hermes");
   assert.ok(connection);
   status.agentConnections = status.agentConnections?.map((candidate) => candidate.id === connection.id ? verifyAgentConnection(candidate, "openai:helper-1") : candidate);
-  const hermes = publicAgentConnectionInventoryView(status).inventory.find((candidate) => candidate.runtime === "hermes");
+  const hermes = publicAgentConnectionInventoryView(status, { runtime: "hermes", scope: "default" }).inventory.find((candidate) => candidate.runtime === "hermes");
   assert.equal(hermes?.accounts[0]?.state, "usable");
   assert.deepEqual(hermes?.accounts[0]?.lease, {
     schemaVersion: "account-center.scoped-account-lease.v1", leaseRef: "lease-connection-4e2ad5d32de1db5932cf9708-account-1", connectionRef: "connection-4e2ad5d32de1db5932cf9708", accountRef: "account-1", runtime: "hermes", state: "verified"
@@ -45,7 +44,7 @@ test("connected Hermes sees five canonical redacted accounts but only its exact 
   const hermes = status.agentConnections!.find((connection) => connection.runtime === "hermes")!;
   hermes.state = "connected";
   hermes.verifiedProfileIds = ["openai:helper-1"];
-  const view = publicAgentConnectionInventoryView(status).inventory.find((connection) => connection.runtime === "hermes")!;
+  const view = publicAgentConnectionInventoryView(status, { runtime: "hermes", scope: "default" }).inventory.find((connection) => connection.runtime === "hermes")!;
   assert.equal(view.accounts.length, 5);
   assert.deepEqual(view.accounts.map((account) => ({ accountRef: account.accountRef, pairing: account.pairing, weekly: account.weeklyRemainingPct, lease: Boolean(account.lease) })), [
     { accountRef: "account-1", pairing: "paired-verified", weekly: 68, lease: true },
@@ -63,7 +62,7 @@ test("hostile but syntactically valid connection scopes remain private", async (
   hermes.scope = "profile:person-example-test";
   hermes.state = "connected";
   hermes.verifiedProfileIds = ["openai:helper-1"];
-  const serialized = JSON.stringify(publicAgentConnectionInventoryView(status));
+  const serialized = JSON.stringify(publicAgentConnectionInventoryView(status, { runtime: "hermes", scope: "default" }));
   assert.doesNotMatch(serialized, /person-example-test|profile:|--scope|connect-agent|helper-|five-hour|token|secret/i);
   assert.match(serialized, /connection-4e2ad5d32de1db5932cf9708/);
 });
