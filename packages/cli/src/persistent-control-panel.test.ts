@@ -38,7 +38,7 @@ test("persistent control panel reads the owner-only local state used by the laun
   try {
     const headers = { authorization: `Bearer ${token}` };
     const [challengeResponse, auditResponse, operationResponse, preferencesResponse] = await Promise.all([
-      fetch(`http://127.0.0.1:${address.port}/api/auth-challenges`, { headers }),
+      fetch(`http://127.0.0.1:${address.port}/api/auth-challenges?runtime=openclaw&scope=default`, { headers }),
       fetch(`http://127.0.0.1:${address.port}/api/audit`, { headers }),
       fetch(`http://127.0.0.1:${address.port}/api/mutation-operations`, { headers }),
       fetch(`http://127.0.0.1:${address.port}/api/account-ui-preferences?runtime=hermes&scope=default`, { headers })

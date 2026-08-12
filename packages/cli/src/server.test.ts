@@ -1017,7 +1017,7 @@ test("agent capability contract is bearer-protected, redacted, and explicit abou
     assert.deepEqual(body.actions.find((action) => action.id === "models.list"), { id: "models.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/models" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "runtime_scopes.list"), { id: "runtime_scopes.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/scopes" }, requires: ["bearer_token"] });
     assert.deepEqual(body.actions.find((action) => action.id === "account_ui_preferences.mutate"), { id: "account_ui_preferences.mutate", mode: "mutation", state: "blocked", reason: "account_ui_preferences_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "durable_account_ui_preferences_store"] });
-    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "durable_challenge_store"] });
+    assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.list"), { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "explicit_runtime_scope", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.detail"), { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.start"), { id: "auth_challenges.start", mode: "mutation", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] });
     assert.deepEqual(body.actions.find((action) => action.id === "auth_challenges.cancel"), {
@@ -1879,16 +1879,16 @@ test("protected API contains repository failures without returning internal erro
   }
 });
 
-test("guided-auth challenge inventory is bearer-protected and omits account targets", async () => {
+test("guided-auth challenge inventory requires its exact selected context and omits account targets", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-server-"));
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
   const expiresAt = "2030-01-01T00:00:00.000Z";
-  await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "agent:main", expiresAt });
+  await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "private@example.test", scope: "default", expiresAt });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
   const address = await app.listen();
   try {
-    assert.equal((await request(address.port, "/api/auth-challenges")).status, 401);
-    const accepted = await request(address.port, "/api/auth-challenges", "test-token");
+    assert.equal((await request(address.port, "/api/auth-challenges?runtime=openclaw&scope=default")).status, 401);
+    const accepted = await request(address.port, "/api/auth-challenges?runtime=openclaw&scope=default", "test-token");
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
     const body = await accepted.json() as { schemaVersion: string; generatedAt: string; challenges: Array<Record<string, unknown>> };
@@ -1908,7 +1908,7 @@ test("guided-auth challenge inventory can be bounded to an authoritative selecte
   const challenges = new AuthChallengeStore(join(root, "challenges.json"));
   await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "openclaw-private@example.test", scope: "default" });
   await challenges.create({ mode: "reauth", provider: "openai", runtime: "hermes", target: "hermes-default@example.test", scope: "default" });
-  await challenges.create({ mode: "add", provider: "openai", runtime: "hermes", target: "hermes-agent@example.test", scope: "agent:recovery" });
+  const foreignScope = await challenges.create({ mode: "add", provider: "openai", runtime: "hermes", target: "hermes-agent@example.test", scope: "agent:recovery" });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
   const address = await app.listen();
   try {
@@ -1923,7 +1923,7 @@ test("guided-auth challenge inventory can be bounded to an authoritative selecte
 
     // Invalid syntax is rejected at the input boundary; unavailable selected
     // contexts have a distinct authority error below.
-    for (const path of ["/api/auth-challenges?runtime=Hermes", "/api/auth-challenges?runtime=hermes&runtime=openclaw", "/api/auth-challenges?scope=", "/api/auth-challenges?scope=default", "/api/auth-challenges?scope=agent%3Arecovery&scope=default", "/api/auth-challenges?scope=agent%3Arecovery%0A", "/api/auth-challenges?unknown=default"]) {
+    for (const path of ["/api/auth-challenges", "/api/auth-challenges?runtime=hermes", "/api/auth-challenges?scope=default", "/api/auth-challenges?runtime=Hermes&scope=default", "/api/auth-challenges?runtime=hermes&runtime=openclaw&scope=default", "/api/auth-challenges?runtime=hermes&scope=agent%3Arecovery&scope=default", "/api/auth-challenges?runtime=hermes&scope=agent%3Arecovery%0A", "/api/auth-challenges?runtime=hermes&scope=default&unknown=default"]) {
       const malformed = await request(address.port, path, "test-token");
       assert.equal(malformed.status, 400, path);
       assert.deepEqual(await malformed.json(), { error: "invalid_query" });
@@ -1961,29 +1961,34 @@ test("guided-auth challenge history is newest-first, cursor-paginated, and remai
   const first = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "first-private@example.test", scope: "default" });
   const second = await challenges.create({ mode: "reauth", provider: "openai", runtime: "openclaw", target: "second-private@example.test", scope: "default" });
   const third = await challenges.create({ mode: "add", provider: "openai", runtime: "openclaw", target: "third-private@example.test", scope: "default" });
+  const foreign = await challenges.create({ mode: "add", provider: "openai", runtime: "hermes", target: "foreign-private@example.test", scope: "default" });
   const app = createAccountCenterServer({ token: "test-token", challengeStore: challenges });
   const address = await app.listen();
   try {
-    const newest = await request(address.port, "/api/auth-challenges?limit=1", "test-token");
+    const newest = await request(address.port, "/api/auth-challenges?runtime=openclaw&scope=default&limit=1", "test-token");
     assert.equal(newest.status, 200);
     const newestBody = await newest.json() as { challenges: Array<{ id: string }>; nextCursor?: string };
     assert.deepEqual(newestBody.challenges.map(({ id }) => id), [third.id]);
     assert.equal(newestBody.nextCursor, third.id);
     assert.equal(JSON.stringify(newestBody).match(/(?:first|second|third)-private@example\.test/), null);
 
-    const older = await request(address.port, `/api/auth-challenges?limit=1&cursor=${encodeURIComponent(third.id)}`, "test-token");
+    const older = await request(address.port, `/api/auth-challenges?runtime=openclaw&scope=default&limit=1&cursor=${encodeURIComponent(third.id)}`, "test-token");
     assert.equal(older.status, 200);
     const olderBody = await older.json() as { challenges: Array<{ id: string }>; nextCursor?: string };
     assert.deepEqual(olderBody.challenges.map(({ id }) => id), [second.id]);
     assert.equal(olderBody.nextCursor, second.id);
 
-    const oldest = await request(address.port, `/api/auth-challenges?limit=1&cursor=${encodeURIComponent(second.id)}`, "test-token");
+    const oldest = await request(address.port, `/api/auth-challenges?runtime=openclaw&scope=default&limit=1&cursor=${encodeURIComponent(second.id)}`, "test-token");
     assert.equal(oldest.status, 200);
     const oldestBody = await oldest.json() as { challenges: Array<{ id: string }>; nextCursor?: string };
     assert.deepEqual(oldestBody.challenges.map(({ id }) => id), [first.id]);
     assert.equal(oldestBody.nextCursor, undefined);
 
-    for (const path of ["/api/auth-challenges?limit=0", "/api/auth-challenges?limit=101", "/api/auth-challenges?cursor=auth_not-a-uuid", "/api/auth-challenges?cursor=auth_00000000-0000-4000-8000-000000000000", `/api/auth-challenges?cursor=${encodeURIComponent(first.id)}&cursor=${encodeURIComponent(second.id)}`]) {
+    const foreignCursor = await request(address.port, `/api/auth-challenges?runtime=openclaw&scope=default&cursor=${encodeURIComponent(foreign.id)}`, "test-token");
+    assert.equal(foreignCursor.status, 400);
+    assert.equal(JSON.stringify(await foreignCursor.json()).includes("foreign-private@example.test"), false);
+
+    for (const path of ["/api/auth-challenges?runtime=openclaw&scope=default&limit=0", "/api/auth-challenges?runtime=openclaw&scope=default&limit=101", "/api/auth-challenges?runtime=openclaw&scope=default&cursor=auth_not-a-uuid", "/api/auth-challenges?runtime=openclaw&scope=default&cursor=auth_00000000-0000-4000-8000-000000000000", `/api/auth-challenges?runtime=openclaw&scope=default&cursor=${encodeURIComponent(first.id)}&cursor=${encodeURIComponent(second.id)}`]) {
       const malformed = await request(address.port, path, "test-token");
       assert.equal(malformed.status, 400, path);
       assert.deepEqual(await malformed.json(), { error: "invalid_query" });
@@ -2068,7 +2073,7 @@ test("guided-auth API fails closed and redacts a corrupt durable lifecycle recor
   const app = createAccountCenterServer({ token: "test-token", challengeStore: new AuthChallengeStore(path) });
   const address = await app.listen();
   try {
-    const response = await request(address.port, "/api/auth-challenges", "test-token");
+    const response = await request(address.port, "/api/auth-challenges?runtime=openclaw&scope=default", "test-token");
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), { error: "internal_error" });
   } finally {

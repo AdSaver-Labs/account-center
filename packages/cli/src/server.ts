@@ -279,8 +279,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // A selected runtime/scope is authority-bound context, not a free-form
       // history search. Do not turn a stale runtime or unpublished named scope
       // into a misleading empty list (or let it open another scope's durable
-      // lifecycle history). An intentionally unscoped inventory remains the
-      // documented aggregate protected read; every supplied scope is exact.
+      // lifecycle history). Inventory always requires an exact selected context.
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const inventory = await authChallengeInventory(options.challengeStore, query);
@@ -334,11 +333,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   };
 }
 
-interface AuthChallengeInventoryQuery extends RuntimeInventoryQuery { limit: number; scope?: string; cursor?: string; }
+interface AuthChallengeInventoryQuery { runtime: string; scope: string; limit: number; cursor?: string; }
 
 async function authChallengeInventory(store: AuthChallengeStore | undefined, query: AuthChallengeInventoryQuery): Promise<unknown> {
   const matching = store ? (await store.listReadOnly()).slice().reverse().filter((challenge) =>
-    (!query.runtime || challenge.runtime === query.runtime) && (!query.scope || challenge.scope === query.scope)
+    challenge.runtime === query.runtime && challenge.scope === query.scope
   ) : [];
   const cursorIndex = query.cursor ? matching.findIndex((challenge) => challenge.id === query.cursor) : -1;
   if (query.cursor && cursorIndex < 0) return undefined;
@@ -519,17 +518,12 @@ function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery 
   const limitValue = parameters.get("limit");
   const limit = limitValue === null ? 50 : Number(limitValue);
   const cursor = parameters.get("cursor");
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100) return undefined;
-  if (runtime !== null && !isPublicRuntimeSelector(runtime)) return undefined;
-  // Scope is an exact, API-observed selector. Reject separators, whitespace, and
-  // controls so it cannot be broadened or treated as an arbitrary search term.
-  if (scope !== null && !/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(scope)) return undefined;
-  // A scope without its concrete runtime turns an operator-selected context
-  // into a cross-runtime history search. Reject it rather than broadening a
-  // scoped lifecycle read beyond the context the operator selected.
-  if (scope !== null && runtime === null) return undefined;
+  if (!runtime || !scope || !Number.isInteger(limit) || limit < 1 || limit > 100 || !isPublicRuntimeSelector(runtime)) return undefined;
+  // Inventory has the same strict selected-context boundary as detail. Reject
+  // missing or malformed selectors before status or durable lifecycle access.
+  if (!/^[a-z][a-z0-9_-]{0,31}(?::[A-Za-z0-9._-]{1,96})?$/.test(scope)) return undefined;
   if (cursor !== null && !/^auth_[a-f0-9-]{36}$/.test(cursor)) return undefined;
-  return { limit, ...(runtime === null ? {} : { runtime }), ...(scope === null ? {} : { scope }), ...(cursor === null ? {} : { cursor }) };
+  return { limit, runtime, scope, ...(cursor === null ? {} : { cursor }) };
 }
 
 interface AuthChallengeDetailQuery { runtime: string; scope: string; }
@@ -692,8 +686,8 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
         ? { id: "account_ui_preferences.mutate", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/account-ui-preferences" }, requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "durable_account_ui_preferences_store"] }
         : { id: "account_ui_preferences.mutate", mode: "mutation", state: "blocked", reason: "account_ui_preferences_store_unavailable", requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "durable_account_ui_preferences_store"] },
       challengeStoreAvailable
-        ? { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] }
-        : { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "durable_challenge_store"] },
+        ? { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges?runtime=:runtime&scope=:scope" }, requires: ["bearer_token", "explicit_runtime_scope"] }
+        : { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "explicit_runtime_scope", "durable_challenge_store"] },
       challengeStoreAvailable
         ? { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id?runtime=:runtime&scope=:scope" }, requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope"] }
         : { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store"] },
