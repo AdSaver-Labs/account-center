@@ -2170,7 +2170,7 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
     const capabilities = await request(address.port, "/api/capabilities", "test-token");
     const capabilityBody = await capabilities.json() as { actions: Array<{ id: string; mode: string; state: string; endpoint?: { method: string; path: string }; requires: string[] }> };
     assert.deepEqual(capabilityBody.actions.find((action) => action.id === "auth_challenges.cancel"), {
-      id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"]
+      id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel?runtime=:runtime&scope=:scope" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"]
     });
     assert.deepEqual(capabilityBody.actions.find((action) => action.id === "audit.detail"), {
       id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id", "explicit_runtime_scope"]

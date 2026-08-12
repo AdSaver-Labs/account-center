@@ -1124,6 +1124,7 @@ gate("fails closed on ambiguous or incomplete guided-auth cancellation capabilit
     ["conflicting duplicate", (body) => { body.actions.push({ ...cancellation(body), endpoint: { ...cancellation(body).endpoint, path: "/api/wrong" } }); }],
     ["extra key", (body) => { cancellation(body).unexpected = true; }],
     ["wrong method", (body) => { cancellation(body).endpoint.method = "GET"; }],
+    ["missing selected context", (body) => { cancellation(body).endpoint.path = "/api/auth-challenges/:id/cancel"; }],
     ["wrong endpoint", (body) => { cancellation(body).endpoint.path = "/api/auth-challenges/:id"; }],
     ["wrong requirements", (body) => { cancellation(body).requires = [...cancellation(body).requires].reverse(); }],
     ["incomplete requirements", (body) => { cancellation(body).requires = ["bearer_token"]; }],
