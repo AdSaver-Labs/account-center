@@ -695,7 +695,7 @@ function agentCapabilities(challengeStoreAvailable: boolean, auditAvailable: boo
         ? { id: "auth_challenges.list", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges" }, requires: ["bearer_token"] }
         : { id: "auth_challenges.list", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "durable_challenge_store"] },
       challengeStoreAvailable
-        ? { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id" }, requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope"] }
+        ? { id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id?runtime=:runtime&scope=:scope" }, requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope"] }
         : { id: "auth_challenges.detail", mode: "read", state: "blocked", reason: "durable_challenge_store_unavailable", requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store"] },
       challengeStoreAvailable
         ? { id: "auth_challenges.start", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges" }, requires: ["bearer_token", "same_origin", "explicit_runtime_scope", "email_target", "durable_challenge_store"] }

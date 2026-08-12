@@ -2001,6 +2001,12 @@ test("guided-auth challenge detail is bearer-protected, redacted, and bound to i
   const address = await app.listen();
   const path = `/api/auth-challenges/${challenge.id}?runtime=hermes&scope=default`;
   try {
+    const capabilities = await request(address.port, "/api/capabilities", "test-token");
+    assert.equal(capabilities.status, 200);
+    const capabilityBody = await capabilities.json() as { actions: Array<{ id: string; mode: string; state: string; endpoint?: { method: string; path: string }; requires: string[] }> };
+    assert.deepEqual(capabilityBody.actions.find((action) => action.id === "auth_challenges.detail"), {
+      id: "auth_challenges.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/auth-challenges/:id?runtime=:runtime&scope=:scope" }, requires: ["bearer_token", "opaque_challenge_id", "explicit_runtime_scope"]
+    });
     assert.equal((await request(address.port, path)).status, 401);
     const accepted = await request(address.port, path, "test-token");
     assert.equal(accepted.status, 200);

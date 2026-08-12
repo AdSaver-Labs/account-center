@@ -39,6 +39,15 @@ test("operations guidance names the owned delete transaction instead of the supe
   assert.doesNotMatch(operations, /installed OpenClaw CLI has no stable exact-profile deletion API/);
 });
 
+test("operations guidance requires an exact observed runtime and scope for guided-auth detail", () => {
+  assert.match(operations, /GET \/api\/auth-challenges\/:id\?runtime=<observed>&scope=<observed>/);
+  assert.match(operations, /Supply exactly one `runtime` and one `scope` from the observed public scope catalog/);
+  assert.match(operations, /missing, duplicate, malformed, or unpublished selectors fail closed before local lifecycle state is opened/);
+  assert.match(operations, /An opaque ID is not sufficient by itself: an absent ID and an ID from a different selected context both return the same redacted `404`/);
+  assert.match(operations, /contains only redacted lifecycle metadata/);
+  assert.doesNotMatch(operations, /\| API \| `GET \/api\/auth-challenges\/:id` \|/);
+});
+
 test("contract-critical auth commands map to expected executor argv", () => {
   assert.deepEqual(parseAuthCommand("/auth"), ["status"]);
   assert.deepEqual(parseAuthCommand("/auth auto"), ["routes", "auto", "--apply"]);
