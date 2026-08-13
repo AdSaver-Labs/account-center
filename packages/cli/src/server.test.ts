@@ -675,6 +675,30 @@ test("incomplete HTTP headers expire before the protected handler or collaborato
   }
 });
 
+test("oversized HTTP headers are rejected by the listener parser before protected handling", async () => {
+  // Parser rejection must happen before authorization, route matching, runtime
+  // discovery, or any durable collaborator. This is a transport resource bound,
+  // not a public API error contract.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("oversized_headers_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: forbiddenCollaborator,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    const response = await rawFramingRequest(address.port, "GET", "/api/status", [
+      "Authorization: Bearer test-token",
+      `X-Padding: ${"x".repeat(12_288)}`
+    ]);
+    assert.equal(response.status, 431);
+    assert.equal(response.text.includes("oversized_headers_must_not_access_collaborator"), false);
+  } finally {
+    await app.close();
+  }
+});
+
 test("a completed protected request re-arms a bounded keep-alive and next-header phase", async () => {
   // The first valid protected read proves ordinary keep-alive parsing. The
   // second phase must still be bounded even though it never creates another

@@ -34,7 +34,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     deadline.unref();
     connectionDeadlines.set(socket, deadline);
   };
-  const server = createServer(async (request, response) => {
+  // Keep parser resource limits owned by this listener rather than inheriting
+  // Node's version-dependent 16 KiB default. Headers are only transport
+  // metadata for this loopback bearer API; no public endpoint needs more than
+  // a small, bounded representation.
+  const server = createServer({ maxHeaderSize: 12_288 }, async (request, response) => {
     clearConnectionDeadline(request.socket);
     // Once this request has produced its response, the same socket enters a
     // new bounded keep-alive/header phase. A subsequent parsed request clears
