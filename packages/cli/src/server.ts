@@ -18,13 +18,28 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // including undefined or null, remains untrusted input for the adapter to reject.
   const source = Object.prototype.hasOwnProperty.call(options, "source") ? options.source : "fixture";
   let listenerOrigin: string | undefined;
-  const headerDeadlines = new WeakMap<Socket, ReturnType<typeof setTimeout>>();
+  const connectionDeadlines = new WeakMap<Socket, ReturnType<typeof setTimeout>>();
+  const connectionPhaseDeadlineMs = 1_000;
+  const clearConnectionDeadline = (socket: Socket) => {
+    const deadline = connectionDeadlines.get(socket);
+    if (deadline) clearTimeout(deadline);
+    connectionDeadlines.delete(socket);
+  };
+  // This is deliberately an absolute phase boundary rather than an inactivity
+  // timer: a peer cannot extend a keep-alive or incomplete-header phase by
+  // dripping bytes. It is armed on connection and again after every response.
+  const armConnectionDeadline = (socket: Socket) => {
+    clearConnectionDeadline(socket);
+    const deadline = setTimeout(() => socket.destroy(), connectionPhaseDeadlineMs);
+    deadline.unref();
+    connectionDeadlines.set(socket, deadline);
+  };
   const server = createServer(async (request, response) => {
-    const headerDeadline = headerDeadlines.get(request.socket);
-    if (headerDeadline) {
-      clearTimeout(headerDeadline);
-      headerDeadlines.delete(request.socket);
-    }
+    clearConnectionDeadline(request.socket);
+    // Once this request has produced its response, the same socket enters a
+    // new bounded keep-alive/header phase. A subsequent parsed request clears
+    // this deadline; a silent or dripped next request cannot retain the socket.
+    response.once("finish", () => armConnectionDeadline(request.socket));
     try {
       setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
@@ -357,15 +372,16 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // reach this protected handler; Node owns their generic timeout/close response.
   // Application-owned JSON completion remains the tighter one-second boundary
   // after a canonical mutation has reached the handler.
-  server.headersTimeout = 1_000;
-  server.requestTimeout = 5_000;
+  server.headersTimeout = connectionPhaseDeadlineMs;
+  server.requestTimeout = connectionPhaseDeadlineMs;
+  server.timeout = connectionPhaseDeadlineMs;
+  server.keepAliveTimeout = connectionPhaseDeadlineMs;
   server.on("connection", (socket) => {
     // Node's parser timeout is explicit above; retain a listener-owned absolute
     // close as well because Node may not begin its parser clock until it has
     // received bytes. This covers silent peers and slow header drips alike.
-    const deadline = setTimeout(() => socket.destroy(), 1_000);
-    headerDeadlines.set(socket, deadline);
-    socket.once("close", () => clearTimeout(deadline));
+    armConnectionDeadline(socket);
+    socket.once("close", () => clearConnectionDeadline(socket));
   });
   return {
     async listen(port = 0): Promise<{ port: number }> {

@@ -235,6 +235,32 @@ async function rawKeepAliveStatusRequests(port: number): Promise<string> {
   });
 }
 
+async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incomplete" | "drip"): Promise<{ elapsedMs: number; response: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    const startedAt = Date.now();
+    let response = "";
+    let sentFollowUp = false;
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`keep_alive_${followUp}_phase_did_not_terminate`));
+    }, 3_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => {
+      response += chunk;
+      if (sentFollowUp || !response.includes("\r\n\r\n")) return;
+      sentFollowUp = true;
+      if (followUp !== "idle") {
+        socket.write(`POST /api/auth-challenges HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\n`);
+        if (followUp === "drip") setTimeout(() => socket.write("X-Drip: one\r\n"), 400);
+      }
+    });
+    socket.on("end", () => { clearTimeout(safetyTimeout); resolve({ elapsedMs: Date.now() - startedAt, response }); });
+    socket.on("connect", () => socket.write(`GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: keep-alive\r\n\r\n`));
+  });
+}
+
 function assertResponseIsolationHeaders(headers: Headers): void {
   assert.equal(headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(headers.get("cross-origin-resource-policy"), "same-origin");
@@ -643,6 +669,25 @@ test("incomplete HTTP headers expire before the protected handler or collaborato
       assert.equal((keepAliveResponses.match(/HTTP\/1\.1 200/g) ?? []).length, 2);
     } finally {
       await keepAliveApp.close();
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("a completed protected request re-arms a bounded keep-alive and next-header phase", async () => {
+  // The first valid protected read proves ordinary keep-alive parsing. The
+  // second phase must still be bounded even though it never creates another
+  // IncomingMessage, so no challenge-store collaborator can be reached.
+  const forbiddenChallengeStore = new Proxy({}, { get() { throw new Error("keep_alive_follow_up_must_not_access_challenge_store"); } });
+  const app = createAccountCenterServer({ token: "test-token", challengeStore: forbiddenChallengeStore as AuthChallengeStore });
+  const address = await app.listen();
+  try {
+    for (const phase of ["idle", "incomplete", "drip"] as const) {
+      const result = await rawKeepAliveFollowUpPhase(address.port, phase);
+      assert.equal(result.elapsedMs < 1_800, true, `${phase} follow-up closed in ${result.elapsedMs}ms`);
+      assert.equal((result.response.match(/HTTP\/1\.1 200/g) ?? []).length, 1, `${phase} must not produce a second protected response`);
+      assert.equal(result.response.includes("keep_alive_follow_up_must_not_access_challenge_store"), false);
     }
   } finally {
     await app.close();
