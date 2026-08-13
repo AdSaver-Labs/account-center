@@ -794,14 +794,15 @@ function hasCanonicalJsonMutationFraming(request: IncomingMessage): boolean {
   // A JSON mutation is body-bearing, so its framing must be just as explicit
   // as the no-body proof used by protected reads. Raw headers prevent Node's
   // normalized representation from hiding duplicates or comma-joined values.
-  // Transfer encodings, duplicate/comma-joined, zero, padded, or signed
-  // lengths fail at this boundary. A canonical positive length is passed to
-  // the bounded reader, which enforces the 4 KiB payload limit without trusting
-  // the declared length over the bytes actually received.
+  // Transfer encodings, duplicate/comma-joined, zero, padded, signed, or
+  // oversized lengths fail at this boundary. The declared bound prevents an
+  // otherwise-invalid request from retaining a protected connection while the
+  // bounded reader waits for bytes it can never accept. The reader still
+  // enforces the 4 KiB limit against the bytes actually received.
   const contentLengths = rawHeaderValues(request, "content-length");
   return rawHeaderValues(request, "transfer-encoding").length === 0 &&
     contentLengths.length === 1 &&
-    /^[1-9][0-9]*$/.test(contentLengths[0]);
+    /^(?:[1-9][0-9]{0,2}|[1-3][0-9]{3}|400[0-9]|409[0-6])$/.test(contentLengths[0]);
 }
 class RequestBodyError extends Error {
   constructor(readonly status: 413, readonly code: "request_body_too_large") { super(code); }

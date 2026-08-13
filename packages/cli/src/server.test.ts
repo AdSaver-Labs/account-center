@@ -139,6 +139,31 @@ async function rawFramingRequest(port: number, method: string, path: string, hea
   });
 }
 
+async function rawDeclaredMutationRequest(port: number, path: string, headers: string[]): Promise<{ status: number; body: unknown; headers: Record<string, string> }> {
+  // Keep the connection open after headers: an oversized declared length must
+  // be rejected by application framing without waiting for its impossible body.
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.once("error", reject);
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      const [head, text = ""] = response.split("\r\n\r\n", 2);
+      const [statusLine = "", ...headerLines] = head.split("\r\n");
+      const received: Record<string, string> = {};
+      for (const line of headerLines) {
+        const separator = line.indexOf(":");
+        if (separator > 0) received[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+      }
+      resolve({ status: Number(/^HTTP\/\d\.\d (\d{3})/.exec(statusLine)?.[1] ?? 0), body: text ? JSON.parse(text) : undefined, headers: received });
+    });
+    socket.on("connect", () => {
+      socket.write(`POST ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${headers.map((header) => `${header}\r\n`).join("")}Connection: close\r\n\r\n`);
+    });
+  });
+}
+
 function assertResponseIsolationHeaders(headers: Headers): void {
   assert.equal(headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(headers.get("cross-origin-resource-policy"), "same-origin");
@@ -261,7 +286,7 @@ test("protected API rejects bearer near-misses and unsafe mutation representatio
     assert.deepEqual(await form.json(), { error: "json_content_type_required" });
     const oversized = await rawChallengeRequest(address.port, { token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/json; charset=utf-8", body: `{\"target\":\"${"x".repeat(4_100)}\"}` });
     assert.equal(oversized.status, 413);
-    assert.deepEqual(await oversized.json(), { error: "request_body_too_large" });
+    assert.deepEqual(await oversized.json(), { error: "invalid_request_framing" });
   } finally {
     await app.close();
   }
@@ -330,7 +355,7 @@ test("guided-auth writes reject bearer, listener-origin, and body attacks before
     await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", contentType: "application/json", body: startBody }), 403, "origin_forbidden", hostile);
     await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body: startBody }), 403, "origin_forbidden", hostile);
     await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "text/plain", body: hostile }), 415, "json_content_type_required", hostile);
-    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "application/json", body: `{\"target\":\"${"x".repeat(4_100)}\"}` }), 413, "request_body_too_large", hostile);
+    await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "application/json", body: `{\"target\":\"${"x".repeat(4_100)}\"}` }), 413, "invalid_request_framing", hostile);
 
     const cancel = (token: string | undefined, requestOrigin: string | undefined, body?: string) => fetch(`http://127.0.0.1:${address.port}${cancelPath}`, {
       method: "POST",
@@ -482,6 +507,39 @@ test("JSON mutations reject ambiguous body framing before parsing or collaborato
         assert.deepEqual(response.body, { error: "invalid_request_framing" });
         assert.equal(JSON.stringify(response.body).includes(hostile), false);
       }
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("JSON mutations reject oversized declared bodies before waiting or collaborators", async () => {
+  // The socket intentionally never supplies the declared body. The protected
+  // framing boundary must respond immediately rather than wait for/parsing it.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("oversized_declared_body_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const mutations = [
+    "/api/auth-challenges",
+    "/api/account-ui-preferences?runtime=hermes&scope=default"
+  ];
+  try {
+    for (const path of mutations) for (const length of ["4097", "999999999"]) {
+      const response = await rawDeclaredMutationRequest(address.port, path, [
+        "Authorization: Bearer test-token",
+        `Origin: ${origin}`,
+        "Content-Type: application/json",
+        `Content-Length: ${length}`
+      ]);
+      assert.equal(response.status, 413, `${path} ${length}`);
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.deepEqual(response.body, { error: "invalid_request_framing" });
     }
   } finally {
     await app.close();
