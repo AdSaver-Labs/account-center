@@ -113,7 +113,7 @@ async function rawMutationRequest(port: number, method: string, path: string, he
       resolve({ status, body: text ? JSON.parse(text) : undefined, headers: received });
     });
     socket.on("connect", () => {
-      socket.end(`${method} ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${headers.map((header) => `${header}\r\n`).join("")}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+      socket.end(`${method} ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${headers.map((header) => `${header}\r\n`).join("")}${headers.some((header) => /^content-length\s*:/i.test(header) || /^transfer-encoding\s*:/i.test(header)) ? "" : `Content-Length: ${Buffer.byteLength(body)}\r\n`}Connection: close\r\n\r\n${body}`);
     });
   });
 }
@@ -438,6 +438,50 @@ test("JSON mutations reject ambiguous Content-Type headers before parsing or col
       assert.equal(response.headers["cache-control"], "no-store");
       assert.deepEqual(response.body, { error: "json_content_type_required" });
       assert.equal(JSON.stringify(response.body).includes(hostile), false);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("JSON mutations reject ambiguous body framing before parsing or collaborators", async () => {
+  // Raw HTTP keeps framing ambiguity observable; every collaborator throws if
+  // rejection reaches JSON parsing, runtime discovery, or durable state.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("ambiguous_json_framing_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const hostile = "private@example.test";
+  const mutations = [
+    { path: "/api/auth-challenges", body: JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: hostile }) },
+    { path: "/api/account-ui-preferences?runtime=hermes&scope=default", body: JSON.stringify({ accountRef: "account-1", state: "hidden" }) }
+  ];
+  const framings = [
+    ["Content-Length: 1", "Content-Length: 1"],
+    ["Content-Length: 1", "Content-Length: 2"],
+    ["Content-Length: 1, 2"],
+    ["Content-Length: +1"],
+    ["Content-Length: 01"],
+    ["Content-Length: 0"],
+    ["Transfer-Encoding: chunked"]
+  ];
+  try {
+    for (const mutation of mutations) for (const framing of framings) {
+      const response = await rawMutationRequest(address.port, "POST", mutation.path, ["Authorization: Bearer test-token", `Origin: ${origin}`, "Content-Type: application/json", ...framing], mutation.body);
+      assert.equal(response.status === 400 || response.status === 413, true, `${mutation.path} ${framing.join(",")}`);
+      // Node rejects some syntactically invalid duplicate/transfer framing
+      // before application delivery. Where it delivers the request, the shared
+      // protected boundary returns the fixed hardened application error.
+      if (response.status === 413) {
+        assert.equal(response.headers["cache-control"], "no-store");
+        assert.deepEqual(response.body, { error: "invalid_request_framing" });
+        assert.equal(JSON.stringify(response.body).includes(hostile), false);
+      }
     }
   } finally {
     await app.close();

@@ -50,6 +50,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         request.resume();
         return send(response, 415, { error: "json_content_type_required" });
       }
+      if (!hasCanonicalJsonMutationFraming(request)) {
+        request.resume();
+        return send(response, 413, { error: "invalid_request_framing" });
+      }
       // Creation is a durable lifecycle mutation. After the unambiguous
       // representation boundary, fail closed before body parsing or runtime
       // discovery so a missing store cannot look actionable.
@@ -106,6 +110,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (request.method === "POST" && !isJsonContentType(request)) {
         request.resume();
         return send(response, 415, { error: "json_content_type_required" });
+      }
+      if (request.method === "POST" && !hasCanonicalJsonMutationFraming(request)) {
+        request.resume();
+        return send(response, 413, { error: "invalid_request_framing" });
       }
       if (!options.accountUiPreferencesStore) return send(response, 503, { error: "account_ui_preferences_unavailable" });
       const query = runtimeInventoryQuery(request.url ?? "/");
@@ -781,6 +789,19 @@ function isJsonContentType(request: IncomingMessage): boolean {
   // all fail before body parsing or protected collaborators.
   const values = rawHeaderValues(request, "content-type");
   return values.length === 1 && /^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(values[0]);
+}
+function hasCanonicalJsonMutationFraming(request: IncomingMessage): boolean {
+  // A JSON mutation is body-bearing, so its framing must be just as explicit
+  // as the no-body proof used by protected reads. Raw headers prevent Node's
+  // normalized representation from hiding duplicates or comma-joined values.
+  // Transfer encodings, duplicate/comma-joined, zero, padded, or signed
+  // lengths fail at this boundary. A canonical positive length is passed to
+  // the bounded reader, which enforces the 4 KiB payload limit without trusting
+  // the declared length over the bytes actually received.
+  const contentLengths = rawHeaderValues(request, "content-length");
+  return rawHeaderValues(request, "transfer-encoding").length === 0 &&
+    contentLengths.length === 1 &&
+    /^[1-9][0-9]*$/.test(contentLengths[0]);
 }
 class RequestBodyError extends Error {
   constructor(readonly status: 413, readonly code: "request_body_too_large") { super(code); }
