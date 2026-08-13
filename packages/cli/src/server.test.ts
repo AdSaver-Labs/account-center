@@ -606,6 +606,57 @@ test("protected response failures share hardened headers and preference reads re
   }
 });
 
+test("unexpected protected collaborators return one redacted hardened failure contract", async () => {
+  // Each route reaches a different local collaborator only after the bearer,
+  // method, query, and selected-context boundaries. Make that collaborator
+  // throw an attacker-controlled diagnostic and prove it cannot become a
+  // route-specific response, reflected body, or weaker header set.
+  const suppliedText = "private@example.test";
+  const throwing = new Proxy({}, { get() { throw new Error(suppliedText); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    challengeStore: throwing as AuthChallengeStore,
+    auditStore: throwing as AuditStore,
+    mutationRepository: throwing as MutationRepository,
+    accountUiPreferencesStore: throwing as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const challengeId = "auth_00000000-0000-4000-8000-000000000000";
+  const requests: Array<{ path: string; init?: RequestInit }> = [
+    {
+      path: "/api/auth-challenges",
+      init: {
+        method: "POST",
+        headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" },
+        body: JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: suppliedText })
+      }
+    },
+    { path: "/api/auth-challenges?runtime=openclaw&scope=default" },
+    { path: `/api/auth-challenges/${challengeId}?runtime=openclaw&scope=default` },
+    {
+      path: `/api/auth-challenges/${challengeId}/cancel?runtime=openclaw&scope=default`,
+      init: { method: "POST", headers: { authorization: "Bearer test-token", origin } }
+    },
+    { path: "/api/account-ui-preferences?runtime=hermes&scope=default" },
+    { path: "/api/audit" },
+    { path: "/api/audit/audit_00000000-0000-4000-8000-000000000000?runtime=openclaw&scopeKind=default" },
+    { path: "/api/mutation-operations" },
+    { path: "/api/mutation-operations/op_00000000?runtime=openclaw&scopeKind=default" }
+  ];
+  try {
+    for (const requestCase of requests) {
+      const response = await fetch(`${origin}${requestCase.path}`, {
+        headers: { authorization: "Bearer test-token" },
+        ...requestCase.init
+      });
+      await assertHardenedJsonError(response, 500, "internal_error", suppliedText);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("unsupported preference methods fail closed before local state or runtime discovery", async () => {
   // An explicit invalid source makes accidental runtime discovery observable as
   // a 500. The throwing store independently proves the 405 path opens neither
