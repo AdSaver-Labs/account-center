@@ -378,6 +378,66 @@ test("protected mutations reject duplicate or conflicting Origin headers before 
   }
 });
 
+test("JSON mutations reject ambiguous Content-Type headers before parsing or collaborators", async () => {
+  // Raw HTTP is required because normalized Node headers may hide duplicate
+  // singleton representation fields. Every collaborator throws on access.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("ambiguous_content_type_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const hostile = "private@example.test";
+  const mutations = [
+    { path: "/api/auth-challenges", body: JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: hostile }) },
+    { path: "/api/account-ui-preferences?runtime=hermes&scope=default", body: JSON.stringify({ accountRef: "account-1", state: "hidden" }) }
+  ];
+  const representations = [
+    ["Content-Type: application/json", "Content-Type: text/plain"],
+    ["Content-Type: text/plain", "Content-Type: application/json"],
+    ["Content-Type: application/json", "Content-Type: application/json"],
+    ["Content-Type: application/json, text/plain"],
+    []
+  ];
+  try {
+    for (const mutation of mutations) for (const headers of representations) {
+      const response = await rawMutationRequest(address.port, "POST", mutation.path, ["Authorization: Bearer test-token", `Origin: ${origin}`, ...headers], mutation.body);
+      assert.equal(response.status, 415, `${mutation.path} ${headers.join(",") || "missing"}`);
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.deepEqual(response.body, { error: "json_content_type_required" });
+      assert.equal(JSON.stringify(response.body).includes(hostile), false);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("guided-auth start validates its JSON representation before unavailable-store handling", async () => {
+  const app = createAccountCenterServer({ token: "test-token", source: null });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const body = JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: "private@example.test" });
+  try {
+    for (const headers of [
+      ["Content-Type: application/json", "Content-Type: text/plain"],
+      ["Content-Type: text/plain", "Content-Type: application/json"],
+      ["Content-Type: application/json", "Content-Type: application/json"],
+      ["Content-Type: application/json, text/plain"],
+      []
+    ]) {
+      const response = await rawMutationRequest(address.port, "POST", "/api/auth-challenges", ["Authorization: Bearer test-token", `Origin: ${origin}`, ...headers], body);
+      assert.equal(response.status, 415, headers.join(",") || "missing");
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.deepEqual(response.body, { error: "json_content_type_required" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test("protected response failures share hardened headers and preference reads reject bodies before store access", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-response-contract-"));
   const suppliedText = "private@example.test";

@@ -46,16 +46,16 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         request.resume();
         return send(response, 403, { error: "origin_forbidden" });
       }
-      // Creation is a durable lifecycle mutation. Fail closed before accepting
-      // input or discovering a runtime so a missing store cannot expose source
-      // behavior or be mistaken for an actionable auth state.
-      if (!options.challengeStore) {
-        request.resume();
-        return send(response, 503, { error: "challenge_store_unavailable" });
-      }
       if (!isJsonContentType(request)) {
         request.resume();
         return send(response, 415, { error: "json_content_type_required" });
+      }
+      // Creation is a durable lifecycle mutation. After the unambiguous
+      // representation boundary, fail closed before body parsing or runtime
+      // discovery so a missing store cannot look actionable.
+      if (!options.challengeStore) {
+        request.resume();
+        return send(response, 503, { error: "challenge_store_unavailable" });
       }
       let body: unknown;
       try {
@@ -100,6 +100,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (request.method === "POST" && !sameOrigin(request, listenerOrigin)) {
         request.resume();
         return send(response, 403, { error: "origin_forbidden" });
+      }
+      // Reject an ambiguous or non-JSON mutation representation before opening
+      // any local preference state or discovering runtime authority.
+      if (request.method === "POST" && !isJsonContentType(request)) {
+        request.resume();
+        return send(response, 415, { error: "json_content_type_required" });
       }
       if (!options.accountUiPreferencesStore) return send(response, 503, { error: "account_ui_preferences_unavailable" });
       const query = runtimeInventoryQuery(request.url ?? "/");
@@ -760,10 +766,13 @@ function hasRequestBody(request: IncomingMessage): boolean {
   return request.headers["transfer-encoding"] !== undefined || (request.headers["content-length"] !== undefined && request.headers["content-length"] !== "0");
 }
 function isJsonContentType(request: IncomingMessage): boolean {
-  const value = request.headers["content-type"];
-  // A state-changing endpoint accepts one bounded representation only. In
-  // particular, do not infer JSON from a body or accept multipart/form data.
-  return typeof value === "string" && /^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(value);
+  // Do not trust Node's normalized Content-Type singleton. Multiple raw lines
+  // can otherwise collapse to one representation before this boundary sees
+  // them. A state-changing endpoint accepts exactly one canonical JSON
+  // representation; missing, duplicate, comma-joined, and malformed forms
+  // all fail before body parsing or protected collaborators.
+  const values = rawHeaderValues(request, "content-type");
+  return values.length === 1 && /^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(values[0]);
 }
 class RequestBodyError extends Error {
   constructor(readonly status: 413, readonly code: "request_body_too_large") { super(code); }
@@ -790,10 +799,13 @@ function sameOrigin(request: IncomingMessage, listenerOrigin: string | undefined
   // credentials, never trust Node's normalized singleton header: duplicate
   // Origin lines may be collapsed before this boundary sees them. A mutation
   // must have exactly one listener-bound Origin representation.
-  const origins = request.rawHeaders.flatMap((value, index) =>
-    index % 2 === 0 && value.toLowerCase() === "origin" ? [request.rawHeaders[index + 1] ?? ""] : []
-  );
+  const origins = rawHeaderValues(request, "origin");
   return origins.length === 1 && origins[0] === listenerOrigin;
+}
+function rawHeaderValues(request: IncomingMessage, name: string): string[] {
+  return request.rawHeaders.flatMap((value, index) =>
+    index % 2 === 0 && value.toLowerCase() === name ? [request.rawHeaders[index + 1] ?? ""] : []
+  );
 }
 function setSafetyHeaders(response: ServerResponse): void {
   response.setHeader("Cache-Control", "no-store");
