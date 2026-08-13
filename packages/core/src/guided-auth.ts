@@ -3,6 +3,11 @@ import type { AccountCenterStatus } from "./schemas.js";
 
 export type GuidedAuthStartInput = Pick<AuthChallengeInput, "mode" | "provider" | "runtime" | "scope" | "target">;
 
+/** Release-supported public contexts may create local guided-auth intent. */
+export function isPublicGuidedAuthRuntime(value: string): boolean {
+  return value === "openclaw" || value === "hermes" || value === "codex";
+}
+
 /** Local intent creation only; it does not mutate an adapter or credentials. */
 export function isValidGuidedAuthStart(status: AccountCenterStatus, input: unknown): input is GuidedAuthStartInput {
   if (!isRecord(input)) return false;
@@ -11,7 +16,7 @@ export function isValidGuidedAuthStart(status: AccountCenterStatus, input: unkno
   const provider = input.provider.trim().toLowerCase();
   const runtime = input.runtime.trim().toLowerCase();
   return input.provider === provider && input.runtime === runtime && input.scope === "default" &&
-    isEmailTarget(input.target) &&
+    isPublicGuidedAuthRuntime(runtime) && isEmailTarget(input.target) &&
     status.providers.some((candidate) => candidate.key === provider) &&
     status.runtimes.some((candidate) => candidate.key === runtime);
 }

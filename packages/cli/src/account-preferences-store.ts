@@ -81,7 +81,7 @@ export class AccountUiPreferencesStore {
 }
 function isCode(error: unknown, code: string): boolean { return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === code; }
 function sortAccountRefs(accountRefs: string[]): string[] { return accountRefs.sort((a, b) => Number(a.slice(8)) - Number(b.slice(8))); }
-function assertScopeKey(scopeKey: string): void { if (!/^(codex|generic-command|hermes|openclaw)\|default$/.test(scopeKey)) throw new Error("invalid_scope_key"); }
+function assertScopeKey(scopeKey: string): void { if (!/^(codex|hermes|openclaw)\|default$/.test(scopeKey)) throw new Error("invalid_scope_key"); }
 function isState(value: unknown): value is AccountUiPreferencesState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as AccountUiPreferencesState;

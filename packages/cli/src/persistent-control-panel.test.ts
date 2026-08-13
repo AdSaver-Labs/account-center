@@ -22,6 +22,17 @@ test("migrates and safely deduplicates legacy global hides into Hermes/default w
   }
 });
 
+test("local preference storage rejects generic-command as a durable public scope", async () => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-preferences-public-scope-"));
+  try {
+    const store = new AccountUiPreferencesStore(root);
+    await assert.rejects(store.view("generic-command|default"), /invalid_scope_key/);
+    await assert.rejects(store.setAccountState("generic-command|default", "account-1", "hidden"), /invalid_scope_key/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("persistent control panel reads the owner-only local state used by the launcher", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-panel-state-"));
   const token = "test-token";

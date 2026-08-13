@@ -627,6 +627,12 @@ test("protected collection query matrix rejects duplicate and unknown selectors 
     const hostile = "private@example.test";
     const paths: Array<[string, string]> = [
       ["/api/models?runtime=hermes&runtime=openclaw", "invalid_query"],
+      ["/api/models?runtime=generic-command", "invalid_query"],
+      ["/api/limits?runtime=Generic-Command", "invalid_query"],
+      ["/api/account-ui-preferences?runtime=generic-command&scope=default", "invalid_runtime_scope"],
+      ["/api/audit?runtime=generic-command&scopeKind=default", "invalid_query"],
+      ["/api/mutation-operations?runtime=generic-command&scopeKind=default", "invalid_query"],
+      ["/api/auth-challenges?runtime=generic-command&scope=default", "invalid_query"],
       ["/api/limits?scope=default", "invalid_query"],
       ["/api/account-ui-preferences?runtime=hermes&scope=default&scope=default", "invalid_runtime_scope"],
       ["/api/audit?runtime=hermes&runtime=openclaw", "invalid_query"],
@@ -971,7 +977,6 @@ test("generic-command status cannot establish public mutation scopes for recogni
         generatedAt: "unknown",
         scopes: [
           { runtime: "codex", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
-          { runtime: "generic-command", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
           { runtime: "hermes", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
           { runtime: "openclaw", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }
         ]
@@ -1312,6 +1317,22 @@ test("guided-auth creation rejects an unavailable challenge store before runtime
       contentType: "application/json",
       body: JSON.stringify({ provider: "openai", runtime: "openclaw", scope: "default", mode: "add", target: hostileText })
     }), 503, "challenge_store_unavailable", hostileText);
+  } finally {
+    await app.close();
+  }
+});
+
+test("guided-auth creation rejects generic, custom, and mixed-case runtime contexts before status or durable state", async () => {
+  const forbiddenChallenges = new Proxy({}, { get() { throw new Error("unpublished_runtime_must_not_open_challenge_store"); } }) as AuthChallengeStore;
+  const app = createAccountCenterServer({ token: "test-token", source: null, challengeStore: forbiddenChallenges });
+  const address = await app.listen();
+  try {
+    for (const runtime of ["generic-command", "custom:private-adapter", "OpenClaw"]) {
+      await assertHardenedJsonError(await rawChallengeRequest(address.port, {
+        token: "test-token", origin: `http://127.0.0.1:${address.port}`, contentType: "application/json",
+        body: JSON.stringify({ mode: "add", provider: "openai", runtime, scope: "default", target: "private@example.test" })
+      }), 400, "invalid_guided_auth_request", "private@example.test");
+    }
   } finally {
     await app.close();
   }

@@ -3,7 +3,7 @@ import type { RuntimeSource } from "./runtime-adapters.js";
 import { isPublicModelId } from "./model-catalog-policy.js";
 
 type PublicProvider = "anthropic" | "github-copilot" | "openai" | "openrouter" | "custom";
-type PublicRuntime = "codex" | "generic-command" | "hermes" | "openclaw" | "custom";
+type PublicRuntime = "codex" | "hermes" | "openclaw" | "custom";
 export type PublicSource = "fixture" | "generic-command" | "openclaw" | "unknown";
 
 
@@ -71,7 +71,10 @@ export function publicStatusView(status: AccountCenterStatus): PublicStatusView 
     source: publicSourceCategory(status.source),
     verificationState: "UNPROVEN",
     ...(isoTimestamp(status.generatedAt) ? { generatedAt: status.generatedAt } : {}),
-    runtimes: status.runtimes.map((runtime) => ({ key: publicRuntime(runtime.key), capabilities: publicRuntimeCapabilities(runtime.key, runtime.capabilities) })),
+    runtimes: status.runtimes.flatMap((runtime) => {
+      const key = publicCatalogRuntime(runtime.key);
+      return key ? [{ key, capabilities: publicRuntimeCapabilities(key, runtime.capabilities) }] : [];
+    }),
     profiles: status.profiles.map((profile, index) => {
       const account = `account-${index + 1}`;
       return {
@@ -241,7 +244,7 @@ function publicRuntimeCapabilities(runtime: string, capabilities: { readStatus: 
 }
 
 function isPublicRuntimeScope(value: unknown): value is Exclude<PublicRuntime, "custom"> {
-  return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command";
+  return value === "openclaw" || value === "hermes" || value === "codex";
 }
 
 function publicProvider(value: string): PublicProvider {
@@ -251,10 +254,10 @@ export function publicSourceCategory(value: unknown): PublicSource {
   return value === "fixture" || value === "openclaw" || value === "generic-command" ? value : "unknown";
 }
 function publicRuntime(value: string): PublicRuntime {
-  return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command" ? value : "custom";
+  return value === "openclaw" || value === "hermes" || value === "codex" ? value : "custom";
 }
 function publicCatalogRuntime(value: string): Exclude<PublicRuntime, "custom"> | undefined {
-  return value === "openclaw" || value === "hermes" || value === "codex" || value === "generic-command" ? value : undefined;
+  return value === "openclaw" || value === "hermes" || value === "codex" ? value : undefined;
 }
 function publicRole(value: string): ProfileRole | "unknown" {
   return value === "primary" || value === "secondary" || value === "backup" || value === "monitor-only" || value === "disabled" ? value : "unknown";

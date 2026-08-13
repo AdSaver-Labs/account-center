@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isPublicGuidedAuthRuntime, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
 export interface AccountCenterServerOptions {
@@ -64,6 +64,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         if (error instanceof RequestBodyError) return send(response, error.status, { error: error.code });
         throw error;
       }
+      // Do not let an untrusted source label become a durable lifecycle
+      // context. Reject it before authoritative status discovery or store use.
+      if (!isPublicGuidedAuthStartInput(body)) return send(response, 400, { error: "invalid_guided_auth_request" });
       // Starting a challenge needs a present authoritative snapshot. Treat a
       // rejected adapter/command exactly like an absent status so runtime
       // diagnostics cannot escape through this protected mutation or cause a
@@ -442,10 +445,15 @@ interface RuntimeInventoryQuery { runtime?: string; scope?: string; }
 
 // Public context selectors are a closed contract. Adapter-specific/custom
 // runtime keys may occur in private normalized status, but must never become a
-// browser/API selection handle. `generic-command` remains an explicitly
-// read-only untrusted adapter label whose capabilities are narrowed separately.
+// browser/API selection handle. `generic-command` is an untrusted source label,
+// not a release-supported public runtime context.
 function isPublicRuntimeSelector(value: string): boolean {
-  return value === "codex" || value === "generic-command" || value === "hermes" || value === "openclaw";
+  return value === "codex" || value === "hermes" || value === "openclaw";
+}
+
+function isPublicGuidedAuthStartInput(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value) &&
+    "runtime" in value && typeof value.runtime === "string" && isPublicGuidedAuthRuntime(value.runtime);
 }
 
 function runtimeInventoryQuery(path: string): RuntimeInventoryQuery | undefined {
