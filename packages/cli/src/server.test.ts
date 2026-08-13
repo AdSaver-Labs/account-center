@@ -118,6 +118,27 @@ async function rawMutationRequest(port: number, method: string, path: string, he
   });
 }
 
+async function rawFramingRequest(port: number, method: string, path: string, headers: string[]): Promise<{ status: number; text: string; headers: Record<string, string> }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.once("error", reject);
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      const [head, text = ""] = response.split("\r\n\r\n", 2);
+      const [statusLine = "", ...headerLines] = head.split("\r\n");
+      const received: Record<string, string> = {};
+      for (const line of headerLines) {
+        const separator = line.indexOf(":");
+        if (separator > 0) received[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+      }
+      resolve({ status: Number(/^HTTP\/\d\.\d (\d{3})/.exec(statusLine)?.[1] ?? 0), text, headers: received });
+    });
+    socket.on("connect", () => socket.end(`${method} ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${headers.map((header) => `${header}\r\n`).join("")}Connection: close\r\n\r\n`));
+  });
+}
+
 function assertHardenedJsonError(response: Response, expectedStatus: number, expectedError: string, suppliedText: string): Promise<void> {
   return response.text().then((body) => {
     assert.equal(response.status, expectedStatus);
@@ -812,6 +833,47 @@ test("protected GET matrix rejects request bodies before status or durable colla
       assert.equal(rejected.headers["cache-control"], "no-store", path);
       assert.equal(JSON.stringify(rejected.body).includes("private@example.test"), false, path);
     }
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected no-body framing fails closed before collaborators or Node rejects it", async () => {
+  // Node rejects certain ambiguous framing forms at its HTTP parser. For forms
+  // delivered to the application, the shared raw-header boundary must return
+  // the canonical no-body error before status or durable collaborators.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("framing_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    mutationRepository: forbiddenCollaborator as MutationRepository,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    const cases = [
+      { method: "GET", path: "/api/status", headers: ["Authorization: Bearer test-token", "Content-Length: 1"] },
+      { method: "GET", path: "/api/status", headers: ["Authorization: Bearer test-token", "Content-Length: 0", "Content-Length: 0"] },
+      { method: "GET", path: "/api/status", headers: ["Authorization: Bearer test-token", "Content-Length: 0, 0"] },
+      { method: "GET", path: "/api/status", headers: ["Authorization: Bearer test-token", "Content-Length: nope"] },
+      { method: "GET", path: "/api/status", headers: ["Authorization: Bearer test-token", "Transfer-Encoding: chunked"] },
+      { method: "POST", path: "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel?runtime=hermes&scope=default", headers: ["Authorization: Bearer test-token", `Origin: http://127.0.0.1:${address.port}`, "Content-Length: 1"] }
+    ];
+    for (const { method, path, headers } of cases) {
+      const rejected = await rawFramingRequest(address.port, method, path, headers);
+      assert.ok([400, 413].includes(rejected.status), path);
+      assert.equal(rejected.text.includes("test-token"), false, path);
+      if (rejected.status === 413) {
+        assert.equal(rejected.headers["cache-control"], "no-store", path);
+        assert.deepEqual(JSON.parse(rejected.text), { error: "request_body_not_allowed" }, path);
+      }
+    }
+    const valid = await rawFramingRequest(address.port, "GET", "/api/status", ["Authorization: Bearer test-token", "Content-Length: 0"]);
+    assert.equal(valid.status, 503);
+    assert.equal(valid.headers["cache-control"], "no-store");
+    assert.deepEqual(JSON.parse(valid.text), { error: "status_unavailable" });
   } finally {
     await app.close();
   }

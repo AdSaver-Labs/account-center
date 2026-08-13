@@ -763,7 +763,15 @@ function bearerCredential(value: string): string | undefined {
   return match?.[1];
 }
 function hasRequestBody(request: IncomingMessage): boolean {
-  return request.headers["transfer-encoding"] !== undefined || (request.headers["content-length"] !== undefined && request.headers["content-length"] !== "0");
+  // A protected no-body route accepts only framing that proves there is no
+  // request body: no Transfer-Encoding and either no Content-Length or exactly
+  // one raw `Content-Length: 0`. Do not use normalized headers here: Node may
+  // combine or discard duplicates before `headers` is exposed. Any repeated,
+  // comma-joined, malformed, or nonzero framing signal is treated as a body
+  // attempt and rejected before route-specific status or durable work.
+  const contentLengths = rawHeaderValues(request, "content-length");
+  return rawHeaderValues(request, "transfer-encoding").length !== 0 ||
+    !(contentLengths.length === 0 || (contentLengths.length === 1 && contentLengths[0] === "0"));
 }
 function isJsonContentType(request: IncomingMessage): boolean {
   // Do not trust Node's normalized Content-Type singleton. Multiple raw lines
