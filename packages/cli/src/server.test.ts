@@ -94,6 +94,30 @@ async function rawAuthorizationChallengeRequest(port: number, authorization: str
   });
 }
 
+async function rawMutationRequest(port: number, method: string, path: string, headers: string[], body = ""): Promise<{ status: number; body: unknown; headers: Record<string, string | string[] | undefined> }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.once("error", reject);
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      const [head, text = ""] = response.split("\r\n\r\n", 2);
+      const [statusLine = "", ...headerLines] = head.split("\r\n");
+      const status = Number(/^HTTP\/\d\.\d (\d{3})/.exec(statusLine)?.[1] ?? 0);
+      const received: Record<string, string> = {};
+      for (const line of headerLines) {
+        const separator = line.indexOf(":");
+        if (separator > 0) received[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+      }
+      resolve({ status, body: text ? JSON.parse(text) : undefined, headers: received });
+    });
+    socket.on("connect", () => {
+      socket.end(`${method} ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${headers.map((header) => `${header}\r\n`).join("")}Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+    });
+  });
+}
+
 function assertHardenedJsonError(response: Response, expectedStatus: number, expectedError: string, suppliedText: string): Promise<void> {
   return response.text().then((body) => {
     assert.equal(response.status, expectedStatus);
@@ -310,6 +334,45 @@ test("preference updates reject bearer and listener-origin attacks before every 
     await assertHardenedJsonError(await rawPreferenceRequest(address.port, { origin, contentType: "application/json", body }), 401, "unauthorized", hostile);
     await assertHardenedJsonError(await rawPreferenceRequest(address.port, { token: "test-token", contentType: "application/json", body }), 403, "origin_forbidden", hostile);
     await assertHardenedJsonError(await rawPreferenceRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body }), 403, "origin_forbidden", hostile);
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected mutations reject duplicate or conflicting Origin headers before every collaborator", async () => {
+  // Node's normalized headers can collapse duplicate singleton fields. Send raw
+  // HTTP so this proves every write endpoint rejects ambiguity at the common
+  // origin boundary, before source discovery or durable collaborators.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("ambiguous_origin_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    auditStore: forbiddenCollaborator as AuditStore,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const hostile = "private@example.test";
+  const mutations: Array<{ method: string; path: string; body?: string; headers?: string[] }> = [
+    {
+      method: "POST", path: "/api/auth-challenges", headers: ["Content-Type: application/json"],
+      body: JSON.stringify({ mode: "add", provider: "openai", runtime: "openclaw", scope: "default", target: hostile })
+    },
+    {
+      method: "POST", path: "/api/account-ui-preferences?runtime=hermes&scope=default", headers: ["Content-Type: application/json"],
+      body: JSON.stringify({ accountRef: "account-1", state: "hidden" })
+    },
+    { method: "POST", path: "/api/auth-challenges/auth_00000000-0000-4000-8000-000000000000/cancel?runtime=hermes&scope=default" }
+  ];
+  try {
+    for (const mutation of mutations) for (const origins of [[origin, "https://attacker.invalid"], ["https://attacker.invalid", origin], [origin, origin]]) {
+      const response = await rawMutationRequest(address.port, mutation.method, mutation.path, ["Authorization: Bearer test-token", ...origins.map((value) => `Origin: ${value}`), ...(mutation.headers ?? [])], mutation.body);
+      assert.equal(response.status, 403, `${mutation.path} ${origins.join(",")}`);
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.deepEqual(response.body, { error: "origin_forbidden" });
+      assert.equal(JSON.stringify(response.body).includes(hostile), false);
+    }
   } finally {
     await app.close();
   }

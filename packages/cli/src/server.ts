@@ -786,9 +786,14 @@ function isAccountUiPreferenceMutation(value: unknown): value is { accountRef: s
 }
 function sameOrigin(request: IncomingMessage, listenerOrigin: string | undefined): boolean {
   // Request Host is attacker-controlled; accept only the origin derived from
-  // the loopback listener that this server actually opened.
-  const origin = request.headers.origin;
-  return typeof origin === "string" && origin === listenerOrigin;
+  // the loopback listener that this server actually opened. As with bearer
+  // credentials, never trust Node's normalized singleton header: duplicate
+  // Origin lines may be collapsed before this boundary sees them. A mutation
+  // must have exactly one listener-bound Origin representation.
+  const origins = request.rawHeaders.flatMap((value, index) =>
+    index % 2 === 0 && value.toLowerCase() === "origin" ? [request.rawHeaders[index + 1] ?? ""] : []
+  );
+  return origins.length === 1 && origins[0] === listenerOrigin;
 }
 function setSafetyHeaders(response: ServerResponse): void {
   response.setHeader("Cache-Control", "no-store");
