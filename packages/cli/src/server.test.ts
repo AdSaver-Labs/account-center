@@ -193,6 +193,48 @@ async function rawIncompleteMutationRequest(port: number, path: string, headers:
   });
 }
 
+async function rawIncompleteHeaderRequest(port: number, requestPrefix: string, drip?: string): Promise<{ elapsedMs: number; status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("incomplete_headers_did_not_terminate"));
+    }, 3_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      clearTimeout(safetyTimeout);
+      resolve({ elapsedMs: Date.now() - startedAt, status: Number(/^HTTP\/\d\.\d (\d{3})/.exec(response)?.[1] ?? 0), text: response });
+    });
+    socket.on("connect", () => {
+      socket.write(requestPrefix);
+      if (drip) setTimeout(() => socket.write(drip), 400);
+    });
+  });
+}
+
+async function rawKeepAliveStatusRequests(port: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("keep_alive_status_requests_did_not_complete"));
+    }, 3_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => {
+      response += chunk;
+      if ((response.match(/HTTP\/1\.1 200/g) ?? []).length === 2) socket.end();
+    });
+    socket.on("end", () => { clearTimeout(safetyTimeout); resolve(response); });
+    socket.on("connect", () => socket.write(`GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\n\r\nGET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: close\r\n\r\n`));
+  });
+}
+
 function assertResponseIsolationHeaders(headers: Headers): void {
   assert.equal(headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(headers.get("cross-origin-resource-policy"), "same-origin");
@@ -569,6 +611,38 @@ test("JSON mutations reject oversized declared bodies before waiting or collabor
       assert.equal(response.status, 413, `${path} ${length}`);
       assert.equal(response.headers["cache-control"], "no-store");
       assert.deepEqual(response.body, { error: "invalid_request_framing" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("incomplete HTTP headers expire before the protected handler or collaborators", async () => {
+  // These peers do not complete the HTTP parser's header section, so Node owns
+  // any generic timeout response. Neither request handler nor its collaborators
+  // may be reachable from this parser-level boundary.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("incomplete_headers_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: forbiddenCollaborator,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  try {
+    for (const [prefix, drip] of [["", undefined], [`POST /api/auth-challenges HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\nAuthorization: Bearer test-token\r\n`, "X-Drip: one\r\n"]] as const) {
+      const response = await rawIncompleteHeaderRequest(address.port, prefix, drip);
+      assert.equal(response.elapsedMs < 1_800, true);
+      assert.equal(response.status === 0 || response.status === 408, true);
+      assert.equal(response.text.includes("incomplete_headers_must_not_access_collaborator"), false);
+    }
+    const keepAliveApp = createAccountCenterServer({ token: "test-token" });
+    const keepAliveAddress = await keepAliveApp.listen();
+    try {
+      const keepAliveResponses = await rawKeepAliveStatusRequests(keepAliveAddress.port);
+      assert.equal((keepAliveResponses.match(/HTTP\/1\.1 200/g) ?? []).length, 2);
+    } finally {
+      await keepAliveApp.close();
     }
   } finally {
     await app.close();

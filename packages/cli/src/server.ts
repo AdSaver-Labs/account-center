@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { AddressInfo } from "node:net";
+import { AddressInfo, Socket } from "node:net";
 import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isPublicGuidedAuthRuntime, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
@@ -18,7 +18,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // including undefined or null, remains untrusted input for the adapter to reject.
   const source = Object.prototype.hasOwnProperty.call(options, "source") ? options.source : "fixture";
   let listenerOrigin: string | undefined;
+  const headerDeadlines = new WeakMap<Socket, ReturnType<typeof setTimeout>>();
   const server = createServer(async (request, response) => {
+    const headerDeadline = headerDeadlines.get(request.socket);
+    if (headerDeadline) {
+      clearTimeout(headerDeadline);
+      headerDeadlines.delete(request.socket);
+    }
     try {
       setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
@@ -345,6 +351,21 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     } catch {
       if (!response.writableEnded) send(response, 500, { error: "internal_error" });
     }
+  });
+  // Own the parser-level deadlines rather than inheriting Node-version defaults.
+  // Header-incomplete peers never create an IncomingMessage and therefore cannot
+  // reach this protected handler; Node owns their generic timeout/close response.
+  // Application-owned JSON completion remains the tighter one-second boundary
+  // after a canonical mutation has reached the handler.
+  server.headersTimeout = 1_000;
+  server.requestTimeout = 5_000;
+  server.on("connection", (socket) => {
+    // Node's parser timeout is explicit above; retain a listener-owned absolute
+    // close as well because Node may not begin its parser clock until it has
+    // received bytes. This covers silent peers and slow header drips alike.
+    const deadline = setTimeout(() => socket.destroy(), 1_000);
+    headerDeadlines.set(socket, deadline);
+    socket.once("close", () => clearTimeout(deadline));
   });
   return {
     async listen(port = 0): Promise<{ port: number }> {
