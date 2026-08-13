@@ -814,6 +814,87 @@ test("protected response failures share hardened headers and preference reads re
   }
 });
 
+test("representative application-owned response isolation matrix keeps panel and API exit families no-store and redacted", async () => {
+  // This matrix exercises each response family (HTML, protected read success,
+  // auth/method/query/origin/representation/framing rejection, unavailable
+  // dependency, missing route, and caught collaborator failure) rather than
+  // duplicating every route-specific fixture. Node parser-level malformed-header
+  // responses are transport-owned and therefore outside this application header
+  // contract.
+  const root = await mkdtemp(join(tmpdir(), "account-center-response-isolation-matrix-"));
+  const app = createAccountCenterServer({
+    token: "test-token",
+    challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json"))
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const hostile = "private@example.test";
+  const assertJson = async (response: Response, status: number, error: string) => {
+    await assertHardenedJsonError(response, status, error, hostile);
+  };
+  try {
+    const panel = await fetch(`${origin}/`);
+    assert.equal(panel.status, 200);
+    assert.equal(panel.headers.get("cache-control"), "no-store");
+    assert.equal(panel.headers.get("content-type"), "text/html; charset=utf-8");
+    assert.equal(panel.headers.get("content-security-policy"), "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+    assertResponseIsolationHeaders(panel.headers);
+    assert.equal(panel.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(panel.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(panel.headers.get("x-frame-options"), "DENY");
+    assert.equal(panel.headers.get("access-control-allow-origin"), null);
+
+    const cases: Array<{ name: string; status: number; error: string; request: () => Promise<Response> }> = [
+      { name: "authorized read", status: 200, error: "", request: () => request(address.port, "/api/status", "test-token") },
+      { name: "missing bearer", status: 401, error: "unauthorized", request: () => request(address.port, "/api/status", undefined) },
+      { name: "unsupported method", status: 405, error: "method_not_allowed", request: () => fetch(`${origin}/api/status`, { method: "POST", headers: { authorization: "Bearer test-token" } }) },
+      { name: "invalid query", status: 400, error: "invalid_query", request: () => request(address.port, "/api/status?untrusted=private@example.test", "test-token") },
+      { name: "cross-origin mutation", status: 403, error: "origin_forbidden", request: () => rawChallengeRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body: hostile }) },
+      { name: "wrong representation", status: 415, error: "json_content_type_required", request: () => rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "text/plain", body: hostile }) },
+      { name: "declared framing failure", status: 413, error: "invalid_request_framing", request: () => rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "application/json", body: `{"target":"${"x".repeat(4_100)}"}` }) },
+      { name: "unavailable store", status: 503, error: "audit_unavailable", request: () => request(address.port, "/api/audit", "test-token") },
+      { name: "not found", status: 404, error: "not_found", request: () => request(address.port, "/api/missing-private@example.test", "test-token") }
+    ];
+    for (const entry of cases) {
+      const response = await entry.request();
+      if (entry.name === "authorized read") {
+        assert.equal(response.status, entry.status);
+        assert.equal(response.headers.get("cache-control"), "no-store");
+        assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
+        assert.equal(response.headers.get("content-security-policy"), "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+        assertResponseIsolationHeaders(response.headers);
+        assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+        assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+        assert.equal(response.headers.get("x-frame-options"), "DENY");
+        assert.equal(response.headers.get("access-control-allow-origin"), null);
+        continue;
+      }
+      await assertJson(response, entry.status, entry.error);
+    }
+  } finally {
+    await app.close();
+  }
+
+  const unavailable = createAccountCenterServer({ token: "test-token", source: null });
+  const unavailableAddress = await unavailable.listen();
+  try {
+    await assertJson(await request(unavailableAddress.port, "/api/status", "test-token"), 503, "status_unavailable");
+  } finally {
+    await unavailable.close();
+  }
+
+  const throwing = createAccountCenterServer({
+    token: "test-token",
+    accountUiPreferencesStore: { view: async () => { throw new Error(hostile); } } as unknown as AccountUiPreferencesStore
+  });
+  const throwingAddress = await throwing.listen();
+  try {
+    await assertJson(await request(throwingAddress.port, "/api/account-ui-preferences?runtime=hermes&scope=default", "test-token"), 500, "internal_error");
+  } finally {
+    await throwing.close();
+  }
+});
+
 test("unexpected protected collaborators return one redacted hardened failure contract", async () => {
   // Each route reaches a different local collaborator only after the bearer,
   // method, query, and selected-context boundaries. Make that collaborator
