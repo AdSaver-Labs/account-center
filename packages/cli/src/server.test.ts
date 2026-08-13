@@ -51,6 +51,27 @@ async function unsupportedExpectationRequest(port: number, expectation: string):
   });
 }
 
+async function rawUnsupportedConnectionModeRequest(port: number, method: "CONNECT" | "GET", headers: readonly string[]): Promise<{ status: number; body: unknown; headers: Record<string, string>; response: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.once("error", reject);
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      const [head, text = ""] = response.split("\r\n\r\n", 2);
+      const [statusLine = "", ...headerLines] = head.split("\r\n");
+      const received: Record<string, string> = {};
+      for (const line of headerLines) {
+        const separator = line.indexOf(":");
+        if (separator > 0) received[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+      }
+      resolve({ status: Number(/^HTTP\/\d\.\d (\d{3})/.exec(statusLine)?.[1] ?? 0), body: text ? JSON.parse(text) : undefined, headers: received, response });
+    });
+    socket.on("connect", () => socket.end(`${method} ${method === "CONNECT" ? "authority.invalid:443" : "/api/status"} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${headers.map((header) => `${header}\r\n`).join("")}Connection: close\r\n\r\n`));
+  });
+}
+
 async function continueExpectationRequest(port: number): Promise<{ continued: boolean; status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     let continued = false;
@@ -951,6 +972,33 @@ test("unsupported HTTP expectations receive the fixed isolated failure before pr
     assert.equal(rejected.headers["access-control-allow-origin"], undefined);
     const continued = await continueExpectationRequest(address.port);
     assert.deepEqual(continued, { continued: true, status: 503, body: { error: "status_unavailable" } });
+  } finally {
+    await app.close();
+  }
+});
+
+test("HTTP upgrades and CONNECT tunnels receive one fixed isolated rejection before protected handling", async () => {
+  const app = createAccountCenterServer({ token: "test-token", source: null });
+  const address = await app.listen();
+  try {
+    for (const [method, headers, hostileValue] of [
+      ["GET", ["Authorization: Bearer test-token", "Connection: Upgrade", "Upgrade: hostile-upgrade-value"], "hostile-upgrade-value"],
+      ["CONNECT", ["Authorization: Bearer test-token"], "authority.invalid"]
+    ] as const) {
+      const rejected = await rawUnsupportedConnectionModeRequest(address.port, method, headers);
+      assert.equal(rejected.status, 400);
+      assert.deepEqual(rejected.body, { error: "unsupported_connection_mode" });
+      assert.equal(rejected.headers["connection"], "close");
+      assert.equal(rejected.headers["cache-control"], "no-store");
+      assert.equal(rejected.headers["content-type"], "application/json; charset=utf-8");
+      assert.equal(rejected.headers["content-security-policy"], "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+      assert.equal(rejected.headers["referrer-policy"], "no-referrer");
+      assert.equal(rejected.headers["x-content-type-options"], "nosniff");
+      assert.equal(rejected.headers["x-frame-options"], "DENY");
+      assert.equal(rejected.headers["access-control-allow-origin"], undefined);
+      assert.equal((rejected.response.match(/HTTP\/1\.1/g) ?? []).length, 1);
+      assert.equal(rejected.response.includes(hostileValue), false);
+    }
   } finally {
     await app.close();
   }

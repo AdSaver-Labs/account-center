@@ -390,6 +390,22 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     setSafetyHeaders(response);
     send(response, 417, { error: "expectation_failed" });
   });
+  // HTTP upgrades and CONNECT tunnels bypass the regular IncomingMessage /
+  // ServerResponse path. Account Center is a loopback JSON control plane, not
+  // a proxy or websocket endpoint, so own both parser branches explicitly.
+  // This prevents Node's event-dependent default close/response behavior from
+  // becoming an undocumented transport surface or reaching any protected
+  // collaborator.
+  server.on("upgrade", (request, socket) => {
+    const connection = socket as Socket;
+    clearConnectionDeadline(connection);
+    rejectUnsupportedConnectionMode(connection);
+  });
+  server.on("connect", (request, socket) => {
+    const connection = socket as Socket;
+    clearConnectionDeadline(connection);
+    rejectUnsupportedConnectionMode(connection);
+  });
   server.on("connection", (socket) => {
     // Node's parser timeout is explicit above; retain a listener-owned absolute
     // close as well because Node may not begin its parser clock until it has
@@ -936,18 +952,34 @@ function rawHeaderValues(request: IncomingMessage, name: string): string[] {
   );
 }
 function setSafetyHeaders(response: ServerResponse): void {
-  response.setHeader("Cache-Control", "no-store");
-  response.setHeader("Content-Type", "application/json; charset=utf-8");
-  response.setHeader("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+  for (const [name, value] of safetyHeaderEntries()) response.setHeader(name, value);
+}
+function safetyHeaderEntries(): ReadonlyArray<readonly [string, string]> {
+  return [
+    ["Cache-Control", "no-store"],
+    ["Content-Type", "application/json; charset=utf-8"],
+    ["Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"],
   // The control plane is a loopback-only, bearer-protected single-page panel.
   // It neither opens cross-origin windows/resources nor needs browser hardware
   // features, so make those browser boundaries explicit on every response.
-  response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-  response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-  response.setHeader("Permissions-Policy", "accelerometer=(), ambient-light-sensor=(), autoplay=(), bluetooth=(), browsing-topics=(), camera=(), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), publickey-credentials-create=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), speaker-selection=(), storage-access=(), usb=(), web-share=(), window-management=(), xr-spatial-tracking=()");
-  response.setHeader("Referrer-Policy", "no-referrer");
-  response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("X-Frame-Options", "DENY");
+    ["Cross-Origin-Opener-Policy", "same-origin"],
+    ["Cross-Origin-Resource-Policy", "same-origin"],
+    ["Permissions-Policy", "accelerometer=(), ambient-light-sensor=(), autoplay=(), bluetooth=(), browsing-topics=(), camera=(), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), publickey-credentials-create=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), speaker-selection=(), storage-access=(), usb=(), web-share=(), window-management=(), xr-spatial-tracking=()"],
+    ["Referrer-Policy", "no-referrer"],
+    ["X-Content-Type-Options", "nosniff"],
+    ["X-Frame-Options", "DENY"]
+  ];
+}
+function rejectUnsupportedConnectionMode(socket: Socket): void {
+  // This path has no ServerResponse. Construct only fixed listener-owned
+  // headers/body; never reflect the request target, Upgrade value, or parser
+  // diagnostics. A close-delimited response makes tunnel continuation
+  // impossible and guarantees one terminal outcome for this socket.
+  const body = JSON.stringify({ error: "unsupported_connection_mode" });
+  const headers = safetyHeaderEntries()
+    .map(([name, value]) => `${name}: ${value}`)
+    .join("\r\n");
+  socket.end(`HTTP/1.1 400 Bad Request\r\n${headers}\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
 }
 function send(response: ServerResponse, code: number, body: unknown): void {
   response.statusCode = code;
