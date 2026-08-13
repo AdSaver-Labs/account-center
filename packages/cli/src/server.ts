@@ -65,7 +65,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       try {
         body = await readJsonBody(request);
       } catch (error) {
-        if (error instanceof RequestBodyError) return send(response, error.status, { error: error.code });
+        if (error instanceof RequestBodyError) {
+          if (error.code === "request_body_incomplete") response.setHeader("Connection", "close");
+          return send(response, error.status, { error: error.code });
+        }
         throw error;
       }
       // Do not let an untrusted source label become a durable lifecycle
@@ -123,15 +126,26 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // boundary before reading or changing local preferences, so this
       // protected mutation cannot drift from the normalized adapter-rejected,
       // command-failed, and unusable-status contract.
+      if (request.method === "GET") {
+        const status = await authoritativeStatus(source);
+        if (!status) return send(response, 503, { error: "status_unavailable" });
+        if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
+        return send(response, 200, await options.accountUiPreferencesStore.view(`${query.runtime}|${query.scope}`));
+      }
+      if (!isJsonContentType(request)) { request.resume(); return send(response, 415, { error: "json_content_type_required" }); }
+      let body: unknown;
+      try { body = await readJsonBody(request); } catch (error) {
+        if (error instanceof RequestBodyError) {
+          if (error.code === "request_body_incomplete") response.setHeader("Connection", "close");
+          return send(response, error.status, { error: error.code });
+        }
+        throw error;
+      }
+      if (!isAccountUiPreferenceMutation(body)) return send(response, 400, { error: "invalid_account_ui_preference" });
       const status = await authoritativeStatus(source);
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const scopeKey = `${query.runtime}|${query.scope}`;
-      if (request.method === "GET") return send(response, 200, await options.accountUiPreferencesStore.view(scopeKey));
-      if (!isJsonContentType(request)) { request.resume(); return send(response, 415, { error: "json_content_type_required" }); }
-      let body: unknown;
-      try { body = await readJsonBody(request); } catch (error) { if (error instanceof RequestBodyError) return send(response, error.status, { error: error.code }); throw error; }
-      if (!isAccountUiPreferenceMutation(body)) return send(response, 400, { error: "invalid_account_ui_preference" });
       const inventory = publicLimitsInventoryView(status, query.runtime) as { accounts?: Array<{ accountRef?: unknown }> };
       if (!inventory?.accounts?.some((account) => account.accountRef === body.accountRef)) return send(response, 400, { error: "unknown_account_ref" });
       return send(response, 200, await options.accountUiPreferencesStore.setAccountState(scopeKey, body.accountRef, body.state));
@@ -805,18 +819,51 @@ function hasCanonicalJsonMutationFraming(request: IncomingMessage): boolean {
     /^(?:[1-9][0-9]{0,2}|[1-3][0-9]{3}|400[0-9]|409[0-6])$/.test(contentLengths[0]);
 }
 class RequestBodyError extends Error {
-  constructor(readonly status: 413, readonly code: "request_body_too_large") { super(code); }
+  constructor(readonly status: 408 | 413, readonly code: "request_body_incomplete" | "request_body_too_large") { super(code); }
 }
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += value.length;
-    if (size > 4_096) throw new RequestBodyError(413, "request_body_too_large");
-    chunks.push(value);
-  }
-  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return undefined; }
+  // Canonical framing proves the maximum accepted body size, not that the peer
+  // will send it. Bound completion explicitly rather than inheriting Node's
+  // broad server timeout, and remove every listener/timer on all terminal paths.
+  const bodyCompletionDeadlineMs = 1_000;
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const finish = (result: (() => void)) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      request.removeListener("data", onData);
+      request.removeListener("end", onEnd);
+      request.removeListener("aborted", onAborted);
+      request.removeListener("error", onError);
+      request.removeListener("close", onClose);
+      result();
+    };
+    const fail = (error: RequestBodyError) => finish(() => reject(error));
+    const onData = (chunk: Buffer | string) => {
+      const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += value.length;
+      if (size > 4_096) return fail(new RequestBodyError(413, "request_body_too_large"));
+      chunks.push(value);
+    };
+    const onEnd = () => finish(() => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { resolve(undefined); }
+    });
+    const onAborted = () => fail(new RequestBodyError(408, "request_body_incomplete"));
+    const onError = () => fail(new RequestBodyError(408, "request_body_incomplete"));
+    const onClose = () => {
+      if (!request.complete) fail(new RequestBodyError(408, "request_body_incomplete"));
+    };
+    const deadline = setTimeout(() => fail(new RequestBodyError(408, "request_body_incomplete")), bodyCompletionDeadlineMs);
+    deadline.unref();
+    request.on("data", onData);
+    request.once("end", onEnd);
+    request.once("aborted", onAborted);
+    request.once("error", onError);
+    request.once("close", onClose);
+  });
 }
 function isAccountUiPreferenceMutation(value: unknown): value is { accountRef: string; state: "hidden" | "active" } {
   return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 2 &&

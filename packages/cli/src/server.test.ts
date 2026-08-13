@@ -164,6 +164,35 @@ async function rawDeclaredMutationRequest(port: number, path: string, headers: s
   });
 }
 
+async function rawIncompleteMutationRequest(port: number, path: string, headers: string[], bodyPrefix: string): Promise<{ elapsedMs: number; status: number; body: unknown; headers: Record<string, string> }> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("incomplete_mutation_did_not_terminate"));
+    }, 3_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      clearTimeout(safetyTimeout);
+      const [head, text = ""] = response.split("\r\n\r\n", 2);
+      const [statusLine = "", ...headerLines] = head.split("\r\n");
+      const received: Record<string, string> = {};
+      for (const line of headerLines) {
+        const separator = line.indexOf(":");
+        if (separator > 0) received[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+      }
+      resolve({ elapsedMs: Date.now() - startedAt, status: Number(/^HTTP\/\d\.\d (\d{3})/.exec(statusLine)?.[1] ?? 0), body: text ? JSON.parse(text) : undefined, headers: received });
+    });
+    socket.on("connect", () => {
+      socket.write(`POST ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${headers.map((header) => `${header}\r\n`).join("")}\r\n${bodyPrefix}`);
+    });
+  });
+}
+
 function assertResponseIsolationHeaders(headers: Headers): void {
   assert.equal(headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(headers.get("cross-origin-resource-policy"), "same-origin");
@@ -540,6 +569,42 @@ test("JSON mutations reject oversized declared bodies before waiting or collabor
       assert.equal(response.status, 413, `${path} ${length}`);
       assert.equal(response.headers["cache-control"], "no-store");
       assert.deepEqual(response.body, { error: "invalid_request_framing" });
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("incomplete canonical JSON mutations time out before protected collaborators", async () => {
+  // Retain each socket after sending headers (and optionally a valid prefix).
+  // Neither status discovery nor a durable collaborator may run until a body is
+  // complete and structurally valid.
+  const forbiddenCollaborator = new Proxy({}, { get() { throw new Error("incomplete_body_must_not_access_collaborator"); } });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: null,
+    challengeStore: forbiddenCollaborator as AuthChallengeStore,
+    accountUiPreferencesStore: forbiddenCollaborator as AccountUiPreferencesStore
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const mutations = [
+    "/api/auth-challenges",
+    "/api/account-ui-preferences?runtime=hermes&scope=default"
+  ];
+  try {
+    for (const path of mutations) for (const prefix of ["", "{"]) {
+      const response = await rawIncompleteMutationRequest(address.port, path, [
+        "Authorization: Bearer test-token",
+        `Origin: ${origin}`,
+        "Content-Type: application/json",
+        "Content-Length: 32"
+      ], prefix);
+      assert.equal(response.status, 408, `${path} ${JSON.stringify(prefix)}`);
+      assert.equal(response.elapsedMs < 2_500, true, `${path} terminated in ${response.elapsedMs}ms`);
+      assert.equal(response.headers["cache-control"], "no-store");
+      assert.equal(response.headers.connection, "close");
+      assert.deepEqual(response.body, { error: "request_body_incomplete" });
     }
   } finally {
     await app.close();
@@ -1602,9 +1667,12 @@ test("account preference contexts fail closed before local preference access", a
   const unobservedApp = createAccountCenterServer({ token: "test-token", source: "fixture", accountUiPreferencesStore: forbiddenPreferences });
   const unobservedAddress = await unobservedApp.listen();
   try {
-    for (const response of preferenceRequests(unobservedAddress.port, "codex")) {
-      await assertHardenedJsonError(await response, 400, "unknown_runtime_scope", "private@example.test");
-    }
+    const [read, update] = preferenceRequests(unobservedAddress.port, "codex");
+    await assertHardenedJsonError(await read, 400, "unknown_runtime_scope", "private@example.test");
+    // A POST validates its complete JSON shape before status discovery so an
+    // incomplete body cannot probe runtime authority. This hostile body is
+    // rejected at that earlier non-durable boundary.
+    await assertHardenedJsonError(await update, 400, "invalid_account_ui_preference", "private@example.test");
   } finally {
     await unobservedApp.close();
   }
@@ -1613,11 +1681,12 @@ test("account preference contexts fail closed before local preference access", a
     const unavailableApp = createAccountCenterServer({ token: "test-token", source, accountUiPreferencesStore: forbiddenPreferences });
     const unavailableAddress = await unavailableApp.listen();
     try {
-      // Hermes is observed in the fixture, so only unavailable authority—not an
-      // unobserved selector—can explain this fixed fail-closed response.
-      for (const response of preferenceRequests(unavailableAddress.port, "hermes")) {
-        await assertHardenedJsonError(await response, 503, "status_unavailable", "private@example.test");
-      }
+      // A read requires current authority. A POST first consumes and validates
+      // its complete JSON body, which prevents a withheld body from probing
+      // authority; this hostile payload is therefore rejected before status.
+      const [read, update] = preferenceRequests(unavailableAddress.port, "hermes");
+      await assertHardenedJsonError(await read, 503, "status_unavailable", "private@example.test");
+      await assertHardenedJsonError(await update, 400, "invalid_account_ui_preference", "private@example.test");
     } finally {
       await unavailableApp.close();
     }
