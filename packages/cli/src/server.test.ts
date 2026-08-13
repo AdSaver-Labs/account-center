@@ -139,12 +139,19 @@ async function rawFramingRequest(port: number, method: string, path: string, hea
   });
 }
 
+function assertResponseIsolationHeaders(headers: Headers): void {
+  assert.equal(headers.get("cross-origin-opener-policy"), "same-origin");
+  assert.equal(headers.get("cross-origin-resource-policy"), "same-origin");
+  assert.equal(headers.get("permissions-policy"), "accelerometer=(), ambient-light-sensor=(), autoplay=(), bluetooth=(), browsing-topics=(), camera=(), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), publickey-credentials-create=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), speaker-selection=(), storage-access=(), usb=(), web-share=(), window-management=(), xr-spatial-tracking=()");
+}
+
 function assertHardenedJsonError(response: Response, expectedStatus: number, expectedError: string, suppliedText: string): Promise<void> {
   return response.text().then((body) => {
     assert.equal(response.status, expectedStatus);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
     assert.equal(response.headers.get("content-security-policy"), "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+    assertResponseIsolationHeaders(response.headers);
     assert.equal(response.headers.get("referrer-policy"), "no-referrer");
     assert.equal(response.headers.get("x-content-type-options"), "nosniff");
     assert.equal(response.headers.get("x-frame-options"), "DENY");
@@ -223,6 +230,7 @@ test("local API requires bearer token and returns no-store status", async () => 
     assert.equal(accepted.headers.get("cache-control"), "no-store");
     assert.equal(accepted.headers.get("access-control-allow-origin"), null);
     assert.equal(accepted.headers.get("content-security-policy"), "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+    assertResponseIsolationHeaders(accepted.headers);
     assert.equal(accepted.headers.get("referrer-policy"), "no-referrer");
     assert.equal(accepted.headers.get("x-content-type-options"), "nosniff");
     assert.equal(accepted.headers.get("x-frame-options"), "DENY");
@@ -474,6 +482,7 @@ test("protected response failures share hardened headers and preference reads re
     assert.equal(panel.status, 200);
     assert.equal(panel.headers.get("cache-control"), "no-store");
     assert.equal(panel.headers.get("content-type"), "text/html; charset=utf-8");
+    assertResponseIsolationHeaders(panel.headers);
     assert.equal(panel.headers.get("x-frame-options"), "DENY");
 
     await assertHardenedJsonError(await request(address.port, "/api/status", `test-token-${suppliedText}`), 401, "unauthorized", suppliedText);
