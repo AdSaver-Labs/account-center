@@ -32,6 +32,46 @@ async function bodyRequest(port: number, path: string, token: string | undefined
   });
 }
 
+async function unsupportedExpectationRequest(port: number, expectation: string): Promise<{ status: number; body: unknown; headers: Record<string, string | string[] | undefined> }> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({
+      host: "127.0.0.1",
+      port,
+      path: "/api/status",
+      method: "GET",
+      headers: { authorization: "Bearer test-token", expect: expectation }
+    }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => { text += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: text ? JSON.parse(text) : undefined, headers: response.headers }));
+    });
+    request.once("error", reject);
+    request.end();
+  });
+}
+
+async function continueExpectationRequest(port: number): Promise<{ continued: boolean; status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    let continued = false;
+    const request = httpRequest({
+      host: "127.0.0.1",
+      port,
+      path: "/api/status",
+      method: "GET",
+      headers: { authorization: "Bearer test-token", expect: "100-continue" }
+    }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => { text += chunk; });
+      response.on("end", () => resolve({ continued, status: response.statusCode ?? 0, body: text ? JSON.parse(text) : undefined }));
+    });
+    request.once("continue", () => { continued = true; });
+    request.once("error", reject);
+    request.end();
+  });
+}
+
 async function createChallenge(port: number, token: string, body: unknown, origin = true): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}/api/auth-challenges`, {
     method: "POST",
@@ -892,6 +932,27 @@ test("representative application-owned response isolation matrix keeps panel and
     await assertJson(await request(throwingAddress.port, "/api/account-ui-preferences?runtime=hermes&scope=default", "test-token"), 500, "internal_error");
   } finally {
     await throwing.close();
+  }
+});
+
+test("unsupported HTTP expectations receive the fixed isolated failure before protected handling", async () => {
+  const app = createAccountCenterServer({ token: "test-token", source: null });
+  const address = await app.listen();
+  try {
+    const rejected = await unsupportedExpectationRequest(address.port, "private-expectation");
+    assert.equal(rejected.status, 417);
+    assert.deepEqual(rejected.body, { error: "expectation_failed" });
+    assert.equal(rejected.headers["cache-control"], "no-store");
+    assert.equal(rejected.headers["content-type"], "application/json; charset=utf-8");
+    assert.equal(rejected.headers["content-security-policy"], "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
+    assert.equal(rejected.headers["referrer-policy"], "no-referrer");
+    assert.equal(rejected.headers["x-content-type-options"], "nosniff");
+    assert.equal(rejected.headers["x-frame-options"], "DENY");
+    assert.equal(rejected.headers["access-control-allow-origin"], undefined);
+    const continued = await continueExpectationRequest(address.port);
+    assert.deepEqual(continued, { continued: true, status: 503, body: { error: "status_unavailable" } });
+  } finally {
+    await app.close();
   }
 });
 

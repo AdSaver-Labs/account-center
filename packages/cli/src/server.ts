@@ -380,6 +380,16 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   server.requestTimeout = connectionPhaseDeadlineMs;
   server.timeout = connectionPhaseDeadlineMs;
   server.keepAliveTimeout = connectionPhaseDeadlineMs;
+  server.on("checkExpectation", (request, response) => {
+    // Node emits this event instead of the regular request event for an
+    // unsupported Expect header. Own this valid transport branch so it cannot
+    // bypass the fixed loopback response-isolation contract or reach protected
+    // routing, authorization, runtime discovery, or durable collaborators.
+    clearConnectionDeadline(request.socket);
+    response.once("finish", () => armConnectionDeadline(request.socket));
+    setSafetyHeaders(response);
+    send(response, 417, { error: "expectation_failed" });
+  });
   server.on("connection", (socket) => {
     // Node's parser timeout is explicit above; retain a listener-owned absolute
     // close as well because Node may not begin its parser clock until it has
