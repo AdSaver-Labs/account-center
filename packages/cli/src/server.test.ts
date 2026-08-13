@@ -1856,7 +1856,7 @@ test("protected operation detail is bearer-protected, redacted, and does not exp
     const capabilities = await request(address.port, "/api/capabilities", "test-token");
     const capabilityBody = await capabilities.json() as { actions: Array<{ id: string; mode: string; state: string; endpoint?: { method: string; path: string }; requires: string[] }> };
     assert.deepEqual(capabilityBody.actions.find((action) => action.id === "mutation_operations.detail"), {
-      id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId" }, requires: ["bearer_token", "opaque_operation_id", "explicit_runtime_scope"]
+      id: "mutation_operations.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/mutation-operations/:operationId?runtime=:runtime&scopeKind=default" }, requires: ["bearer_token", "opaque_operation_id", "explicit_runtime_scope"]
     });
 
     const wrongMethod = await fetch(`http://127.0.0.1:${address.port}/api/mutation-operations/op_detail`, {
@@ -2379,7 +2379,7 @@ test("guided-auth cancellation is same-origin, bearer-protected, durable, redact
       id: "auth_challenges.cancel", mode: "mutation", state: "available", endpoint: { method: "POST", path: "/api/auth-challenges/:id/cancel?runtime=:runtime&scope=:scope" }, requires: ["bearer_token", "same_origin", "opaque_challenge_id", "explicit_runtime_scope", "durable_challenge_store", "durable_audit_store"]
     });
     assert.deepEqual(capabilityBody.actions.find((action) => action.id === "audit.detail"), {
-      id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId" }, requires: ["bearer_token", "opaque_audit_id", "explicit_runtime_scope"]
+      id: "audit.detail", mode: "read", state: "available", endpoint: { method: "GET", path: "/api/audit/:auditId?runtime=:runtime&scopeKind=default" }, requires: ["bearer_token", "opaque_audit_id", "explicit_runtime_scope"]
     });
     assert.deepEqual(capabilityBody.actions.find((action) => action.id === "mutation_operations.detail"), {
       id: "mutation_operations.detail", mode: "read", state: "blocked", reason: "mutation_repository_unavailable", requires: ["bearer_token", "opaque_operation_id", "explicit_runtime_scope", "mutation_repository"]
