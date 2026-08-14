@@ -466,6 +466,39 @@ test("local API requires bearer token and returns no-store status", async () => 
   }
 });
 
+test("concurrent protected status reads share one authoritative probe and recover after it settles", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let calls = 0;
+  let release: (() => void) | undefined;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    statusReader: async () => {
+      calls++;
+      await new Promise<void>((resolve) => { release = resolve; });
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const pending = Array.from({ length: 8 }, () => request(address.port, "/api/status", "test-token"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(calls, 1, "concurrent clients must not multiply the runtime probe");
+    release?.();
+    for (const response of await Promise.all(pending)) {
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+    }
+    const next = request(address.port, "/api/status", "test-token");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(calls, 2, "a completed snapshot must not remain permanently cached");
+    release?.();
+    assert.equal((await next).status, 200);
+  } finally {
+    release?.();
+    await app.close();
+  }
+});
+
 test("protected API rejects bearer near-misses and unsafe mutation representations without echoing input", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-api-security-"));
   const app = createAccountCenterServer({ token: "test-token", challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json")) });

@@ -7,6 +7,8 @@ import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 export interface AccountCenterServerOptions {
   token: string;
   source?: unknown;
+  /** Test seam for proving the listener bounds concurrent authoritative reads. */
+  statusReader?: () => Promise<AccountCenterStatus | undefined>;
   auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
   mutationRepository?: MutationRepository;
@@ -17,6 +19,21 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // Only an omitted source selects the fixture adapter. Any explicit value,
   // including undefined or null, remains untrusted input for the adapter to reject.
   const source = Object.prototype.hasOwnProperty.call(options, "source") ? options.source : "fixture";
+  // Runtime status may launch a bounded external probe. Coalesce concurrent
+  // protected reads so disconnected or repeated local clients cannot multiply
+  // that work while one authoritative snapshot is already in progress.
+  let statusInFlight: Promise<AccountCenterStatus | undefined> | undefined;
+  const serverStatus = () => {
+    if (!statusInFlight) {
+      statusInFlight = (options.statusReader ? options.statusReader() : authoritativeStatus(source))
+        .finally(() => { statusInFlight = undefined; });
+    }
+    return statusInFlight;
+  };
+  const serverObservedRuntime = async (runtime: string): Promise<boolean | undefined> => {
+    const status = await serverStatus();
+    return status ? isObservedRuntime(status, runtime) : undefined;
+  };
   let listenerOrigin: string | undefined;
   const connectionDeadlines = new WeakMap<Socket, ReturnType<typeof setTimeout>>();
   const connectionPhaseDeadlineMs = 1_000;
@@ -103,7 +120,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // rejected adapter/command exactly like an absent status so runtime
       // diagnostics cannot escape through this protected mutation or cause a
       // generic 500 after the request has passed its input boundary.
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       const result = await executeGuidedAuthLifecycle({ command: "guided_auth.start", status, input: body }, { challengeStore: options.challengeStore });
       if (result.kind === "challenge_store_unavailable") return send(response, 503, { error: result.kind });
@@ -152,7 +169,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // protected mutation cannot drift from the normalized adapter-rejected,
       // command-failed, and unusable-status contract.
       if (request.method === "GET") {
-        const status = await authoritativeStatus(source);
+        const status = await serverStatus();
         if (!status) return send(response, 503, { error: "status_unavailable" });
         if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
         return send(response, 200, await options.accountUiPreferencesStore.view(`${query.runtime}|${query.scope}`));
@@ -167,7 +184,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
         throw error;
       }
       if (!isAccountUiPreferenceMutation(body)) return send(response, 400, { error: "invalid_account_ui_preference" });
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const scopeKey = `${query.runtime}|${query.scope}`;
@@ -202,7 +219,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // lifecycle state. Normalize adapter construction, command failures, and
       // unusable snapshots at the shared boundary so cancellation never falls
       // through to the generic error handler or opens either store on doubt.
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       // The public scope catalog currently authorizes only a runtime's exact
       // default scope. Do not let a syntactically valid historical-looking
@@ -231,7 +248,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     // Establish authority before even constructing the manifest so unavailable
     // adapters cannot leak diagnostics or cause any durable collaborator work.
     if (request.method === "GET" && request.url === "/api/capabilities") {
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       return send(response, 200, agentCapabilities(Boolean(options.challengeStore), Boolean(options.auditStore), Boolean(options.mutationRepository), Boolean(options.accountUiPreferencesStore)));
     }
@@ -240,7 +257,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const query = durableDetailQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
       if (!options.auditStore) return send(response, 503, { error: "audit_unavailable" });
-      const observed = await observedRuntimeFromStatus(source, query.runtime);
+      const observed = await serverObservedRuntime(query.runtime);
       if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
       if (!observed) return send(response, 400, { error: "unknown_runtime_scope" });
       const record = await auditRecordDetail(options.auditStore, auditId, query);
@@ -258,7 +275,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // default scope before opening the local history store so a stale or
       // named selector cannot look like authoritative empty history.
       if (query.runtime) {
-        const status = await authoritativeStatus(source);
+        const status = await serverStatus();
         if (!status) return send(response, 503, { error: "status_unavailable" });
         if (!hasAuthoritativeSelectedHistoryContext(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       }
@@ -276,7 +293,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // Once the available repository boundary is established, authoritative
       // status validation still precedes any repository read.
       if (query.runtime) {
-        const status = await authoritativeStatus(source);
+        const status = await serverStatus();
         if (!status) return send(response, 503, { error: "status_unavailable" });
         if (!hasAuthoritativeSelectedHistoryContext(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       }
@@ -288,7 +305,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const query = durableDetailQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
       if (!options.mutationRepository) return send(response, 503, { error: "mutation_operations_unavailable" });
-      const observed = await observedRuntimeFromStatus(source, query.runtime);
+      const observed = await serverObservedRuntime(query.runtime);
       if (observed === undefined) return send(response, 503, { error: "status_unavailable" });
       if (!observed) return send(response, 400, { error: "unknown_runtime_scope" });
       const operation = await mutationOperationDetail(options.mutationRepository, operationId, query);
@@ -298,7 +315,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/models") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "invalid_query" });
       return send(response, 200, publicModelCatalogView(status, query.runtime));
@@ -306,7 +323,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/limits") {
       const query = runtimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "invalid_query" });
       return send(response, 200, publicLimitsInventoryView(status, query.runtime));
@@ -314,14 +331,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (pathname === "/api/agent-connections") {
       const query = exactRuntimeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "invalid_query" });
       if (query.runtime !== "hermes" && query.runtime !== "openclaw") return send(response, 400, { error: "invalid_query" });
       return send(response, 200, publicAgentConnectionInventoryView(status, { runtime: query.runtime, scope: query.scope }));
     }
     if (request.url === "/api/scopes") {
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       return status ? send(response, 200, publicRuntimeScopeCatalogView(status)) : send(response, 503, { error: "status_unavailable" });
     }
     if (pathname === "/api/auth-challenges") {
@@ -331,7 +348,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const query = authChallengeInventoryQuery(request.url ?? "/");
       if (!query) return send(response, 400, { error: "invalid_query" });
       if (!options.challengeStore) return send(response, 503, { error: "auth_challenges_unavailable" });
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       // A selected runtime/scope is authority-bound context, not a free-form
       // history search. Do not turn a stale runtime or unpublished named scope
       // into a misleading empty list (or let it open another scope's durable
@@ -354,7 +371,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // ID escape hatch into another context. Verify the current exact public
       // context before opening durable state, then bind the record without
       // disclosing whether the opaque ID exists in another context.
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       if (!isObservedRuntimeScope(status, query)) return send(response, 400, { error: "unknown_runtime_scope" });
       const challenge = await options.challengeStore.getReadOnly(challengeId);
@@ -362,7 +379,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 200, { schemaVersion: "account-center.auth-challenge.v1", generatedAt: new Date().toISOString(), challenge: authChallengeView(challenge) });
     }
     if (request.url === "/api/status") {
-      const status = await authoritativeStatus(source);
+      const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable" });
       return send(response, 200, publicStatusView(status));
     }
@@ -612,14 +629,6 @@ function isObservedRuntime(status: AccountCenterStatus, runtime: string | undefi
 // share the same public authority boundary as other scoped protected reads.
 function hasAuthoritativeSelectedHistoryContext(status: AccountCenterStatus, query: { runtime?: string; scopeKind?: "default" }): boolean {
   return Boolean(query.runtime) && query.scopeKind === "default" && isObservedRuntimeScope(status, { runtime: query.runtime, scope: "default" });
-}
-
-// Treat malformed source selection and failed status execution uniformly as
-// unavailable context. This keeps selected history fail-closed without letting
-// adapter implementation details select a different error or reach a store.
-async function observedRuntimeFromStatus(source: unknown, runtime: string): Promise<boolean | undefined> {
-  const status = await authoritativeStatus(source);
-  return status ? isObservedRuntime(status, runtime) : undefined;
 }
 
 // Inventory views must not turn an adapter rejection or failed status command
