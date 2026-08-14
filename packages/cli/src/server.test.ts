@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { request as httpRequest } from "node:http";
-import { connect } from "node:net";
+import { createServer, request as httpRequest } from "node:http";
+import { AddressInfo, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
@@ -344,6 +344,26 @@ function assertHardenedJsonError(response: Response, expectedStatus: number, exp
     assert.equal(body.includes(suppliedText), false);
   });
 }
+
+test("a loopback port conflict rejects startup without leaving the control plane unusable", async () => {
+  const occupier = createServer();
+  await new Promise<void>((resolve, reject) => {
+    occupier.once("error", reject);
+    occupier.listen(0, "127.0.0.1", resolve);
+  });
+  const occupiedPort = (occupier.address() as AddressInfo).port;
+  const app = createAccountCenterServer({ token: "test-token" });
+  try {
+    await assert.rejects(app.listen(occupiedPort), (error: NodeJS.ErrnoException) => error.code === "EADDRINUSE");
+    await app.close();
+    const address = await app.listen();
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 200);
+  } finally {
+    await app.close();
+    await new Promise<void>((resolve, reject) => occupier.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test("protected guided-auth creation persists distinct redacted add and reauth challenges idempotently", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-guided-auth-"));

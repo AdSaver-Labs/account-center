@@ -415,7 +415,24 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   });
   return {
     async listen(port = 0): Promise<{ port: number }> {
-      await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+      // Binding is an operator-visible safety boundary: a port conflict must
+      // reject the launch promise rather than becoming an unhandled EventEmitter
+      // error. Keep the one-shot listeners scoped to this attempt so a failed
+      // bind leaves the same local-only server instance available for a later
+      // safe retry on another port.
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => {
+          server.removeListener("listening", onListening);
+          reject(error);
+        };
+        const onListening = () => {
+          server.removeListener("error", onError);
+          resolve();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(port, "127.0.0.1");
+      });
       const boundPort = (server.address() as AddressInfo).port;
       listenerOrigin = `http://127.0.0.1:${boundPort}`;
       return { port: boundPort };
@@ -424,6 +441,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       // A local control-plane caller (including a headless gate) can retain an
       // idle keep-alive socket after its last response. Closing this ephemeral
       // server must not wait for the peer's keep-alive timeout.
+      if (!server.listening) return;
       server.closeIdleConnections?.();
       server.closeAllConnections?.();
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
