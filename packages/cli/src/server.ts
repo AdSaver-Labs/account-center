@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo, Socket } from "node:net";
-import { AccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isPublicGuidedAuthRuntime, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, assertAccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isPublicGuidedAuthRuntime, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
 export interface AccountCenterServerOptions {
@@ -19,14 +19,38 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // Only an omitted source selects the fixture adapter. Any explicit value,
   // including undefined or null, remains untrusted input for the adapter to reject.
   const source = Object.prototype.hasOwnProperty.call(options, "source") ? options.source : "fixture";
-  // Runtime status may launch a bounded external probe. Coalesce concurrent
-  // protected reads so disconnected or repeated local clients cannot multiply
-  // that work while one authoritative snapshot is already in progress.
+  // Runtime status may launch an external probe. Coalesce concurrent protected
+  // reads, but retain ownership of a short listener deadline: a stalled adapter
+  // must not indefinitely pin every protected request behind one promise.
   let statusInFlight: Promise<AccountCenterStatus | undefined> | undefined;
+  const statusProbeDeadlineMs = 250;
   const serverStatus = () => {
     if (!statusInFlight) {
-      statusInFlight = (options.statusReader ? options.statusReader() : authoritativeStatus(source))
-        .finally(() => { statusInFlight = undefined; });
+      let deadline: NodeJS.Timeout | undefined;
+      // Start through a promise turn so a synchronous test seam/adapter throw is
+      // normalized like every other unavailable status result.
+      const probe = Promise.resolve()
+        .then(() => options.statusReader ? options.statusReader() : authoritativeStatus(source))
+        .then((status) => {
+          try {
+            assertAccountCenterStatus(status);
+            return status;
+          } catch {
+            return undefined;
+          }
+        }, () => undefined);
+      const timedOut = new Promise<undefined>((resolve) => {
+        deadline = setTimeout(() => resolve(undefined), statusProbeDeadlineMs);
+      });
+      const shared = Promise.race([probe, timedOut]).finally(() => {
+        if (deadline) clearTimeout(deadline);
+      });
+      statusInFlight = shared;
+      // A timed-out probe can settle late. Clear only the generation this call
+      // installed, never a newer probe that started after its deadline.
+      void shared.finally(() => {
+        if (statusInFlight === shared) statusInFlight = undefined;
+      });
     }
     return statusInFlight;
   };

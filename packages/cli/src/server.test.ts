@@ -499,6 +499,72 @@ test("concurrent protected status reads share one authoritative probe and recove
   }
 });
 
+test("a stalled shared status probe reaches the redacted deadline and a later probe recovers", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let calls = 0;
+  let settleStale: (() => void) | undefined;
+  let settleFresh: (() => void) | undefined;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    statusReader: () => {
+      calls++;
+      if (calls === 1) return new Promise<AccountCenterStatus>((resolve) => { settleStale = () => resolve(fixture); });
+      return new Promise<AccountCenterStatus>((resolve) => { settleFresh = () => resolve(fixture); });
+    }
+  });
+  const address = await app.listen();
+  try {
+    const started = Date.now();
+    const [status, scopes] = await Promise.all([
+      request(address.port, "/api/status", "test-token"),
+      request(address.port, "/api/scopes", "test-token")
+    ]);
+    assert.ok(Date.now() - started < 600, "the listener deadline must settle protected reads promptly");
+    assert.equal(calls, 1, "concurrent protected requests share the stalled probe");
+    for (const response of [status, scopes]) {
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { error: "status_unavailable" });
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assertResponseIsolationHeaders(response.headers);
+    }
+    const recovering = request(address.port, "/api/status", "test-token");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(calls, 2, "a timed-out generation must permit a fresh probe");
+    settleStale?.();
+    const joinedRecovery = request(address.port, "/api/scopes", "test-token");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(calls, 2, "a stale settlement must not clear the newer in-flight generation");
+    settleFresh?.();
+    assert.equal((await recovering).status, 200);
+    assert.equal((await joinedRecovery).status, 200);
+  } finally {
+    settleStale?.();
+    settleFresh?.();
+    await app.close();
+  }
+});
+
+test("status probe rejection, synchronous throw, and unusable result fail closed", async () => {
+  for (const statusReader of [
+    async () => { throw new Error("probe rejected"); },
+    () => { throw new Error("probe threw"); },
+    async () => undefined,
+    async () => ({}) as AccountCenterStatus
+  ]) {
+    const app = createAccountCenterServer({ token: "test-token", statusReader });
+    const address = await app.listen();
+    try {
+      const response = await request(address.port, "/api/status", "test-token");
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { error: "status_unavailable" });
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assertResponseIsolationHeaders(response.headers);
+    } finally {
+      await app.close();
+    }
+  }
+});
+
 test("protected API rejects bearer near-misses and unsafe mutation representations without echoing input", async () => {
   const root = await mkdtemp(join(tmpdir(), "account-center-api-security-"));
   const app = createAccountCenterServer({ token: "test-token", challengeStore: new AuthChallengeStore(join(root, "auth-challenges.json")) });
