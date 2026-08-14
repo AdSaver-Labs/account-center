@@ -385,9 +385,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     // unsupported Expect header. Own this valid transport branch so it cannot
     // bypass the fixed loopback response-isolation contract or reach protected
     // routing, authorization, runtime discovery, or durable collaborators.
+    // A rejected expectation may still have a declared body buffered behind
+    // its headers. Do not leave that body on a reusable parser connection where
+    // it could be interpreted as a subsequent request: this branch is one
+    // fixed terminal response, followed by connection close.
     clearConnectionDeadline(request.socket);
-    response.once("finish", () => armConnectionDeadline(request.socket));
     setSafetyHeaders(response);
+    response.setHeader("Connection", "close");
     send(response, 417, { error: "expectation_failed" });
   });
   // HTTP upgrades and CONNECT tunnels bypass the regular IncomingMessage /

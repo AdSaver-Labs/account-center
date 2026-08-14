@@ -72,6 +72,30 @@ async function rawUnsupportedConnectionModeRequest(port: number, method: "CONNEC
   });
 }
 
+async function rawBodyBearingExpectationRequest(port: number): Promise<{ status: number; body: unknown; headers: Record<string, string>; response: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.setTimeout(2_000, () => reject(new Error("expectation connection did not close")));
+    socket.once("error", reject);
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.on("end", () => {
+      const [head, text = ""] = response.split("\r\n\r\n", 2);
+      const [statusLine = "", ...headerLines] = head.split("\r\n");
+      const headers: Record<string, string> = {};
+      for (const line of headerLines) {
+        const separator = line.indexOf(":");
+        if (separator > 0) headers[line.slice(0, separator).toLowerCase()] = line.slice(separator + 1).trim();
+      }
+      resolve({ status: Number(/^HTTP\/\d\.\d (\d{3})/.exec(statusLine)?.[1] ?? 0), body: text ? JSON.parse(text) : undefined, headers, response });
+    });
+    socket.on("connect", () => socket.write(
+      `POST /api/account-ui-preferences?runtime=hermes&scope=default HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nExpect: private-expectation\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\n\r\n`
+    ));
+  });
+}
+
 async function continueExpectationRequest(port: number): Promise<{ continued: boolean; status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     let continued = false;
@@ -992,6 +1016,28 @@ test("unsupported HTTP expectations receive the fixed isolated failure before pr
     assert.equal(rejected.headers["access-control-allow-origin"], undefined);
     const continued = await continueExpectationRequest(address.port);
     assert.deepEqual(continued, { continued: true, status: 503, body: { error: "status_unavailable" } });
+  } finally {
+    await app.close();
+  }
+});
+
+test("body-bearing unsupported HTTP expectations receive one terminal isolated failure", async () => {
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: { status: async () => { throw new Error("must not reach status"); } }
+  });
+  const address = await app.listen();
+  try {
+    const rejected = await rawBodyBearingExpectationRequest(address.port);
+    assert.equal(rejected.status, 417);
+    assert.deepEqual(rejected.body, { error: "expectation_failed" });
+    assert.equal(rejected.headers["connection"], "close");
+    assert.equal(rejected.headers["cache-control"], "no-store");
+    assert.equal(rejected.headers["content-type"], "application/json; charset=utf-8");
+    assert.equal(rejected.headers["access-control-allow-origin"], undefined);
+    assert.equal((rejected.response.match(/HTTP\/1\.1/g) ?? []).length, 1);
+    assert.equal(rejected.response.includes("private-expectation"), false);
+    assert.equal(rejected.response.includes("must not reach status"), false);
   } finally {
     await app.close();
   }
