@@ -22,10 +22,16 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // Runtime status may launch an external probe. Coalesce concurrent protected
   // reads, but retain ownership of a short listener deadline: a stalled adapter
   // must not indefinitely pin every protected request behind one promise.
-  let statusInFlight: Promise<AccountCenterStatus | undefined> | undefined;
+  //
+  // The listener deadline bounds *responses*, not ownership of the underlying
+  // adapter operation. Keep a timed-out generation active until its probe has
+  // settled so repeated requests cannot start an unbounded number of hung
+  // probes. All callers during that containment window receive the same fixed,
+  // redacted unavailable result.
+  let statusGeneration: { probe: Promise<AccountCenterStatus | undefined>; result: Promise<AccountCenterStatus | undefined> } | undefined;
   const statusProbeDeadlineMs = 250;
   const serverStatus = () => {
-    if (!statusInFlight) {
+    if (!statusGeneration) {
       let deadline: NodeJS.Timeout | undefined;
       // Start through a promise turn so a synchronous test seam/adapter throw is
       // normalized like every other unavailable status result.
@@ -42,17 +48,19 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       const timedOut = new Promise<undefined>((resolve) => {
         deadline = setTimeout(() => resolve(undefined), statusProbeDeadlineMs);
       });
-      const shared = Promise.race([probe, timedOut]).finally(() => {
+      const result = Promise.race([probe, timedOut]).finally(() => {
         if (deadline) clearTimeout(deadline);
       });
-      statusInFlight = shared;
-      // A timed-out probe can settle late. Clear only the generation this call
-      // installed, never a newer probe that started after its deadline.
-      void shared.finally(() => {
-        if (statusInFlight === shared) statusInFlight = undefined;
+      const generation = { probe, result };
+      statusGeneration = generation;
+      // A timed-out probe can settle late. Do not release containment merely
+      // because its callers have reached their deadline; release it only when
+      // the owned adapter work settles, and only if it is still this generation.
+      void probe.finally(() => {
+        if (statusGeneration === generation) statusGeneration = undefined;
       });
     }
-    return statusInFlight;
+    return statusGeneration.result;
   };
   const serverObservedRuntime = async (runtime: string): Promise<boolean | undefined> => {
     const status = await serverStatus();

@@ -499,7 +499,7 @@ test("concurrent protected status reads share one authoritative probe and recove
   }
 });
 
-test("a stalled shared status probe reaches the redacted deadline and a later probe recovers", async () => {
+test("a stalled shared status probe is contained after the redacted deadline and recovers when it settles", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   let calls = 0;
   let settleStale: (() => void) | undefined;
@@ -527,13 +527,22 @@ test("a stalled shared status probe reaches the redacted deadline and a later pr
       assert.equal(response.headers.get("cache-control"), "no-store");
       assertResponseIsolationHeaders(response.headers);
     }
+    const repeated = await Promise.all(Array.from({ length: 8 }, (_, index) =>
+      request(address.port, index % 2 === 0 ? "/api/status" : "/api/scopes", "test-token")
+    ));
+    for (const response of repeated) {
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { error: "status_unavailable" });
+    }
+    assert.equal(calls, 1, "a timed-out probe remains contained until its adapter work settles");
+    settleStale?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const recovering = request(address.port, "/api/status", "test-token");
     await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.equal(calls, 2, "a timed-out generation must permit a fresh probe");
-    settleStale?.();
+    assert.equal(calls, 2, "settling the contained generation must permit one fresh probe");
     const joinedRecovery = request(address.port, "/api/scopes", "test-token");
     await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.equal(calls, 2, "a stale settlement must not clear the newer in-flight generation");
+    assert.equal(calls, 2, "a fresh generation remains coalesced after containment releases");
     settleFresh?.();
     assert.equal((await recovering).status, 200);
     assert.equal((await joinedRecovery).status, 200);
