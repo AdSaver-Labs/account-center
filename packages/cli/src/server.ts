@@ -9,6 +9,8 @@ export interface AccountCenterServerOptions {
   source?: unknown;
   /** Test seam for proving the listener bounds concurrent authoritative reads. */
   statusReader?: () => Promise<AccountCenterStatus | undefined>;
+  /** Test seam for ordering a peer abort before delayed protected completion. */
+  onConnectionClosedForTest?: () => void;
   auditStore?: AuditStore;
   challengeStore?: AuthChallengeStore;
   mutationRepository?: MutationRepository;
@@ -68,6 +70,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   };
   let listenerOrigin: string | undefined;
   const connectionDeadlines = new WeakMap<Socket, ReturnType<typeof setTimeout>>();
+  // A response can settle asynchronously after its peer has gone away. Retain
+  // listener ownership of that terminal socket state so a late `finish` cannot
+  // recreate a deadline for a connection the listener has already released.
+  const closedConnections = new WeakSet<Socket>();
   const connectionPhaseDeadlineMs = 1_000;
   const clearConnectionDeadline = (socket: Socket) => {
     const deadline = connectionDeadlines.get(socket);
@@ -78,6 +84,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // timer: a peer cannot extend a keep-alive or incomplete-header phase by
   // dripping bytes. It is armed on connection and again after every response.
   const armConnectionDeadline = (socket: Socket) => {
+    if (closedConnections.has(socket) || socket.destroyed || !socket.writable) return;
     clearConnectionDeadline(socket);
     const deadline = setTimeout(() => socket.destroy(), connectionPhaseDeadlineMs);
     deadline.unref();
@@ -92,7 +99,8 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     // Once this request has produced its response, the same socket enters a
     // new bounded keep-alive/header phase. A subsequent parsed request clears
     // this deadline; a silent or dripped next request cannot retain the socket.
-    response.once("finish", () => armConnectionDeadline(request.socket));
+    const connection = request.socket;
+    response.once("finish", () => armConnectionDeadline(connection));
     try {
       setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
@@ -464,7 +472,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     // close as well because Node may not begin its parser clock until it has
     // received bytes. This covers silent peers and slow header drips alike.
     armConnectionDeadline(socket);
-    socket.once("close", () => clearConnectionDeadline(socket));
+    socket.once("close", () => {
+      closedConnections.add(socket);
+      clearConnectionDeadline(socket);
+      options.onConnectionClosedForTest?.();
+    });
   });
   return {
     async listen(port = 0): Promise<{ port: number }> {
