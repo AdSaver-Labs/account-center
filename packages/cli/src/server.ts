@@ -70,6 +70,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   };
   let listenerOrigin: string | undefined;
   const connectionDeadlines = new WeakMap<Socket, ReturnType<typeof setTimeout>>();
+  // A request handler can resume after a protected collaborator has settled,
+  // even though its peer has already aborted. Keep that terminal state owned by
+  // this listener so the generic fallback is also a no-op after disconnect.
+  const closedResponses = new WeakSet<ServerResponse>();
   // A response can settle asynchronously after its peer has gone away. Retain
   // listener ownership of that terminal socket state so a late `finish` cannot
   // recreate a deadline for a connection the listener has already released.
@@ -101,6 +105,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     // this deadline; a silent or dripped next request cannot retain the socket.
     const connection = request.socket;
     response.once("finish", () => armConnectionDeadline(connection));
+    const markResponseClosed = () => closedResponses.add(response);
+    request.once("aborted", markResponseClosed);
+    response.once("close", markResponseClosed);
     try {
       setSafetyHeaders(response);
     if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
@@ -425,7 +432,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     }
       return send(response, 404, { error: "not_found" });
     } catch {
-      if (!response.writableEnded) send(response, 500, { error: "internal_error" });
+      if (!closedResponses.has(response) && canWriteResponse(response)) send(response, 500, { error: "internal_error" });
     }
   });
   // Own the parser-level deadlines rather than inheriting Node-version defaults.
@@ -1057,8 +1064,22 @@ function rejectUnsupportedConnectionMode(socket: Socket): void {
   socket.end(`HTTP/1.1 400 Bad Request\r\n${headers}\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
 }
 function send(response: ServerResponse, code: number, body: unknown): void {
+  if (!canWriteResponse(response)) return;
   response.statusCode = code;
   response.end(JSON.stringify(body));
+}
+
+// `writableEnded` alone is not a peer-liveness check: an asynchronous handler
+// can still hold an unended response after the response or its socket closed.
+// Every regular response and the generic fallback use this one fail-closed
+// boundary, so late protected work cannot attempt a write or recreate state on
+// a released loopback connection.
+function canWriteResponse(response: ServerResponse): boolean {
+  // Do not inspect `response.socket` here. Node can temporarily detach that
+  // property while queueing a valid pipelined response behind an earlier one.
+  // The response-owned lifecycle flags remain valid for both that case and a
+  // disconnected peer.
+  return !response.writableEnded && !response.destroyed && response.writable;
 }
 
 function sendHtml(response: ServerResponse, html: string): void {

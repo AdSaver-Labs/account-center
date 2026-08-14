@@ -931,52 +931,58 @@ test("a completed protected request re-arms a bounded keep-alive and next-header
   }
 });
 
-test("an aborted delayed protected status cannot re-arm a released socket", async () => {
-  let releaseStatus: (() => void) | undefined;
-  let signalStatusStarted: (() => void) | undefined;
-  let signalInitialStatusSettled: (() => void) | undefined;
-  let signalServerSocketClosed: (() => void) | undefined;
-  let statusCalls = 0;
-  const statusStarted = new Promise<void>((resolve) => { signalStatusStarted = resolve; });
-  const initialStatusSettled = new Promise<void>((resolve) => { signalInitialStatusSettled = resolve; });
-  const serverSocketClosed = new Promise<void>((resolve) => { signalServerSocketClosed = resolve; });
-  const delayedStatus = new Promise<AccountCenterStatus>((resolve) => { releaseStatus = () => void readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8").then((text) => resolve(JSON.parse(text) as AccountCenterStatus)); });
-  const app = createAccountCenterServer({
-    token: "test-token",
-    statusReader: async () => {
-      statusCalls += 1;
-      if (statusCalls === 1) {
-        signalStatusStarted?.();
-        return delayedStatus.finally(() => signalInitialStatusSettled?.());
-      }
-      return JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
-    },
-    onConnectionClosedForTest: () => signalServerSocketClosed?.()
-  });
-  const address = await app.listen();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const socket = connect(address.port, "127.0.0.1");
-      socket.once("error", reject);
-      socket.once("connect", async () => {
-        socket.write(`GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\nAuthorization: Bearer test-token\r\n\r\n`);
-        await statusStarted;
-        const closed = new Promise<void>((closedResolve) => socket.once("close", closedResolve));
-        socket.destroy();
-        await closed;
-        resolve();
-      });
+test("an aborted delayed protected status cannot write or re-arm a released socket", async () => {
+  for (const outcome of ["fulfilled", "rejected"] as const) {
+    let settleStatus: (() => void) | undefined;
+    let signalStatusStarted: (() => void) | undefined;
+    let signalInitialStatusSettled: (() => void) | undefined;
+    let signalServerSocketClosed: (() => void) | undefined;
+    let statusCalls = 0;
+    const statusStarted = new Promise<void>((resolve) => { signalStatusStarted = resolve; });
+    const initialStatusSettled = new Promise<void>((resolve) => { signalInitialStatusSettled = resolve; });
+    const serverSocketClosed = new Promise<void>((resolve) => { signalServerSocketClosed = resolve; });
+    const delayedStatus = new Promise<AccountCenterStatus>((resolve, reject) => {
+      settleStatus = () => outcome === "fulfilled"
+        ? void readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8").then((text) => resolve(JSON.parse(text) as AccountCenterStatus))
+        : reject(new Error("delayed_status_failure_must_not_write"));
     });
-    await serverSocketClosed;
-    releaseStatus?.();
-    await initialStatusSettled;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const fresh = await request(address.port, "/api/status", "test-token");
-    assert.equal(fresh.status, 200);
-    assert.equal(statusCalls, 2);
-  } finally {
-    releaseStatus?.();
-    await app.close();
+    const app = createAccountCenterServer({
+      token: "test-token",
+      statusReader: async () => {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          signalStatusStarted?.();
+          return delayedStatus.finally(() => signalInitialStatusSettled?.());
+        }
+        return JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+      },
+      onConnectionClosedForTest: () => signalServerSocketClosed?.()
+    });
+    const address = await app.listen();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const socket = connect(address.port, "127.0.0.1");
+        socket.once("error", reject);
+        socket.once("connect", async () => {
+          socket.write(`GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\nAuthorization: Bearer test-token\r\n\r\n`);
+          await statusStarted;
+          const closed = new Promise<void>((closedResolve) => socket.once("close", closedResolve));
+          socket.destroy();
+          await closed;
+          resolve();
+        });
+      });
+      await serverSocketClosed;
+      settleStatus?.();
+      await initialStatusSettled;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const fresh = await request(address.port, "/api/status", "test-token");
+      assert.equal(fresh.status, 200, outcome);
+      assert.equal(statusCalls, 2, outcome);
+    } finally {
+      settleStatus?.();
+      await app.close();
+    }
   }
 });
 
