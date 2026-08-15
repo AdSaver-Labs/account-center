@@ -986,6 +986,50 @@ test("an aborted delayed protected status cannot write or re-arm a released sock
   }
 });
 
+test("closing the local control plane terminates an in-flight protected response without late output", async () => {
+  let settleStatus: (() => void) | undefined;
+  let signalStatusStarted: (() => void) | undefined;
+  const statusStarted = new Promise<void>((resolve) => { signalStatusStarted = resolve; });
+  const statusFixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const delayedStatus = new Promise<AccountCenterStatus>((resolve) => {
+    settleStatus = () => resolve(statusFixture);
+  });
+  const app = createAccountCenterServer({
+    token: "test-token",
+    statusReader: async () => {
+      signalStatusStarted?.();
+      return delayedStatus;
+    }
+  });
+  const address = await app.listen();
+  let closePromise: Promise<void> | undefined;
+  try {
+    const peerClosed = new Promise<string>((resolve, reject) => {
+      const socket = connect(address.port, "127.0.0.1");
+      let received = "";
+      socket.setEncoding("utf8");
+      socket.once("error", reject);
+      socket.on("data", (chunk: string) => { received += chunk; });
+      socket.once("connect", async () => {
+        socket.write(`GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\nAuthorization: Bearer test-token\r\n\r\n`);
+        await statusStarted;
+        closePromise = app.close();
+        void closePromise.catch(reject);
+      });
+      socket.once("close", () => resolve(received));
+    });
+    const received = await peerClosed;
+    assert.equal(received, "");
+    settleStatus?.();
+    await delayedStatus;
+    await closePromise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } finally {
+    settleStatus?.();
+    await app.close();
+  }
+});
+
 test("incomplete canonical JSON mutations time out before protected collaborators", async () => {
   // Retain each socket after sending headers (and optionally a valid prefix).
   // Neither status discovery nor a durable collaborator may run until a body is
