@@ -110,7 +110,17 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     response.once("close", markResponseClosed);
     try {
       setSafetyHeaders(response);
-    if (request.method === "GET" && request.url === "/") return sendHtml(response, controlPanelHtml());
+    // The panel is an intentionally unauthenticated local bootstrap document,
+    // not an exception to the control plane's no-request-body contract. Drain
+    // and reject a body before rendering so a hostile peer cannot retain a
+    // panel request representation until the listener deadline.
+    if (request.method === "GET" && request.url === "/") {
+      if (hasRequestBody(request)) {
+        request.resume();
+        return send(response, 413, { error: "request_body_not_allowed" });
+      }
+      return sendHtml(response, controlPanelHtml());
+    }
     if (!authorized(request, options.token)) return send(response, 401, { error: "unauthorized" });
     // Recognized protected endpoints have a finite method contract. Enforce it
     // before route-specific body handling, durable state access, or runtime

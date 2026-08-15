@@ -1107,6 +1107,12 @@ test("protected response failures share hardened headers and preference reads re
     assertResponseIsolationHeaders(panel.headers);
     assert.equal(panel.headers.get("x-frame-options"), "DENY");
 
+    const bodyBearingPanel = await rawMutationRequest(address.port, "GET", "/", ["Content-Length: 1"], "x");
+    assert.deepEqual({ status: bodyBearingPanel.status, body: bodyBearingPanel.body }, { status: 413, body: { error: "request_body_not_allowed" } });
+    assert.equal(bodyBearingPanel.headers["cache-control"], "no-store");
+    assert.equal(bodyBearingPanel.headers["content-type"], "application/json; charset=utf-8");
+    assert.equal(bodyBearingPanel.headers["access-control-allow-origin"], undefined);
+
     await assertHardenedJsonError(await request(address.port, "/api/status", `test-token-${suppliedText}`), 401, "unauthorized", suppliedText);
     await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin: "https://attacker.invalid", contentType: "application/json", body: JSON.stringify({ target: suppliedText }) }), 403, "origin_forbidden", suppliedText);
     await assertHardenedJsonError(await rawChallengeRequest(address.port, { token: "test-token", origin, contentType: "text/plain", body: suppliedText }), 415, "json_content_type_required", suppliedText);
