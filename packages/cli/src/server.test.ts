@@ -519,13 +519,33 @@ test("OpenClaw status reads complete within the measured bounded deadline", asyn
   }
 });
 
-test("OpenClaw status reads exceeding five seconds return a bounded redacted failure", async () => {
+test("OpenClaw status reads completing after five seconds and before the bounded deadline succeed", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   const app = createAccountCenterServer({
     token: "test-token",
     source: "openclaw",
     statusReader: async () => {
       await new Promise((resolve) => setTimeout(resolve, 5_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as AccountCenterStatus).source, "fixture");
+  } finally {
+    await app.close();
+  }
+});
+
+test("OpenClaw status reads exceeding twelve seconds return an HTTP redacted failure", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 12_100));
       return fixture;
     }
   });

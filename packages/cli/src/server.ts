@@ -31,10 +31,12 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // probes. All callers during that containment window receive the same fixed,
   // redacted unavailable result.
   let statusGeneration: { probe: Promise<AccountCenterStatus | undefined>; result: Promise<AccountCenterStatus | undefined> } | undefined;
-  // The local OpenClaw router's documented cold status read can exceed the
+  // The local OpenClaw router's measured cold status reads can exceed the
   // generic listener budget. Keep every other source at 250 ms and grant only
   // the explicit OpenClaw source a still-bounded read window.
-  const statusProbeDeadlineMs = source === "openclaw" ? 5_000 : 250;
+  const statusProbeDeadlineMs = source === "openclaw" ? 12_000 : 250;
+  // The socket inactivity timer is set below with headroom beyond this probe deadline,
+  // so the handler can emit a fixed redacted result rather than racing a close.
   const serverStatus = () => {
     if (!statusGeneration) {
       let deadline: NodeJS.Timeout | undefined;
@@ -82,6 +84,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // recreate a deadline for a connection the listener has already released.
   const closedConnections = new WeakSet<Socket>();
   const connectionPhaseDeadlineMs = 1_000;
+  // Permit a completed OpenClaw status request to emit its response after the
+  // 12-second probe window; every other source retains the one-second socket cap.
+  const statusResponseDeadlineMs = source === "openclaw" ? statusProbeDeadlineMs + 1_000 : connectionPhaseDeadlineMs;
   const clearConnectionDeadline = (socket: Socket) => {
     const deadline = connectionDeadlines.get(socket);
     if (deadline) clearTimeout(deadline);
@@ -456,8 +461,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   server.headersTimeout = connectionPhaseDeadlineMs;
   server.requestTimeout = connectionPhaseDeadlineMs;
   // An active OpenClaw status request can use the bounded source-specific
-  // probe window; retain the stricter existing socket timeout for all others.
-  server.timeout = Math.max(connectionPhaseDeadlineMs, statusProbeDeadlineMs);
+  // probe window plus response-emission headroom; retain the stricter existing
+  // socket timeout for all others.
+  server.timeout = Math.max(connectionPhaseDeadlineMs, statusResponseDeadlineMs);
   server.keepAliveTimeout = connectionPhaseDeadlineMs;
   server.on("checkExpectation", (request, response) => {
     // Node emits this event instead of the regular request event for an
