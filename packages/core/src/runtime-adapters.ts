@@ -151,7 +151,10 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     // older workspaces supported without showing `unknown` when fresh Sentinel
     // limit data exists.
     const sentinelStatus = await this.tryReadJson(join(this.workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"));
-    if (sentinelStatus) return normalizeOpenClawStatus(sentinelStatus, "CODEX-ACCOUNT-STATUS.json");
+    if (sentinelStatus) {
+      const normalized = normalizeOpenClawStatus(sentinelStatus, "CODEX-ACCOUNT-STATUS.json");
+      if (normalized.profiles.length > 0) return normalized;
+    }
 
     const cliStatus = await this.tryReadCliStatus();
     if (cliStatus) return normalizeOpenClawStatus(cliStatus, "oauth_routing_cli status --json");

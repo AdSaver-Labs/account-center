@@ -7,6 +7,7 @@ import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERI
 import { executeAccountCenterCommand } from "./command-executor.js";
 import { createActiveScopeWarning, createMutationReview } from "./mutation-contract.js";
 import { MutationRepository } from "./mutation-repository.js";
+import { publicStatusView } from "./public-views.js";
 
 const routerStatus = {
   at: "2026-07-09T10:55:50.721Z",
@@ -106,6 +107,31 @@ test("OpenClaw adapter reads status through configured CLI with mocked runner", 
   assert.equal(status.source, "openclaw");
   assert.equal(calls[0]?.command, "python3");
   assert.deepEqual(calls[0]?.args, [cli, "status", "--workspace", workspace, "--json"]);
+});
+
+test("OpenClaw falls through an empty Sentinel snapshot to the existing read-only CLI inventory", async () => {
+  const workspace = await openClawWorkspace();
+  const emptySentinel = { ...routerStatus, accounts: {}, effectiveAuthOrder: [] };
+  const cliStatus = {
+    ...routerStatus,
+    accounts: {
+      ...routerStatus.accounts,
+      "openai:helper-3": { profileId: "openai:helper-3", enabled: true, health: { healthy: true, expired: false }, usage: { available: true, fiveHourRemaining: 72, weekRemaining: 44 } },
+      "openai:helper-4": { profileId: "openai:helper-4", enabled: true, health: { healthy: true, expired: false }, usage: { available: true, fiveHourRemaining: 61, weekRemaining: 32 } }
+    },
+    effectiveAuthOrder: ["openai:helper-1", "openai:helper-2", "openai:helper-3", "openai:helper-4"]
+  };
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(emptySentinel), "utf8");
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command, args) => {
+    calls.push({ command, args });
+    return { code: 0, stdout: JSON.stringify(cliStatus), stderr: "" };
+  } });
+
+  const status = await adapter.readStatus();
+  assert.equal(status.profiles.length, 4);
+  assert.deepEqual(calls, [{ command: "python3", args: [workspace.cli, "status", "--workspace", workspace.root, "--json"] }]);
+  assert.deepEqual(publicStatusView(status).profiles.map((profile) => profile.id), ["account-1", "account-2", "account-3", "account-4"]);
 });
 
 test("OpenClaw dry-run mutations do not call runner", async () => {
