@@ -320,7 +320,7 @@ async function rawKeepAliveStatusRequests(port: number): Promise<string> {
   });
 }
 
-async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incomplete" | "drip"): Promise<{ elapsedMs: number; response: string }> {
+async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incomplete" | "drip", safetyDeadlineMs = 3_000): Promise<{ elapsedMs: number; response: string }> {
   return new Promise((resolve, reject) => {
     const socket = connect(port, "127.0.0.1");
     const startedAt = Date.now();
@@ -329,7 +329,7 @@ async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incom
     const safetyTimeout = setTimeout(() => {
       socket.destroy();
       reject(new Error(`keep_alive_${followUp}_phase_did_not_terminate`));
-    }, 3_000);
+    }, safetyDeadlineMs);
     socket.setEncoding("utf8");
     socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
     socket.on("data", (chunk: string) => {
@@ -343,6 +343,26 @@ async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incom
     });
     socket.on("end", () => { clearTimeout(safetyTimeout); resolve({ elapsedMs: Date.now() - startedAt, response }); });
     socket.on("connect", () => socket.write(`GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: keep-alive\r\n\r\n`));
+  });
+}
+
+async function rawSlowProtectedRead(port: number, path: string): Promise<{ elapsedMs: number; response: string }> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`slow_protected_read_did_not_terminate: ${path}`));
+    }, 7_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.once("close", () => {
+      clearTimeout(safetyTimeout);
+      resolve({ elapsedMs: Date.now() - startedAt, response });
+    });
+    socket.on("connect", () => socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: close\r\n\r\n`));
   });
 }
 
@@ -519,7 +539,7 @@ test("OpenClaw status reads complete within the measured bounded deadline", asyn
   }
 });
 
-test("OpenClaw status reads completing after five seconds and before the bounded deadline succeed", async () => {
+test("OpenClaw status and limits reads completing after five seconds succeed within the bounded deadline", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   const app = createAccountCenterServer({
     token: "test-token",
@@ -531,9 +551,53 @@ test("OpenClaw status reads completing after five seconds and before the bounded
   });
   const address = await app.listen();
   try {
-    const response = await request(address.port, "/api/status", "test-token");
-    assert.equal(response.status, 200);
-    assert.equal((await response.json() as AccountCenterStatus).source, "fixture");
+    const [status, limits] = await Promise.all([
+      request(address.port, "/api/status", "test-token"),
+      request(address.port, "/api/limits?runtime=openclaw&scope=default", "test-token")
+    ]);
+    assert.equal(status.status, 200);
+    assert.equal((await status.json() as AccountCenterStatus).source, "fixture");
+    assert.equal(limits.status, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a completed OpenClaw status read restores the generic keep-alive deadline", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const result = await rawKeepAliveFollowUpPhase(address.port, "idle", 7_000);
+    assert.equal(result.elapsedMs < 7_000, true, `completed status connection remained open for ${result.elapsedMs}ms`);
+    assert.equal((result.response.match(/HTTP\/1\.1 200/g) ?? []).length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("unrelated OpenClaw protected reads retain the generic one-second socket timeout", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const result = await rawSlowProtectedRead(address.port, "/api/models?runtime=openclaw&scope=default");
+    assert.equal(result.elapsedMs < 1_800, true, `non-status read remained open for ${result.elapsedMs}ms`);
+    assert.equal(result.response, "");
   } finally {
     await app.close();
   }

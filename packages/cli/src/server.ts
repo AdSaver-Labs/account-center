@@ -84,9 +84,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // recreate a deadline for a connection the listener has already released.
   const closedConnections = new WeakSet<Socket>();
   const connectionPhaseDeadlineMs = 1_000;
-  // Permit a completed OpenClaw status request to emit its response after the
-  // 12-second probe window; every other source retains the one-second socket cap.
-  const statusResponseDeadlineMs = source === "openclaw" ? statusProbeDeadlineMs + 1_000 : connectionPhaseDeadlineMs;
+  // A validated OpenClaw status response gets bounded headroom to emit the
+  // fixed result after its twelve-second probe; every generic socket stays at
+  // the one-second listener deadline.
+  const statusResponseDeadlineMs = 13_000;
   const clearConnectionDeadline = (socket: Socket) => {
     const deadline = connectionDeadlines.get(socket);
     if (deadline) clearTimeout(deadline);
@@ -112,8 +113,15 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     // new bounded keep-alive/header phase. A subsequent parsed request clears
     // this deadline; a silent or dripped next request cannot retain the socket.
     const connection = request.socket;
-    response.once("finish", () => armConnectionDeadline(connection));
-    const markResponseClosed = () => closedResponses.add(response);
+    const restoreConnectionPhase = () => {
+      connection.setTimeout(connectionPhaseDeadlineMs);
+      armConnectionDeadline(connection);
+    };
+    response.once("finish", restoreConnectionPhase);
+    const markResponseClosed = () => {
+      closedResponses.add(response);
+      restoreConnectionPhase();
+    };
     request.once("aborted", markResponseClosed);
     response.once("close", markResponseClosed);
     try {
@@ -147,6 +155,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (hasUnexpectedQuery(requestUrl, request.url, request.method)) {
       request.resume();
       return send(response, 400, { error: "invalid_query" });
+    }
+    // Only the two validated reads that power the visible Accounts slice can
+    // wait for OpenClaw's bounded authoritative status probe. This runs after
+    // bearer, method, and query validation, and a body-bearing GET is excluded,
+    // so request shape cannot obtain the allowance before its normal rejection.
+    if (source === "openclaw" && request.method === "GET" && !hasRequestBody(request) &&
+      (request.url === "/api/status" || (requestUrl.pathname === "/api/limits" && !!runtimeInventoryQuery(request.url ?? "/")))) {
+      connection.setTimeout(statusResponseDeadlineMs);
     }
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
       if (!sameOrigin(request, listenerOrigin)) {
@@ -460,10 +476,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // after a canonical mutation has reached the handler.
   server.headersTimeout = connectionPhaseDeadlineMs;
   server.requestTimeout = connectionPhaseDeadlineMs;
-  // An active OpenClaw status request can use the bounded source-specific
-  // probe window plus response-emission headroom; retain the stricter existing
-  // socket timeout for all others.
-  server.timeout = Math.max(connectionPhaseDeadlineMs, statusResponseDeadlineMs);
+  // Keep Node's generic socket timeout strict. Eligible OpenClaw status reads
+  // receive their bounded request-local allowance only after validation above.
+  server.timeout = connectionPhaseDeadlineMs;
   server.keepAliveTimeout = connectionPhaseDeadlineMs;
   server.on("checkExpectation", (request, response) => {
     // Node emits this event instead of the regular request event for an
