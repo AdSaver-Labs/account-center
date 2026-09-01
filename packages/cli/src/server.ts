@@ -34,7 +34,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // The local OpenClaw router's documented cold status read can exceed the
   // generic listener budget. Keep every other source at 250 ms and grant only
   // the explicit OpenClaw source a still-bounded read window.
-  const statusProbeDeadlineMs = source === "openclaw" ? 1_000 : 250;
+  const statusProbeDeadlineMs = source === "openclaw" ? 5_000 : 250;
   const serverStatus = () => {
     if (!statusGeneration) {
       let deadline: NodeJS.Timeout | undefined;
@@ -455,7 +455,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // after a canonical mutation has reached the handler.
   server.headersTimeout = connectionPhaseDeadlineMs;
   server.requestTimeout = connectionPhaseDeadlineMs;
-  server.timeout = connectionPhaseDeadlineMs;
+  // An active OpenClaw status request can use the bounded source-specific
+  // probe window; retain the stricter existing socket timeout for all others.
+  server.timeout = Math.max(connectionPhaseDeadlineMs, statusProbeDeadlineMs);
   server.keepAliveTimeout = connectionPhaseDeadlineMs;
   server.on("checkExpectation", (request, response) => {
     // Node emits this event instead of the regular request event for an

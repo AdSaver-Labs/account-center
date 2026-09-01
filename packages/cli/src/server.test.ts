@@ -499,13 +499,13 @@ test("concurrent protected status reads share one authoritative probe and recove
   }
 });
 
-test("OpenClaw status reads may use their bounded source-specific deadline", async () => {
+test("OpenClaw status reads complete within the measured bounded deadline", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   const app = createAccountCenterServer({
     token: "test-token",
     source: "openclaw",
     statusReader: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
       return fixture;
     }
   });
@@ -514,6 +514,26 @@ test("OpenClaw status reads may use their bounded source-specific deadline", asy
     const response = await request(address.port, "/api/status", "test-token");
     assert.equal(response.status, 200);
     assert.equal((await response.json() as AccountCenterStatus).source, "fixture");
+  } finally {
+    await app.close();
+  }
+});
+
+test("OpenClaw status reads exceeding five seconds return a bounded redacted failure", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "status_unavailable" });
   } finally {
     await app.close();
   }
