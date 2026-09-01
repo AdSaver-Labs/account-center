@@ -87,8 +87,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // recreate a deadline for a connection the listener has already released.
   const closedConnections = new WeakSet<Socket>();
   // HTTP/1.1 may parse a later request before an earlier asynchronous handler
-  // has answered. Reserve a socket while a native handoff candidate is being
-  // validated so no peer can inherit its later status-read allowance.
+  // has answered. Serialize each connection so a peer cannot run while the
+  // first request reaches its canonical validation boundary.
+  const connectionRequestTails = new WeakMap<Socket, Promise<void>>();
+  // Only a fully validated native handoff owns this marker. A queued peer sees
+  // it before routing and is rejected rather than inheriting the status window.
   const nativeHandoffSockets = new WeakSet<Socket>();
   const connectionPhaseDeadlineMs = 1_000;
   // A validated OpenClaw status response gets bounded headroom to emit the
@@ -114,37 +117,37 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // Node's version-dependent 16 KiB default. Headers are only transport
   // metadata for this loopback bearer API; no public endpoint needs more than
   // a small, bounded representation.
-  const server = createServer({ maxHeaderSize: 12_288 }, async (request, response) => {
+  const handleRequest = async (request: IncomingMessage, response: ServerResponse) => {
     clearConnectionDeadline(request.socket);
     const connection = request.socket;
-    const nativeHandoffCandidate = request.method === "POST" &&
-      (new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-handoffs/openclaw/preflight" ||
-        !!nativeAuthHandoffRecheckId(new URL(request.url ?? "/", "http://account-center.local").pathname));
-    // A pipelined peer would otherwise share the socket's mutable timeout while
-    // this candidate reaches its post-validation OpenClaw status read. Reject
-    // it before authorization, route work, or status discovery; Node queues the
-    // fixed response after the valid first response and then closes the socket.
+    // A fully validated native handoff has claimed this connection while its
+    // bounded status read is active. This executes only after any earlier
+    // request on the connection completes its validation, so invalid candidates
+    // cannot reserve or affect their pipelined peer.
     if (nativeHandoffSockets.has(connection)) {
       setSafetyHeaders(response);
       response.setHeader("Connection", "close");
       return send(response, 409, { error: "pipelined_request_not_allowed" });
     }
-    if (nativeHandoffCandidate) nativeHandoffSockets.add(connection);
     // Once this request has produced its response, the same socket enters a
     // new bounded keep-alive/header phase. A subsequent parsed request clears
     // this deadline; a silent or dripped next request cannot retain the socket.
-    let ownsNativeHandoffSocket = nativeHandoffCandidate;
+    let ownsNativeHandoffSocket = false;
     const restoreConnectionPhase = () => {
       if (nativeHandoffSockets.has(connection)) return;
       connection.setTimeout(connectionPhaseDeadlineMs);
       armConnectionDeadline(connection);
     };
     const releaseNativeHandoffSocket = () => {
-      if (ownsNativeHandoffSocket) {
-        ownsNativeHandoffSocket = false;
+      if (!ownsNativeHandoffSocket) return restoreConnectionPhase();
+      ownsNativeHandoffSocket = false;
+      // Let an already-parsed HTTP/1.1 peer observe the validated claim before
+      // the next event-loop turn releases it. Without this boundary, a peer can
+      // race the first response's finish event into the extended socket window.
+      setImmediate(() => {
         nativeHandoffSockets.delete(connection);
-      }
-      restoreConnectionPhase();
+        restoreConnectionPhase();
+      });
     };
     const allowValidatedOpenClawStatusResponse = () => {
       if (source === "openclaw") connection.setTimeout(statusResponseDeadlineMs);
@@ -204,6 +207,8 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       let body: unknown;
       try { body = await readJsonBody(request); } catch (error) { return error instanceof RequestBodyError ? send(response, error.status, { error: error.code }) : send(response, 400, { error: "invalid_native_auth_handoff_request" }); }
       if (!isNativeAuthHandoffPreflightInput(body)) return send(response, 400, { error: "invalid_native_auth_handoff_request" });
+      ownsNativeHandoffSocket = true;
+      nativeHandoffSockets.add(connection);
       allowValidatedOpenClawStatusResponse();
       const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable", verificationState: "UNPROVEN" });
@@ -219,6 +224,8 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       let body: unknown;
       try { body = await readJsonBody(request); } catch (error) { return error instanceof RequestBodyError ? send(response, error.status, { error: error.code }) : send(response, 400, { error: "invalid_native_auth_handoff_recheck" }); }
       if (!isEmptyRecord(body)) return send(response, 400, { error: "invalid_native_auth_handoff_recheck" });
+      ownsNativeHandoffSocket = true;
+      nativeHandoffSockets.add(connection);
       allowValidatedOpenClawStatusResponse();
       const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable", verificationState: "UNPROVEN" });
@@ -530,6 +537,17 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     } catch {
       if (!closedResponses.has(response) && canWriteResponse(response)) send(response, 500, { error: "internal_error" });
     }
+  };
+  const server = createServer({ maxHeaderSize: 12_288 }, (request, response) => {
+    const connection = request.socket;
+    const previous = connectionRequestTails.get(connection);
+    // Start the first handler synchronously so its canonical-body deadline is
+    // armed in the same parser turn; later parsed peers wait for it to finish.
+    const current = previous ? previous.then(() => handleRequest(request, response)) : handleRequest(request, response);
+    connectionRequestTails.set(connection, current);
+    void current.finally(() => {
+      if (connectionRequestTails.get(connection) === current) connectionRequestTails.delete(connection);
+    });
   });
   // Own the parser-level deadlines rather than inheriting Node-version defaults.
   // Header-incomplete peers never create an IncomingMessage and therefore cannot
@@ -579,6 +597,8 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     armConnectionDeadline(socket);
     socket.once("close", () => {
       closedConnections.add(socket);
+      nativeHandoffSockets.delete(socket);
+      connectionRequestTails.delete(socket);
       clearConnectionDeadline(socket);
       options.onConnectionClosedForTest?.();
     });

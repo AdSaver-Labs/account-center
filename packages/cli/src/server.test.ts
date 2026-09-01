@@ -393,6 +393,25 @@ async function rawPipelinedNativeHandoffAndProtectedRead(port: number): Promise<
   });
 }
 
+async function rawPipelinedInvalidNativeHandoffAndProtectedRead(port: number, primary: { headers: string; body: string }): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("pipelined_invalid_native_handoff_did_not_terminate"));
+    }, 4_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.once("close", () => { clearTimeout(safetyTimeout); resolve(response); });
+    socket.on("connect", () => socket.write(
+      `POST /api/auth-handoffs/openclaw/preflight HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${primary.headers}Content-Length: ${Buffer.byteLength(primary.body)}\r\n\r\n${primary.body}` +
+      `GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: close\r\n\r\n`
+    ));
+  });
+}
+
 function assertResponseIsolationHeaders(headers: Headers): void {
   assert.equal(headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(headers.get("cross-origin-resource-policy"), "same-origin");
@@ -800,16 +819,47 @@ test("validated OpenClaw native handoff status reads receive the bounded socket 
   }
 });
 
+test("invalid native handoff requests do not reserve a pipelined protected read socket", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let reads = 0;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => { reads++; return fixture; }
+  });
+  const address = await app.listen();
+  const validBody = JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" });
+  try {
+    for (const invalidPrimary of [
+      { expectedStatus: 401, headers: "Origin: http://127.0.0.1\r\nContent-Type: application/json\r\n", body: validBody },
+      { expectedStatus: 403, headers: "Authorization: Bearer test-token\r\nOrigin: http://untrusted.invalid\r\nContent-Type: application/json\r\n", body: validBody },
+      { expectedStatus: 400, headers: `Authorization: Bearer test-token\r\nOrigin: http://127.0.0.1:${address.port}\r\nContent-Type: application/json\r\n`, body: JSON.stringify({ runtime: "codex", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) }
+    ]) {
+      const response = await rawPipelinedInvalidNativeHandoffAndProtectedRead(address.port, invalidPrimary);
+      assert.match(response, new RegExp(`HTTP/1\\.1 ${invalidPrimary.expectedStatus}`), response);
+      assert.equal((response.match(/HTTP\/1\.1 200/g) ?? []).length, 1, response);
+      assert.equal(response.includes("HTTP/1.1 409"), false, response);
+    }
+    assert.equal(reads, 3, "only the three eligible pipelined status reads may run");
+  } finally {
+    await app.close();
+  }
+});
+
 test("a pipelined protected read cannot inherit a native handoff socket allowance", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let reads = 0;
+  let closedConnections = 0;
   const evidenceStatus = () => ({ ...fixture, agentConnections: [...(fixture.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] } as AccountCenterStatus);
   const app = createAccountCenterServer({
     token: "test-token",
     source: "openclaw",
     statusReader: async () => {
+      reads++;
       await new Promise((resolve) => setTimeout(resolve, 1_100));
       return evidenceStatus();
-    }
+    },
+    onConnectionClosedForTest: () => { closedConnections++; }
   });
   const address = await app.listen();
   try {
@@ -818,6 +868,8 @@ test("a pipelined protected read cannot inherit a native handoff socket allowanc
     assert.equal((result.response.match(/HTTP\/1\.1 200/g) ?? []).length, 1, result.response);
     assert.match(result.response, /HTTP\/1\.1 409/);
     assert.equal(result.response.includes('"schemaVersion":"account-center.models'), false, result.response);
+    assert.equal(reads, 1, "the denied peer must not start a status read");
+    assert.equal(closedConnections, 1, "the isolated socket must close after the denied peer");
   } finally {
     await app.close();
   }
