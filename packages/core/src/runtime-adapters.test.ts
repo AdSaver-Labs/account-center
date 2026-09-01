@@ -134,6 +134,71 @@ test("OpenClaw falls through an empty Sentinel snapshot to the existing read-onl
   assert.deepEqual(publicStatusView(status).profiles.map((profile) => profile.id), ["account-1", "account-2", "account-3", "account-4"]);
 });
 
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the read-only CLI exits nonzero", async () => {
+  const workspace = await openClawWorkspace();
+  const emptySnapshot = {
+    at: "2026-07-10T00:00:00.000Z", provider: "openai", accounts: {}, effectiveAuthOrder: [],
+    lastAccountId: "openai:raw-empty-account", email: "empty-snapshot@example.test", access_token: "sk-empty-snapshot-token"
+  };
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(emptySnapshot), "utf8");
+  await mkdir(join(workspace.root, "3-Resources", "codex-account-ops", "state"), { recursive: true });
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"), JSON.stringify(routerStatus), "utf8");
+  let cliOptions: { timeoutMs?: number; maxOutputBytes?: number } | undefined;
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, _args, options) => {
+    cliOptions = options;
+    return { code: 1, stdout: "", stderr: "empty-snapshot@example.test sk-empty-snapshot-token" };
+  } });
+
+  const status = await adapter.readStatus();
+  const publicStatus = publicStatusView(status);
+  const serialized = JSON.stringify(publicStatus);
+  assert.equal(status.profiles.length, 0);
+  assert.ok(status.warnings.includes("source=CODEX-ACCOUNT-STATUS.json"));
+  assert.equal(publicStatus.verificationState, "UNPROVEN");
+  assert.equal(publicStatus.routes[0]?.activeProfileId, "account-redacted");
+  assert.equal(cliOptions?.timeoutMs, 60_000);
+  assert.ok((cliOptions?.maxOutputBytes ?? 0) > 0);
+  for (const privateValue of ["openai:raw-empty-account", "empty-snapshot@example.test", "sk-empty-snapshot-token"]) assert.equal(serialized.includes(privateValue), false);
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the CLI emits malformed JSON", async () => {
+  const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: "{not-json", stderr: "" }) });
+
+  await assert.doesNotReject(adapter.readStatus());
+  assert.equal((await adapter.readStatus()).profiles.length, 0);
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the CLI emits blank output", async () => {
+  const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: " \n\t", stderr: "" }) });
+
+  assert.equal((await adapter.readStatus()).profiles.length, 0);
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the CLI times out or exceeds its output limit", async () => {
+  for (const failure of [{ timeoutExceeded: true }, { outputLimitExceeded: true }]) {
+    const workspace = await openClawWorkspace();
+    await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: JSON.stringify(routerStatus), stderr: "", ...failure }) });
+
+    assert.equal((await adapter.readStatus()).profiles.length, 0);
+  }
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when successful CLI output normalizes to no profiles", async () => {
+  const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), stderr: "" }) });
+
+  const status = await adapter.readStatus();
+  assert.equal(status.profiles.length, 0);
+  assert.ok(status.warnings.includes("source=CODEX-ACCOUNT-STATUS.json"));
+  assert.equal(publicStatusView(status).verificationState, "UNPROVEN");
+});
+
 test("OpenClaw dry-run mutations do not call runner", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "account-center-openclaw-"));
   const cli = join(workspace, "oauth_routing_cli.py");

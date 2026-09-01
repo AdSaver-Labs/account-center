@@ -151,13 +151,14 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     // older workspaces supported without showing `unknown` when fresh Sentinel
     // limit data exists.
     const sentinelStatus = await this.tryReadJson(join(this.workspace, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"));
-    if (sentinelStatus) {
-      const normalized = normalizeOpenClawStatus(sentinelStatus, "CODEX-ACCOUNT-STATUS.json");
-      if (normalized.profiles.length > 0) return normalized;
-    }
+    const emptySentinelStatus = sentinelStatus ? normalizeOpenClawStatus(sentinelStatus, "CODEX-ACCOUNT-STATUS.json") : undefined;
+    if (emptySentinelStatus?.profiles.length) return emptySentinelStatus;
 
     const cliStatus = await this.tryReadCliStatus();
-    if (cliStatus) return normalizeOpenClawStatus(cliStatus, "oauth_routing_cli status --json");
+    const populatedCliStatus = cliStatus ? normalizeOpenClawStatus(cliStatus, "oauth_routing_cli status --json") : undefined;
+    if (populatedCliStatus?.profiles.length) return populatedCliStatus;
+
+    if (emptySentinelStatus) return emptySentinelStatus;
 
     const sentinelState = await this.tryReadJson(join(this.workspace, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"));
     if (sentinelState) return normalizeOpenClawStatus(sentinelState, "sentinel-state.json");
@@ -362,9 +363,13 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
 
   private async tryReadCliStatus(): Promise<unknown | undefined> {
     if (!(await exists(this.cli))) return undefined;
-    const result = await this.runner("python3", [this.cli, "status", "--workspace", this.workspace, "--json"], { cwd: this.workspace, timeoutMs: 60_000 });
-    if (result.code !== 0) return undefined;
-    return JSON.parse(result.stdout);
+    const result = await this.runner("python3", [this.cli, "status", "--workspace", this.workspace, "--json"], { cwd: this.workspace, timeoutMs: 60_000, maxOutputBytes: MAX_GENERIC_COMMAND_STATUS_BYTES });
+    if (result.code !== 0 || result.timeoutExceeded || result.outputLimitExceeded || Buffer.byteLength(result.stdout, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES || Buffer.byteLength(result.stderr, "utf8") > MAX_GENERIC_COMMAND_STATUS_BYTES) return undefined;
+    try {
+      return JSON.parse(result.stdout);
+    } catch {
+      return undefined;
+    }
   }
 
   private async tryReadJson(path: string): Promise<unknown | undefined> {
