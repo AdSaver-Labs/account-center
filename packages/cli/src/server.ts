@@ -120,6 +120,9 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       connection.setTimeout(connectionPhaseDeadlineMs);
       armConnectionDeadline(connection);
     };
+    const allowValidatedOpenClawStatusResponse = () => {
+      if (source === "openclaw") connection.setTimeout(statusResponseDeadlineMs);
+    };
     response.once("finish", restoreConnectionPhase);
     const markResponseClosed = () => {
       closedResponses.add(response);
@@ -159,13 +162,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       request.resume();
       return send(response, 400, { error: "invalid_query" });
     }
-    // Only the two validated reads that power the visible Accounts slice can
-    // wait for OpenClaw's bounded authoritative status probe. This runs after
-    // bearer, method, and query validation, and a body-bearing GET is excluded,
-    // so request shape cannot obtain the allowance before its normal rejection.
+    // Only validated status reads can wait for OpenClaw's bounded authoritative
+    // probe. This runs after bearer, method, and query validation, and a
+    // body-bearing GET is excluded, so request shape cannot obtain the
+    // allowance before its normal rejection. Native handoffs receive it only
+    // after their stricter origin, framing, and canonical-body guards below.
     if (source === "openclaw" && request.method === "GET" && !hasRequestBody(request) &&
       (request.url === "/api/status" || (requestUrl.pathname === "/api/limits" && !!runtimeInventoryQuery(request.url ?? "/")))) {
-      connection.setTimeout(statusResponseDeadlineMs);
+      allowValidatedOpenClawStatusResponse();
     }
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-handoffs/openclaw/preflight") {
       if (!sameOrigin(request, listenerOrigin)) { request.resume(); return send(response, 403, { error: "origin_forbidden" }); }
@@ -174,6 +178,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       let body: unknown;
       try { body = await readJsonBody(request); } catch (error) { return error instanceof RequestBodyError ? send(response, error.status, { error: error.code }) : send(response, 400, { error: "invalid_native_auth_handoff_request" }); }
       if (!isNativeAuthHandoffPreflightInput(body)) return send(response, 400, { error: "invalid_native_auth_handoff_request" });
+      allowValidatedOpenClawStatusResponse();
       const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable", verificationState: "UNPROVEN" });
       if (!hasNativeOpenAiHandoffEvidence(status)) return send(response, 400, { error: "native_handoff_unavailable", verificationState: "UNPROVEN" });
@@ -188,6 +193,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       let body: unknown;
       try { body = await readJsonBody(request); } catch (error) { return error instanceof RequestBodyError ? send(response, error.status, { error: error.code }) : send(response, 400, { error: "invalid_native_auth_handoff_recheck" }); }
       if (!isEmptyRecord(body)) return send(response, 400, { error: "invalid_native_auth_handoff_recheck" });
+      allowValidatedOpenClawStatusResponse();
       const status = await serverStatus();
       if (!status) return send(response, 503, { error: "status_unavailable", verificationState: "UNPROVEN" });
       if (!hasNativeOpenAiHandoffEvidence(status)) return send(response, 400, { error: "native_handoff_unavailable", verificationState: "UNPROVEN" });

@@ -737,6 +737,45 @@ test("OpenClaw status reads complete within the measured bounded deadline", asyn
   }
 });
 
+test("validated OpenClaw native handoff status reads receive the bounded socket allowance", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let reads = 0;
+  const evidenceStatus = () => ({ ...fixture, agentConnections: [...(fixture.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] } as AccountCenterStatus);
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      reads++;
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return evidenceStatus();
+    }
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const requestOptions = { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" } };
+  try {
+    const rejectedAt = Date.now();
+    const malformed = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, body: JSON.stringify({ runtime: "codex", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(malformed.status, 400);
+    const wrongOrigin = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, headers: { ...requestOptions.headers, origin: "http://untrusted.invalid" }, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(wrongOrigin.status, 403);
+    assert.equal(reads, 0, "invalid and wrong-origin preflights must not read status");
+    assert.equal(Date.now() - rejectedAt < 1_000, true, "invalid preflights must retain the strict socket path");
+
+    const preflight = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(preflight.status, 200);
+    const payload = await preflight.json() as { handoffId: string; verificationState: string };
+    assert.match(payload.handoffId, /^handoff_[A-Za-z0-9_-]{32}$/);
+    assert.equal(payload.verificationState, "UNPROVEN");
+
+    const recheck = await fetch(`${origin}/api/auth-handoffs/openclaw/${payload.handoffId}/recheck`, { ...requestOptions, body: "{}" });
+    assert.equal(recheck.status, 200);
+    assert.deepEqual(await recheck.json(), { schemaVersion: "account-center.native-auth-handoff-recheck.v1", handoffId: payload.handoffId, state: "postflight_unproven", verificationState: "UNPROVEN" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("OpenClaw status and limits reads completing after five seconds succeed within the bounded deadline", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   const app = createAccountCenterServer({
