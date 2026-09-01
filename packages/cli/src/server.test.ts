@@ -369,6 +369,30 @@ async function rawSlowProtectedRead(port: number, path: string): Promise<{ elaps
   });
 }
 
+async function rawPipelinedNativeHandoffAndProtectedRead(port: number): Promise<{ elapsedMs: number; response: string }> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const body = JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" });
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("pipelined_native_handoff_did_not_terminate"));
+    }, 4_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.once("close", () => {
+      clearTimeout(safetyTimeout);
+      resolve({ elapsedMs: Date.now() - startedAt, response });
+    });
+    socket.on("connect", () => socket.write(
+      `POST /api/auth-handoffs/openclaw/preflight HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nOrigin: http://127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}` +
+      `GET /api/models?runtime=openclaw&scope=default HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: close\r\n\r\n`
+    ));
+  });
+}
+
 function assertResponseIsolationHeaders(headers: Headers): void {
   assert.equal(headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(headers.get("cross-origin-resource-policy"), "same-origin");
@@ -771,6 +795,29 @@ test("validated OpenClaw native handoff status reads receive the bounded socket 
     const recheck = await fetch(`${origin}/api/auth-handoffs/openclaw/${payload.handoffId}/recheck`, { ...requestOptions, body: "{}" });
     assert.equal(recheck.status, 200);
     assert.deepEqual(await recheck.json(), { schemaVersion: "account-center.native-auth-handoff-recheck.v1", handoffId: payload.handoffId, state: "postflight_unproven", verificationState: "UNPROVEN" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("a pipelined protected read cannot inherit a native handoff socket allowance", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const evidenceStatus = () => ({ ...fixture, agentConnections: [...(fixture.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] } as AccountCenterStatus);
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return evidenceStatus();
+    }
+  });
+  const address = await app.listen();
+  try {
+    const result = await rawPipelinedNativeHandoffAndProtectedRead(address.port);
+    assert.equal(result.elapsedMs >= 1_100, true, `valid handoff was destroyed after ${result.elapsedMs}ms`);
+    assert.equal((result.response.match(/HTTP\/1\.1 200/g) ?? []).length, 1, result.response);
+    assert.match(result.response, /HTTP\/1\.1 409/);
+    assert.equal(result.response.includes('"schemaVersion":"account-center.models'), false, result.response);
   } finally {
     await app.close();
   }

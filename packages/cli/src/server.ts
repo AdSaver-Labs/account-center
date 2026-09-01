@@ -86,6 +86,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // listener ownership of that terminal socket state so a late `finish` cannot
   // recreate a deadline for a connection the listener has already released.
   const closedConnections = new WeakSet<Socket>();
+  // HTTP/1.1 may parse a later request before an earlier asynchronous handler
+  // has answered. Reserve a socket while a native handoff candidate is being
+  // validated so no peer can inherit its later status-read allowance.
+  const nativeHandoffSockets = new WeakSet<Socket>();
   const connectionPhaseDeadlineMs = 1_000;
   // A validated OpenClaw status response gets bounded headroom to emit the
   // fixed result after its twelve-second probe; every generic socket stays at
@@ -112,21 +116,43 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // a small, bounded representation.
   const server = createServer({ maxHeaderSize: 12_288 }, async (request, response) => {
     clearConnectionDeadline(request.socket);
+    const connection = request.socket;
+    const nativeHandoffCandidate = request.method === "POST" &&
+      (new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-handoffs/openclaw/preflight" ||
+        !!nativeAuthHandoffRecheckId(new URL(request.url ?? "/", "http://account-center.local").pathname));
+    // A pipelined peer would otherwise share the socket's mutable timeout while
+    // this candidate reaches its post-validation OpenClaw status read. Reject
+    // it before authorization, route work, or status discovery; Node queues the
+    // fixed response after the valid first response and then closes the socket.
+    if (nativeHandoffSockets.has(connection)) {
+      setSafetyHeaders(response);
+      response.setHeader("Connection", "close");
+      return send(response, 409, { error: "pipelined_request_not_allowed" });
+    }
+    if (nativeHandoffCandidate) nativeHandoffSockets.add(connection);
     // Once this request has produced its response, the same socket enters a
     // new bounded keep-alive/header phase. A subsequent parsed request clears
     // this deadline; a silent or dripped next request cannot retain the socket.
-    const connection = request.socket;
+    let ownsNativeHandoffSocket = nativeHandoffCandidate;
     const restoreConnectionPhase = () => {
+      if (nativeHandoffSockets.has(connection)) return;
       connection.setTimeout(connectionPhaseDeadlineMs);
       armConnectionDeadline(connection);
+    };
+    const releaseNativeHandoffSocket = () => {
+      if (ownsNativeHandoffSocket) {
+        ownsNativeHandoffSocket = false;
+        nativeHandoffSockets.delete(connection);
+      }
+      restoreConnectionPhase();
     };
     const allowValidatedOpenClawStatusResponse = () => {
       if (source === "openclaw") connection.setTimeout(statusResponseDeadlineMs);
     };
-    response.once("finish", restoreConnectionPhase);
+    response.once("finish", releaseNativeHandoffSocket);
     const markResponseClosed = () => {
       closedResponses.add(response);
-      restoreConnectionPhase();
+      releaseNativeHandoffSocket();
     };
     request.once("aborted", markResponseClosed);
     response.once("close", markResponseClosed);
