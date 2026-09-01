@@ -389,6 +389,26 @@ function assertHardenedJsonError(response: Response, expectedStatus: number, exp
   });
 }
 
+test("OpenClaw native sign-in preflight is same-origin, redacted, and remains UNPROVEN", async () => {
+  let reads = 0;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => { reads++; return JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")); } });
+  const address = await app.listen(); const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const malformed = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: JSON.stringify({ runtime: "codex", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(malformed.status, 400); assert.equal(reads, 0);
+    const denied = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { method: "POST", headers: { authorization: "Bearer test-token", "content-type": "application/json" }, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(denied.status, 403);
+    const preflight = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(preflight.status, 200); const payload = await preflight.json() as any;
+    assert.equal(payload.state, "handoff_required"); assert.equal(payload.verificationState, "UNPROVEN"); assert.match(payload.handoffId, /^handoff_[a-f0-9]{32}$/);
+    assert.equal(JSON.stringify(payload).includes("@"), false); assert.equal(JSON.stringify(payload).includes("--force"), false); assert.equal(JSON.stringify(payload).includes("login"), false);
+    const recheck = await fetch(`${origin}/api/auth-handoffs/openclaw/${payload.handoffId}/recheck`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: "{}" });
+    assert.equal(recheck.status, 200); assert.deepEqual(await recheck.json(), { schemaVersion: "account-center.native-auth-handoff-recheck.v1", handoffId: payload.handoffId, state: "postflight_unproven", verificationState: "UNPROVEN" });
+    const html = await (await fetch(`${origin}/`)).text();
+    assert.match(html, /Native sign-in required/); assert.match(html, /Preflight native sign-in/); assert.match(html, /UNPROVEN/); assert.equal(html.includes("--force"), false); assert.equal(html.includes("models auth login"), false);
+  } finally { await app.close(); }
+});
+
 test("a loopback port conflict rejects startup without leaving the control plane unusable", async () => {
   const occupier = createServer();
   await new Promise<void>((resolve, reject) => {
