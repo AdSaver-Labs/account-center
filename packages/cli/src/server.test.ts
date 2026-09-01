@@ -2,12 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
+import { createRequire } from "node:module";
 import { AddressInfo, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
+
+const require = createRequire(import.meta.url);
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
@@ -415,6 +418,46 @@ test("OpenClaw native sign-in preflight is same-origin, redacted, and remains UN
     assert.match(html, /if \(scopesUnavailable \|\| !scopes\.length\) \{ clearNativeHandoffUnavailable\(\);/);
     assert.match(html, /if \(!selectedContextStillAvailable \|\| selectedRuntime\(\) !== 'openclaw'\) clearNativeHandoffUnavailable\(\);/);
   } finally { await app.close(); }
+});
+
+test("status refresh failure clears a previously actionable native handoff", async () => {
+  let failStatusRefresh = false;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      if (failStatusRefresh) throw new Error("status_refresh_failed");
+      const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+      return { ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] };
+    }
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const { chromium } = require("playwright") as { chromium: any };
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(origin);
+    await page.locator("#onboarding-skip").click();
+    await page.locator("#token").fill("test-token");
+    await page.locator("#refresh").click();
+    await page.locator("#more-tab").click();
+    await page.locator("#runtime-scope").selectOption("openclaw|default");
+    await page.locator("#native-handoff-preflight:not([disabled])").waitFor();
+    await page.locator("#native-handoff-preflight").click();
+    await page.locator("#native-handoff-recheck:not([disabled])").waitFor();
+
+    failStatusRefresh = true;
+    await page.locator("#refresh").click();
+    await page.locator("#notice[data-state='error']").waitFor();
+
+    assert.equal(await page.locator("#native-handoff-preflight").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-recheck").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-status").textContent(), "UNPROVEN — native handoff is unavailable for the current context.");
+  } finally {
+    await browser.close();
+    await app.close();
+  }
 });
 
 test("native handoff preflight reports missing OpenAI evidence as redacted UNPROVEN without issuing an ID", async () => {
