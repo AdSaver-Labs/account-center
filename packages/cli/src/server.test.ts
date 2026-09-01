@@ -519,6 +519,26 @@ test("OpenClaw status reads may use their bounded source-specific deadline", asy
   }
 });
 
+test("non-OpenClaw status reads retain the strict generic deadline", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "fixture",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "status_unavailable" });
+  } finally {
+    await app.close();
+  }
+});
+
 test("a stalled shared status probe is contained after the redacted deadline and recovers when it settles", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   let calls = 0;
