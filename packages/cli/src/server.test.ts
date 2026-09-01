@@ -499,6 +499,26 @@ test("concurrent protected status reads share one authoritative probe and recove
   }
 });
 
+test("OpenClaw status reads may use their bounded source-specific deadline", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as AccountCenterStatus).source, "fixture");
+  } finally {
+    await app.close();
+  }
+});
+
 test("a stalled shared status probe is contained after the redacted deadline and recovers when it settles", async () => {
   const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   let calls = 0;

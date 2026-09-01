@@ -31,7 +31,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // probes. All callers during that containment window receive the same fixed,
   // redacted unavailable result.
   let statusGeneration: { probe: Promise<AccountCenterStatus | undefined>; result: Promise<AccountCenterStatus | undefined> } | undefined;
-  const statusProbeDeadlineMs = 250;
+  // The local OpenClaw router's documented cold status read can exceed the
+  // generic listener budget. Keep every other source at 250 ms and grant only
+  // the explicit OpenClaw source a still-bounded read window.
+  const statusProbeDeadlineMs = source === "openclaw" ? 1_000 : 250;
   const serverStatus = () => {
     if (!statusGeneration) {
       let deadline: NodeJS.Timeout | undefined;
