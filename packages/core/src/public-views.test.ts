@@ -118,7 +118,7 @@ test("Codex capability declarations remain read-only in public status and scope 
   });
 });
 
-test("opaque OpenClaw agent scopes advertise only independently observed read status", () => {
+test("opaque OpenClaw agent scopes do not advertise unsupported generic status authority", () => {
   const status = {
     schemaVersion: "account-center.status.v1", generatedAt: "2026-07-17T12:00:00.000Z", noSecrets: true, source: "openclaw",
     providers: [], profiles: [], leases: [], reauth: [], audit: [], warnings: [],
@@ -128,7 +128,7 @@ test("opaque OpenClaw agent scopes advertise only independently observed read st
   } as unknown as AccountCenterStatus;
   const catalog = publicRuntimeScopeCatalogView(status, ["agent-20cee3d10892329d"]) as { scopes: Array<{ scope: { kind: string }; capabilities: unknown }> };
   assert.deepEqual(catalog.scopes.find((entry) => entry.scope.kind === "agent")?.capabilities, {
-    readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false
+    readStatus: false, mutateRoutes: false, startReauth: false, mutateModels: false
   });
 });
 

@@ -215,10 +215,11 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   }
 
   /** Resolve the public opaque agent scope only after one bounded discovery. */
-  async readRoutingPoolForPublicScope(scope: string): Promise<OpenClawRoutingPool> {
+  async readRoutingPoolForPublicScope(scope: string, discoveredAgents?: readonly string[]): Promise<OpenClawRoutingPool> {
     const publicAgentRef = /^agent:(agent-[a-f0-9]{16})$/.exec(scope)?.[1];
     if (!publicAgentRef) throw new Error("agent_not_discovered");
-    const agents = await this.listRoutingPoolAgents();
+    const agents = discoveredAgents ? Array.from(discoveredAgents) : await this.listRoutingPoolAgents();
+    if (!agents.length || agents.length > 64 || new Set(agents).size !== agents.length || !agents.every(isExactOfficialAgentId)) throw new Error("agent_not_discovered");
     const matches = agents.filter((agentId) => opaqueRoutingPoolAgentRef(agentId) === publicAgentRef);
     if (matches.length !== 1) throw new Error("agent_not_discovered");
     return this.readDiscoveredRoutingPool(matches[0]!);

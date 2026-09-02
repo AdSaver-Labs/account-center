@@ -2369,6 +2369,35 @@ test("routing-pool status and scoped pool sequence receive an end-to-end bounded
   } finally { await app.close(); }
 });
 
+test("routing-pool endpoint performs one authoritative discovery and passes that exact evidence to its pool reader", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const privateAgent = "private-agent";
+  const discoveredAgents = [privateAgent];
+  let discoveries = 0;
+  let receivedEvidence: readonly string[] | undefined;
+  status.routes = [{ ...status.routes[0]!, runtime: "openclaw", scope: `agent:${privateAgent}` }];
+  const app = createAccountCenterServer({
+    token: "test-token", source: "openclaw", statusReader: async () => status,
+    routingPoolAgentReader: async () => { discoveries++; return discoveredAgents; },
+    routingPoolReader: async function (scope: string) {
+      receivedEvidence = arguments[1] as readonly string[];
+      assert.equal(scope, `agent:${opaqueAgentRef(privateAgent)}`);
+      return { agentId: privateAgent, provider: "openai", profiles: ["openai:private-profile"], order: [] };
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, `/api/routing-pools?runtime=openclaw&scope=agent%3A${opaqueAgentRef(privateAgent)}`, "test-token");
+    assert.equal(response.status, 200);
+    assert.equal(discoveries, 1);
+    assert.equal(receivedEvidence, discoveredAgents);
+    assert.deepEqual(await response.json(), {
+      schemaVersion: "account-center.openclaw-routing-pools.v1", verificationState: "UNPROVEN", state: "read-only",
+      pools: [{ schemaVersion: "account-center.openclaw-routing-pool.v1", agentRef: opaqueAgentRef(privateAgent), provider: "openai", verificationState: "UNPROVEN", candidates: [{ accountRef: "pool-account-1", state: "saved-unverified" }], explicitOverrideOrder: [], overrideState: "none" }]
+    });
+  } finally { await app.close(); }
+});
+
 test("routing-pool discovery has one global in-flight generation across alternating valid scopes", async () => {
   const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
   const agents = ["private-agent-a", "private-agent-b", "private-agent-c"];

@@ -10,7 +10,7 @@ export interface AccountCenterServerOptions {
   /** Test seam for proving the listener bounds concurrent authoritative reads. */
   statusReader?: () => Promise<AccountCenterStatus | undefined>;
   /** Test seam for fixed-command, read-only routing-pool snapshots. */
-  routingPoolReader?: (scope: string) => Promise<OpenClawRoutingPool>;
+  routingPoolReader?: (scope: string, discoveredAgents: readonly string[]) => Promise<OpenClawRoutingPool>;
   /** Test seam for authoritative, read-only official OpenClaw agent discovery. */
   routingPoolAgentReader?: () => Promise<string[]>;
   /** Test seam for ordering a peer abort before delayed protected completion. */
@@ -43,12 +43,13 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // must not multiply the fixed official CLI process sequence.
   let routingPoolGeneration: { scope: string; probe: Promise<OpenClawRoutingPool>; result: Promise<OpenClawRoutingPool | undefined> } | undefined;
   let routingPoolAgentsGeneration: Promise<string[] | undefined> | undefined;
+  // Exact pool reads run in parallel after the server's single discovery.
   const routingPoolProbeDeadlineMs = 12_500;
-  const serverRoutingPool = (scope: string) => {
+  const serverRoutingPool = (scope: string, discoveredAgents: readonly string[]) => {
     if (routingPoolGeneration) return routingPoolGeneration.scope === scope ? routingPoolGeneration.result : undefined;
     {
       let deadline: NodeJS.Timeout | undefined;
-      const probe = Promise.resolve().then(() => options.routingPoolReader ? options.routingPoolReader(scope) : readOfficialRoutingPool(scope));
+      const probe = Promise.resolve().then(() => options.routingPoolReader ? options.routingPoolReader(scope, discoveredAgents) : readOfficialRoutingPool(scope, discoveredAgents));
       const result = Promise.race([probe, new Promise<undefined>((resolve) => { deadline = setTimeout(() => resolve(undefined), routingPoolProbeDeadlineMs); })]).finally(() => { if (deadline) clearTimeout(deadline); });
       const generation = { scope, probe, result };
       routingPoolGeneration = generation;
@@ -131,10 +132,11 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // fixed result after its twelve-second probe; every generic socket stays at
   // the one-second listener deadline.
   const statusResponseDeadlineMs = 13_000;
-  // Routing-pool inventory first proves current status and then runs a bounded
-  // discovery/read sequence. Its socket allowance covers that whole one-shot
-  // sequence only; no unrelated protected endpoint inherits it.
-  const routingPoolResponseDeadlineMs = 26_000;
+  // Routing-pool inventory first proves current status, then performs one
+  // discovery followed by parallel exact pool reads. Its socket allowance
+  // covers that entire bounded sequence only; no unrelated protected endpoint
+  // inherits it.
+  const routingPoolResponseDeadlineMs = 38_000;
   const clearConnectionDeadline = (socket: Socket) => {
     const deadline = connectionDeadlines.get(socket);
     if (deadline) clearTimeout(deadline);
@@ -446,7 +448,7 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       if (!discoveredAgents) return unavailable();
       if (!discoveredAgents.some((agentId) => opaqueAgentRef(agentId) === requestedAgentRef)) return send(response, 400, { error: "unknown_runtime_scope" });
       try {
-        const pool = await serverRoutingPool(query.scope);
+        const pool = await serverRoutingPool(query.scope, discoveredAgents);
         if (!isExactRoutingPoolSnapshot(pool) || opaqueAgentRef(pool.agentId) !== requestedAgentRef) return unavailable();
         return send(response, 200, publicRoutingPoolsView([pool]));
       } catch { return unavailable(); }
@@ -888,9 +890,9 @@ async function authoritativeStatus(source: unknown): Promise<AccountCenterStatus
   }
 }
 
-/** One authoritative public scope maps to at most one discovery and two parallel exact reads. */
-async function readOfficialRoutingPool(scope: string): Promise<OpenClawRoutingPool> {
-  return new OpenClawRuntimeAdapter().readRoutingPoolForPublicScope(scope);
+/** One authoritative public scope maps to one supplied discovery and two parallel exact reads. */
+async function readOfficialRoutingPool(scope: string, discoveredAgents: readonly string[]): Promise<OpenClawRoutingPool> {
+  return new OpenClawRuntimeAdapter().readRoutingPoolForPublicScope(scope, discoveredAgents);
 }
 
 function isExactRoutingPoolSnapshot(pool: unknown): pool is OpenClawRoutingPool {
@@ -1429,7 +1431,7 @@ function controlPanelHtml(): string {
       function contextCapabilityDetail(item) { var capabilities = item && item.capabilities || {}; if (capabilities.readStatus !== true) return 'This scope has no verified readable status capability.'; var actions = []; if (capabilities.mutateRoutes) actions.push('routing'); if (capabilities.startReauth) actions.push('guided authentication'); if (capabilities.mutateModels) actions.push('model policy'); return actions.length ? 'Readable status; declared ' + actions.join(', ') + ' capability. Each action remains gated by its protected API result.' : 'Readable status only. Routing, guided authentication, and model changes are not declared for this scope.'; }
       function isRuntimeScope(item) { var scope = item && item.scope; var capabilities = item && item.capabilities; var observedRuntimes = latestStatus && Array.isArray(latestStatus.runtimes) ? latestStatus.runtimes.map(function (runtime) { return runtime && runtime.key; }) : []; var validScope = scope && typeof scope === 'object' && Object.keys(scope).every(function (key) { return ['kind', 'id'].indexOf(key) !== -1; }) && ((scope.kind === 'default' && scope.id === 'default') || (item.runtime === 'openclaw' && scope.kind === 'agent' && /^agent-[a-f0-9]{16}$/.test(scope.id))); return item && typeof item === 'object' && Object.keys(item).every(function (key) { return ['runtime', 'scope', 'capabilities'].indexOf(key) !== -1; }) && typeof item.runtime === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(item.runtime) && observedRuntimes.indexOf(item.runtime) !== -1 && validScope && capabilities && typeof capabilities === 'object' && Object.keys(capabilities).length === 4 && ['readStatus', 'mutateRoutes', 'startReauth', 'mutateModels'].every(function (key) { return typeof capabilities[key] === 'boolean'; }); }
       function isScopeCatalog(data) { return data && typeof data === 'object' && Object.keys(data).every(function (key) { return ['schemaVersion', 'generatedAt', 'scopes'].indexOf(key) !== -1; }) && data.schemaVersion === 'account-center.runtime-scopes.v1' && isCanonicalTimestamp(data.generatedAt) && Array.isArray(data.scopes) && data.scopes.every(isRuntimeScope); }
-      function renderContextSelector(scopeData, scopesUnavailable) { var scopes = scopeData && Array.isArray(scopeData.scopes) ? scopeData.scopes.filter(function (item) { return item && typeof item.runtime === 'string' && item.scope && item.capabilities && item.capabilities.readStatus === true; }) : []; if (scopesUnavailable || !scopes.length) { clearNativeHandoffUnavailable(); runtimeScope.disabled = true; runtimeScope.hidden = false; contextChip.hidden = true; runtimeScope.innerHTML = '<option>No readable scopes are available.</option>'; selectedContext = ''; contextCapability.textContent = scopesUnavailable ? 'UNPROVEN' : 'Unavailable'; contextHelp.textContent = scopesUnavailable ? 'The protected scope catalog could not be verified. Scoped actions remain unavailable.' : 'No readable scopes were supplied by the protected API. Scoped actions remain unavailable.'; contextSelector.dataset.state = scopesUnavailable ? 'unproven' : 'empty'; return; } var selectedContextStillAvailable = scopes.some(function (item) { return contextValue(item) === selectedContext; }); var prior = selectedContextStillAvailable ? selectedContext : contextValue(scopes[0]); runtimeScope.innerHTML = scopes.map(contextOption).join(''); runtimeScope.value = prior; selectedContext = runtimeScope.value; if (!selectedContextStillAvailable || selectedRuntime() !== 'openclaw') clearNativeHandoffUnavailable(); else { nativePreflight.disabled = false; nativeStatus.textContent = 'Native sign-in required — UNPROVEN. Preflight is instruction-only.'; } var selected = scopes.filter(function (item) { return contextValue(item) === selectedContext; })[0]; contextCapability.textContent = contextCapabilityLabel(selected.capabilities); contextHelp.textContent = contextCapabilityDetail(selected); runtimeScope.disabled = false; runtimeScope.hidden = scopes.length === 1; contextChip.hidden = scopes.length !== 1; if (scopes.length === 1) { contextChip.textContent = selected.runtime + ' / ' + scopeLabel(selected.scope); contextChip.setAttribute('aria-label', 'Runtime and scope: ' + contextChip.textContent); } contextSelector.dataset.state = scopes.length === 1 ? 'single' : 'multiple'; }
+      function renderContextSelector(scopeData, scopesUnavailable) { var scopes = scopeData && Array.isArray(scopeData.scopes) ? scopeData.scopes.filter(function (item) { return item && typeof item.runtime === 'string' && item.scope && item.capabilities && (item.capabilities.readStatus === true || item.runtime === 'openclaw' && item.scope.kind === 'agent' && /^agent-[a-f0-9]{16}$/.test(item.scope.id)); }) : []; if (scopesUnavailable || !scopes.length) { clearNativeHandoffUnavailable(); runtimeScope.disabled = true; runtimeScope.hidden = false; contextChip.hidden = true; runtimeScope.innerHTML = '<option>No readable scopes are available.</option>'; selectedContext = ''; contextCapability.textContent = scopesUnavailable ? 'UNPROVEN' : 'Unavailable'; contextHelp.textContent = scopesUnavailable ? 'The protected scope catalog could not be verified. Scoped actions remain unavailable.' : 'No readable scopes were supplied by the protected API. Scoped actions remain unavailable.'; contextSelector.dataset.state = scopesUnavailable ? 'unproven' : 'empty'; return; } var selectedContextStillAvailable = scopes.some(function (item) { return contextValue(item) === selectedContext; }); var prior = selectedContextStillAvailable ? selectedContext : contextValue(scopes[0]); runtimeScope.innerHTML = scopes.map(contextOption).join(''); runtimeScope.value = prior; selectedContext = runtimeScope.value; if (!selectedContextStillAvailable || selectedRuntime() !== 'openclaw') clearNativeHandoffUnavailable(); else { nativePreflight.disabled = false; nativeStatus.textContent = 'Native sign-in required — UNPROVEN. Preflight is instruction-only.'; } var selected = scopes.filter(function (item) { return contextValue(item) === selectedContext; })[0]; contextCapability.textContent = contextCapabilityLabel(selected.capabilities); contextHelp.textContent = contextCapabilityDetail(selected); runtimeScope.disabled = false; runtimeScope.hidden = scopes.length === 1; contextChip.hidden = scopes.length !== 1; if (scopes.length === 1) { contextChip.textContent = selected.runtime + ' / ' + scopeLabel(selected.scope); contextChip.setAttribute('aria-label', 'Runtime and scope: ' + contextChip.textContent); } contextSelector.dataset.state = scopes.length === 1 ? 'single' : 'multiple'; }
       function challengeFreshness(challengeData) { var generatedAt = challengeData && typeof challengeData.generatedAt === 'string' ? challengeData.generatedAt : ''; var timestamp = generatedAt && !Number.isNaN(Date.parse(generatedAt)) ? generatedAt : ''; var detail = document.getElementById('guided-freshness-detail'); if (timestamp) { var checkedAt = new Date(timestamp).toLocaleString(); guidedFreshness.textContent = 'Records checked'; guidedFreshness.setAttribute('aria-label', 'Guided-auth records checked'); detail.textContent = 'Guided-auth records were available in a server snapshot from ' + checkedAt + '. This does not confirm that sign-in was completed.'; guidedFreshness.className = 'pill good'; return; } guidedFreshness.textContent = 'Status unavailable'; guidedFreshness.setAttribute('aria-label', 'Guided-auth status unavailable'); detail.textContent = 'Guided-auth records could not be verified. No sign-in result is shown.'; guidedFreshness.className = 'pill warn'; }
       function auditFreshness(auditData) { var generatedAt = auditData && typeof auditData.generatedAt === 'string' ? auditData.generatedAt : ''; var timestamp = generatedAt && !Number.isNaN(Date.parse(generatedAt)) ? generatedAt : ''; var detail = document.getElementById('audit-freshness-detail'); if (timestamp) { auditFreshnessBadge.textContent = 'Records checked'; auditFreshnessBadge.setAttribute('aria-label', 'Audit records checked'); detail.textContent = 'Audit records were available in a server snapshot from ' + new Date(timestamp).toLocaleString() + '. This does not confirm the current runtime state.'; auditFreshnessBadge.className = 'pill good'; return; } auditFreshnessBadge.textContent = 'Status unavailable'; auditFreshnessBadge.setAttribute('aria-label', 'Audit status unavailable'); detail.textContent = 'Audit records could not be verified. Previously loaded evidence is not shown as current.'; auditFreshnessBadge.className = 'pill warn'; }
       function operationFreshness(operationData) { var generatedAt = operationData && typeof operationData.generatedAt === 'string' ? operationData.generatedAt : ''; var timestamp = generatedAt && !Number.isNaN(Date.parse(generatedAt)) ? generatedAt : ''; var detail = document.getElementById('operation-freshness-detail'); if (timestamp) { operationFreshnessBadge.textContent = 'Records checked'; operationFreshnessBadge.setAttribute('aria-label', 'Operation records checked'); detail.textContent = 'Operation records were available in a server snapshot from ' + new Date(timestamp).toLocaleString() + '. This does not confirm the current runtime state.'; operationFreshnessBadge.className = 'pill good'; return; } operationFreshnessBadge.textContent = 'Status unavailable'; operationFreshnessBadge.setAttribute('aria-label', 'Operation status unavailable'); detail.textContent = 'Operation records could not be verified. Previously loaded evidence is not shown as current.'; operationFreshnessBadge.className = 'pill warn'; }

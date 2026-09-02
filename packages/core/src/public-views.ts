@@ -234,7 +234,7 @@ export function publicRuntimeScopeCatalogView(status: AccountCenterStatus, openC
     scopes: Array.from(scopes.entries()).sort(([left], [right]) => left.localeCompare(right)).flatMap(([runtime, capabilities]) => {
       const openClawAgentScopes = runtime === "openclaw" ? Array.from(new Set(openClawAgentRefs.filter((agentRef) => /^agent-[a-f0-9]{16}$/.test(agentRef))))
         .sort()
-        .map((agentRef) => ({ runtime, scope: { kind: "agent", id: agentRef }, capabilities: { readStatus: capabilities.readStatus, mutateRoutes: false, startReauth: false, mutateModels: false } })) : [];
+        .map((agentRef) => ({ runtime, scope: { kind: "agent", id: agentRef }, capabilities: { readStatus: false, mutateRoutes: false, startReauth: false, mutateModels: false } })) : [];
       return openClawAgentScopes.length ? [...openClawAgentScopes, { runtime, scope: { kind: "default", id: "default" }, capabilities }] : [{ runtime, scope: { kind: "default", id: "default" }, capabilities }];
     })
   };
