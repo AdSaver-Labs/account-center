@@ -459,7 +459,8 @@ test("OpenClaw native sign-in preflight is same-origin, redacted, and remains UN
     assert.match(html, /Native sign-in required/); assert.match(html, /Preflight native sign-in/); assert.match(html, /UNPROVEN/); assert.equal(html.includes("--force"), false); assert.equal(html.includes("models auth login"), false);
     assert.match(html, /function clearNativeHandoffUnavailable\(\) \{ nativeHandoffId = ''; nativePreflight\.disabled = true; nativeRecheck\.disabled = true; nativeStatus\.textContent = 'UNPROVEN — native handoff is unavailable for the current context\.'; \}/);
     assert.match(html, /if \(scopesUnavailable \|\| !scopes\.length\) \{ clearNativeHandoffUnavailable\(\);/);
-    assert.match(html, /if \(!selectedContextStillAvailable \|\| selectedRuntime\(\) !== 'openclaw'\) clearNativeHandoffUnavailable\(\);/);
+    assert.match(html, /function isNativeHandoffDefaultScope\(\) \{ return selectedContext === 'openclaw\|default'; \}/);
+    assert.match(html, /if \(!selectedContextStillAvailable \|\| !isNativeHandoffDefaultScope\(\)\) clearNativeHandoffUnavailable\(\);/);
   } finally { await app.close(); }
 });
 
@@ -498,6 +499,48 @@ test("status refresh failure clears a previously actionable native handoff", asy
     assert.equal(await page.locator("#native-handoff-preflight").isDisabled(), true);
     assert.equal(await page.locator("#native-handoff-recheck").isDisabled(), true);
     assert.equal(await page.locator("#native-handoff-status").textContent(), "UNPROVEN — native handoff is unavailable for the current context.");
+  } finally {
+    await browser.close();
+    await app.close();
+  }
+});
+
+test("opaque OpenClaw agent scope keeps routing-pool inventory read-only and disables native handoff", async () => {
+  const privateAgent = "private-agent";
+  const agentScope = `agent:${opaqueAgentRef(privateAgent)}`;
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => ({ ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] }),
+    routingPoolAgentReader: async () => [privateAgent],
+    routingPoolReader: async () => ({ agentId: privateAgent, provider: "openai", profiles: ["openai:private-profile"], order: [] })
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const { chromium } = require("playwright") as { chromium: any };
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(origin);
+    await page.locator("#onboarding-skip").click();
+    await page.locator("#token").fill("test-token");
+    await page.locator("#refresh").click();
+    await page.locator("#more-tab").click();
+    await page.locator("#runtime-scope").selectOption("openclaw|default");
+    await page.locator("#native-handoff-preflight:not([disabled])").waitFor();
+    await page.locator("#native-handoff-preflight").click();
+    await page.locator("#native-handoff-recheck:not([disabled])").waitFor();
+
+    await page.locator("#runtime-scope").selectOption(`openclaw|${agentScope}`);
+    await page.locator("#native-handoff-preflight[disabled]").waitFor();
+
+    assert.equal(await page.locator("#native-handoff-preflight").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-recheck").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-status").textContent(), "UNPROVEN — native handoff is unavailable for the current context.");
+    await page.locator("#accounts-tab").click();
+    await page.locator("#routing-pool-state").getByText("Observed opaque agent").waitFor();
+    assert.match(await page.locator("#routing-pool-state").textContent() ?? "", new RegExp(opaqueAgentRef(privateAgent)));
   } finally {
     await browser.close();
     await app.close();
