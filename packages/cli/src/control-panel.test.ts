@@ -56,6 +56,19 @@ test("local control panel serves a calm accessible shell without weakening safet
   }
 });
 
+test("Home renders a visible read-only runtime coverage card", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const html = await (await fetch(`http://127.0.0.1:${address.port}/`)).text();
+    assert.match(html, /<h2>Runtime coverage<\/h2>/);
+    assert.match(html, /id="sentinel-runtimes"(?![^>]*hidden)/);
+    assert.match(html, /Hermes and OpenClaw are shown only from protected runtime evidence\. Codex remains UNPROVEN until it is explicitly observed\./);
+  } finally {
+    await app.close();
+  }
+});
+
 test("routing-pool panel copy separates saved candidates from an explicit override", async () => {
   const app = createAccountCenterServer({ token: "test-token" });
   const address = await app.listen();
