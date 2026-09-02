@@ -234,7 +234,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
 
   private async readDiscoveredRoutingPool(agentId: string): Promise<OpenClawRoutingPool> {
     const [profilesResult, orderResult] = await Promise.all([
-      this.runOfficialRoutingPoolCommand(["models", "auth", "list", "--agent", agentId, "--provider", "openai", "--json"]),
+      this.runOfficialRoutingPoolCommand(["models", "auth", "list", "--agent", agentId, "--json"]),
       this.runOfficialRoutingPoolCommand(["models", "auth", "order", "get", "--agent", agentId, "--provider", "openai", "--json"])
     ]);
     const profilesPayload = parseOfficialJson(profilesResult, "routing_pool_unproven");

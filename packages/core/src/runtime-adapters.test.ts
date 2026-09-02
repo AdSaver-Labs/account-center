@@ -14,7 +14,7 @@ test("OpenClaw routing-pool inventory uses only exact official scoped read comma
   const adapter = new OpenClawRuntimeAdapter({ runner: async (command, args, options) => {
     calls.push({ command, args, options });
     if (args.slice(1).join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
-    if (args.slice(1).join(" ") === "models auth list --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }] }), stderr: "" };
+    if (args.slice(1).join(" ") === "models auth list --agent private-agent --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }] }), stderr: "" };
     if (args.slice(1).join(" ") === "models auth order get --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: ["openai:private-profile"] }), stderr: "" };
     throw new Error("unexpected command");
   } });
@@ -23,7 +23,7 @@ test("OpenClaw routing-pool inventory uses only exact official scoped read comma
   assert.deepEqual(pool, { agentId: "private-agent", provider: "openai", profiles: ["openai:private-profile"], order: ["openai:private-profile"] });
   assert.deepEqual(calls.map(({ command, args }) => [command, args]), [
     ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "agents", "list", "--json"]],
-    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "models", "auth", "list", "--agent", "private-agent", "--provider", "openai", "--json"]],
+    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "models", "auth", "list", "--agent", "private-agent", "--json"]],
     ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]]
   ]);
   assert.ok(calls.every(({ options }) => options?.timeoutMs === 12_000 && options.maxOutputBytes === 64 * 1024));
@@ -43,7 +43,7 @@ test("OpenClaw routing-pool public scope resolves one discovered agent without a
   assert.equal(pool.agentId, "private-agent");
   assert.deepEqual(calls.map((args) => args.slice(1)), [
     ["agents", "list", "--json"],
-    ["models", "auth", "list", "--agent", "private-agent", "--provider", "openai", "--json"],
+    ["models", "auth", "list", "--agent", "private-agent", "--json"],
     ["models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]
   ]);
 });
