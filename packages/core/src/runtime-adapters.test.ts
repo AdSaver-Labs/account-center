@@ -9,6 +9,26 @@ import { createActiveScopeWarning, createMutationReview } from "./mutation-contr
 import { MutationRepository } from "./mutation-repository.js";
 import { publicStatusView } from "./public-views.js";
 
+test("OpenClaw routing-pool inventory uses only exact official scoped read commands", async () => {
+  const calls: Array<{ command: string; args: string[]; options?: { timeoutMs?: number; maxOutputBytes?: number } }> = [];
+  const adapter = new OpenClawRuntimeAdapter({ runner: async (command, args, options) => {
+    calls.push({ command, args, options });
+    if (args.join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
+    if (args.join(" ") === "models auth list --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile" }] }), stderr: "" };
+    if (args.join(" ") === "models auth order get --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: ["openai:private-profile"] }), stderr: "" };
+    throw new Error("unexpected command");
+  } });
+
+  const pool = await adapter.readRoutingPool("private-agent");
+  assert.deepEqual(pool, { agentId: "private-agent", provider: "openai", profiles: ["openai:private-profile"], order: ["openai:private-profile"] });
+  assert.deepEqual(calls.map(({ command, args }) => [command, args]), [
+    ["openclaw", ["agents", "list", "--json"]],
+    ["openclaw", ["models", "auth", "list", "--agent", "private-agent", "--provider", "openai", "--json"]],
+    ["openclaw", ["models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]]
+  ]);
+  assert.ok(calls.every(({ options }) => options?.timeoutMs === 12_000 && options.maxOutputBytes === 64 * 1024));
+});
+
 const routerStatus = {
   at: "2026-07-09T10:55:50.721Z",
   provider: "openai",

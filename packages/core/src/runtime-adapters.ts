@@ -90,6 +90,18 @@ export interface OpenClawAdapterConfig {
   ownedDeleteScriptIsTrusted?: (path: string) => Promise<boolean>;
 }
 
+/** Private native identity is retained only long enough to make exact scoped reads. */
+export interface OpenClawRoutingPool {
+  agentId: string;
+  provider: "openai";
+  profiles: string[];
+  /** An empty list is an observed absence of an explicit override. */
+  order: string[];
+}
+
+const OPENCLAW_ROUTING_POOL_TIMEOUT_MS = 12_000;
+const OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES = 64 * 1024;
+
 export interface GenericCommandAdapterConfig {
   command?: string;
   args?: string[];
@@ -183,6 +195,45 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     }
     checks.push({ name: "status", ok: statusReadable, detail });
     return { ok: checks.every((item) => item.ok), source: "openclaw", workspace: this.workspace, cli: this.cli, checks, safety: ["read_only_diagnostic", "does_not_touch_sessions_prompts_memory_bootstrap"] };
+  }
+
+  /** Official OpenClaw 2026.8.1 read-only routing-pool discovery. */
+  async listRoutingPoolAgents(): Promise<string[]> {
+    const result = await this.runOfficialRoutingPoolCommand(["agents", "list", "--json"]);
+    const parsed = parseOfficialJson(result, "agents_list_unproven");
+    const records = Array.isArray(parsed) ? parsed : isRecord(parsed) && Array.isArray(parsed.agents) ? parsed.agents : undefined;
+    if (!records) throw new Error("agents_list_unproven");
+    const ids = records.map((record) => isRecord(record) ? record.id : undefined);
+    if (!ids.every(isExactOfficialAgentId) || new Set(ids).size !== ids.length) throw new Error("agents_list_unproven");
+    return ids as string[];
+  }
+
+  async readRoutingPool(agentId: string): Promise<OpenClawRoutingPool> {
+    if (!isExactOfficialAgentId(agentId)) throw new Error("agent_not_discovered");
+    const agents = await this.listRoutingPoolAgents();
+    if (!agents.includes(agentId)) throw new Error("agent_not_discovered");
+    const [profilesResult, orderResult] = await Promise.all([
+      this.runOfficialRoutingPoolCommand(["models", "auth", "list", "--agent", agentId, "--provider", "openai", "--json"]),
+      this.runOfficialRoutingPoolCommand(["models", "auth", "order", "get", "--agent", agentId, "--provider", "openai", "--json"])
+    ]);
+    const profilesPayload = parseOfficialJson(profilesResult, "routing_pool_unproven");
+    const orderPayload = parseOfficialJson(orderResult, "routing_pool_unproven");
+    if (!hasExactRoutingPoolIdentity(profilesPayload, agentId) || !hasExactRoutingPoolIdentity(orderPayload, agentId)) throw new Error("routing_pool_unproven");
+    const profiles = profileIdsFrom(profilesPayload);
+    const order = orderIdsFrom(orderPayload);
+    if (!profiles || !order || new Set(profiles).size !== profiles.length || new Set(order).size !== order.length || !profiles.every(isOpenAiProfileId) || !order.every((id) => profiles.includes(id))) throw new Error("routing_pool_unproven");
+    return { agentId, provider: "openai", profiles, order };
+  }
+
+  private async runOfficialRoutingPoolCommand(args: string[]): Promise<CommandResult> {
+    let result: CommandResult;
+    try {
+      result = await this.runner("openclaw", args, { timeoutMs: OPENCLAW_ROUTING_POOL_TIMEOUT_MS, maxOutputBytes: OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES });
+    } catch {
+      throw new Error("routing_pool_unproven");
+    }
+    if (result.code !== 0 || result.timeoutExceeded || result.outputLimitExceeded || Buffer.byteLength(result.stdout, "utf8") > OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES || Buffer.byteLength(result.stderr, "utf8") > OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES) throw new Error("routing_pool_unproven");
+    return result;
   }
 
   async mutate(input: RuntimeMutationInput): Promise<RuntimeMutationResult> {
@@ -624,6 +675,28 @@ function canonicalAccounts<T extends { id: string }>(accounts: T[], provider: Pr
 
 function isExactAgentConnectionScope(value: unknown): value is string {
   return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}:[a-z0-9_-]{1,64}$/i.test(value);
+}
+
+function parseOfficialJson(result: CommandResult, failure: string): unknown {
+  try { return JSON.parse(result.stdout); } catch { throw new Error(failure); }
+}
+function isExactOfficialAgentId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value) && value !== "all";
+}
+function isOpenAiProfileId(value: unknown): value is string {
+  return typeof value === "string" && /^openai:[a-z0-9][a-z0-9._-]{0,127}$/i.test(value);
+}
+function hasExactRoutingPoolIdentity(value: unknown, agentId: string): boolean {
+  return isRecord(value) && value.agentId === agentId && value.provider === "openai";
+}
+function profileIdsFrom(value: unknown): string[] | undefined {
+  if (!isRecord(value) || !Array.isArray(value.profiles)) return undefined;
+  const ids = value.profiles.map((profile) => isRecord(profile) ? profile.id : undefined);
+  return ids.every((id): id is string => typeof id === "string") ? ids : undefined;
+}
+function orderIdsFrom(value: unknown): string[] | undefined {
+  if (!isRecord(value) || !Array.isArray(value.order)) return undefined;
+  return value.order.every((id): id is string => typeof id === "string") ? value.order : undefined;
 }
 
 export async function execFileRunner(command: string, args: string[], options: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxOutputBytes?: number } = {}): Promise<CommandResult> {

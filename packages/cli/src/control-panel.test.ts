@@ -53,3 +53,17 @@ test("local control panel serves a calm accessible shell without weakening safet
     await app.close();
   }
 });
+
+test("routing-pool panel copy separates saved candidates from an explicit override", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const html = await (await fetch(`http://127.0.0.1:${address.port}/`)).text();
+    assert.match(html, /Routing Pool/);
+    assert.match(html, /Saved\/unverified candidates/);
+    assert.match(html, /Explicit override order/);
+    assert.match(html, /UNPROVEN\/read-only/);
+  } finally {
+    await app.close();
+  }
+});
