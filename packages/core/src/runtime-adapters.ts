@@ -104,6 +104,10 @@ const OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES = 64 * 1024;
 const OFFICIAL_OPENCLAW_NODE = "/home/linuxbrew/.linuxbrew/opt/node@24/bin/node";
 const OFFICIAL_OPENCLAW_CLI = "/home/Alej/.npm-global/bin/openclaw";
 
+function opaqueRoutingPoolAgentRef(agentId: string): string {
+  return `agent-${createHash("sha256").update(agentId).digest("hex").slice(0, 16)}`;
+}
+
 export interface GenericCommandAdapterConfig {
   command?: string;
   args?: string[];
@@ -210,10 +214,24 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
     return ids as string[];
   }
 
+  /** Resolve the public opaque agent scope only after one bounded discovery. */
+  async readRoutingPoolForPublicScope(scope: string): Promise<OpenClawRoutingPool> {
+    const publicAgentRef = /^agent:(agent-[a-f0-9]{16})$/.exec(scope)?.[1];
+    if (!publicAgentRef) throw new Error("agent_not_discovered");
+    const agents = await this.listRoutingPoolAgents();
+    const matches = agents.filter((agentId) => opaqueRoutingPoolAgentRef(agentId) === publicAgentRef);
+    if (matches.length !== 1) throw new Error("agent_not_discovered");
+    return this.readDiscoveredRoutingPool(matches[0]!);
+  }
+
   async readRoutingPool(agentId: string): Promise<OpenClawRoutingPool> {
     if (!isExactOfficialAgentId(agentId)) throw new Error("agent_not_discovered");
     const agents = await this.listRoutingPoolAgents();
     if (!agents.includes(agentId)) throw new Error("agent_not_discovered");
+    return this.readDiscoveredRoutingPool(agentId);
+  }
+
+  private async readDiscoveredRoutingPool(agentId: string): Promise<OpenClawRoutingPool> {
     const [profilesResult, orderResult] = await Promise.all([
       this.runOfficialRoutingPoolCommand(["models", "auth", "list", "--agent", agentId, "--provider", "openai", "--json"]),
       this.runOfficialRoutingPoolCommand(["models", "auth", "order", "get", "--agent", agentId, "--provider", "openai", "--json"])

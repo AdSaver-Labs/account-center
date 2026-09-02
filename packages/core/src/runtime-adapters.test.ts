@@ -29,6 +29,25 @@ test("OpenClaw routing-pool inventory uses only exact official scoped read comma
   assert.ok(calls.every(({ options }) => options?.timeoutMs === 12_000 && options.maxOutputBytes === 64 * 1024));
 });
 
+test("OpenClaw routing-pool public scope resolves one discovered agent without a second discovery", async () => {
+  const calls: string[][] = [];
+  const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
+    calls.push(args);
+    if (args.slice(1).join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }, { id: "other-agent" }] }), stderr: "" };
+    if (args.includes("private-agent") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }] }), stderr: "" };
+    if (args.includes("private-agent") && args.includes("order")) return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: [] }), stderr: "" };
+    throw new Error("unexpected command");
+  } });
+
+  const pool = await adapter.readRoutingPoolForPublicScope("agent:agent-20cee3d10892329d");
+  assert.equal(pool.agentId, "private-agent");
+  assert.deepEqual(calls.map((args) => args.slice(1)), [
+    ["agents", "list", "--json"],
+    ["models", "auth", "list", "--agent", "private-agent", "--provider", "openai", "--json"],
+    ["models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]
+  ]);
+});
+
 test("routing-pool rejects a non-OpenAI profile even when its id looks OpenAI-shaped", async () => {
   const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
     if (args.join(" ").endsWith("agents list --json")) return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };

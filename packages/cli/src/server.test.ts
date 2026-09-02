@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { AddressInfo, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
+import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository, opaqueAgentRef } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
@@ -468,6 +468,7 @@ test("status refresh failure clears a previously actionable native handoff", asy
   const app = createAccountCenterServer({
     token: "test-token",
     source: "openclaw",
+    routingPoolAgentReader: async () => [],
     statusReader: async () => {
       if (failStatusRefresh) throw new Error("status_refresh_failed");
       const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
@@ -2335,6 +2336,63 @@ test("selected default-scope inventory reads require an exact observed runtime s
   }
 });
 
+test("opaque OpenClaw agent scope cannot make global models or limits look agent-bound", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const privateAgent = "private-agent";
+  status.routes = [{ ...status.routes[0]!, runtime: "openclaw", scope: `agent:${privateAgent}` }];
+  const opaqueScope = `agent:${opaqueAgentRef(privateAgent)}`;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => status });
+  const address = await app.listen();
+  try {
+    for (const path of [`/api/models?runtime=openclaw&scope=${opaqueScope}`, `/api/limits?runtime=openclaw&scope=${opaqueScope}`]) {
+      const response = await request(address.port, path, "test-token");
+      assert.equal(response.status, 400, path);
+      assert.deepEqual(await response.json(), { error: "invalid_query" });
+    }
+  } finally { await app.close(); }
+});
+
+test("routing-pool status and scoped pool sequence receive an end-to-end bounded response deadline", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const privateAgent = "private-agent";
+  status.routes = [{ ...status.routes[0]!, runtime: "openclaw", scope: `agent:${privateAgent}` }];
+  const app = createAccountCenterServer({
+    token: "test-token", source: "openclaw",
+    statusReader: async () => { await new Promise((resolve) => setTimeout(resolve, 11_500)); return status; },
+    routingPoolAgentReader: async () => [privateAgent],
+    routingPoolReader: async () => { await new Promise((resolve) => setTimeout(resolve, 1_600)); return { agentId: privateAgent, provider: "openai", profiles: ["openai:private-profile"], order: [] }; }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, `/api/routing-pools?runtime=openclaw&scope=agent%3A${opaqueAgentRef(privateAgent)}`, "test-token");
+    assert.equal(response.status, 200);
+  } finally { await app.close(); }
+});
+
+test("routing-pool discovery has one global in-flight generation across alternating valid scopes", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const agents = ["private-agent-a", "private-agent-b", "private-agent-c"];
+  status.routes = agents.map((agent, index) => ({ ...status.routes[index % status.routes.length]!, runtime: "openclaw", scope: `agent:${agent}` }));
+  let reads = 0;
+  let release: (() => void) | undefined;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => status, routingPoolAgentReader: async () => agents, routingPoolReader: async () => {
+    reads++;
+    await new Promise<void>((resolve) => { release = resolve; });
+    return { agentId: "private-agent-a", provider: "openai", profiles: ["openai:private-profile"], order: [] };
+  } });
+  const address = await app.listen();
+  try {
+    const paths = agents.map((agent) => `/api/routing-pools?runtime=openclaw&scope=agent%3A${opaqueAgentRef(agent)}`);
+    const first = request(address.port, paths[0]!, "test-token");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const alternating = await Promise.all(paths.slice(1).map((path) => request(address.port, path, "test-token")));
+    assert.equal(reads, 1);
+    for (const response of alternating) assert.equal(response.status, 503);
+    release?.();
+    assert.equal((await first).status, 200);
+  } finally { release?.(); await app.close(); }
+});
+
 test("protected inventories fail closed on unavailable status without reflecting adapter failures or opening challenge state", async () => {
   const hostile = "private@example.test adapter failure";
   const inventoryPaths = [
@@ -2395,9 +2453,10 @@ test("read-only runtime scope catalog is bearer-protected, versioned, and expose
     assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(body.scopes, [
       { runtime: "hermes", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+
       { runtime: "openclaw", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }
     ]);
-    assert.equal(JSON.stringify(body).match(/profileId|email|token|secret|password/i), null);
+    assert.equal(JSON.stringify(body).match(/profileId|email|token|secret|password|private-agent/i), null);
   } finally {
     await app.close();
   }

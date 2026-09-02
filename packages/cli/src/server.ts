@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo, Socket } from "node:net";
-import { AccountCenterStatus, assertAccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isNativeAuthHandoffPreflightInput, isPublicGuidedAuthRuntime, MutationRepository, NativeAuthHandoffRegistry, nativeAuthHandoffPreflightView, OpenClawRuntimeAdapter, OpenClawRoutingPool, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRoutingPoolView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, assertAccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isNativeAuthHandoffPreflightInput, isPublicGuidedAuthRuntime, MutationRepository, NativeAuthHandoffRegistry, nativeAuthHandoffPreflightView, opaqueAgentRef, OpenClawRuntimeAdapter, OpenClawRoutingPool, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRoutingPoolView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
 export interface AccountCenterServerOptions {
@@ -10,7 +10,9 @@ export interface AccountCenterServerOptions {
   /** Test seam for proving the listener bounds concurrent authoritative reads. */
   statusReader?: () => Promise<AccountCenterStatus | undefined>;
   /** Test seam for fixed-command, read-only routing-pool snapshots. */
-  routingPoolReader?: () => Promise<OpenClawRoutingPool[]>;
+  routingPoolReader?: (scope: string) => Promise<OpenClawRoutingPool>;
+  /** Test seam for authoritative, read-only official OpenClaw agent discovery. */
+  routingPoolAgentReader?: () => Promise<string[]>;
   /** Test seam for ordering a peer abort before delayed protected completion. */
   onConnectionClosedForTest?: () => void;
   auditStore?: AuditStore;
@@ -36,6 +38,35 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // probes. All callers during that containment window receive the same fixed,
   // redacted unavailable result.
   let statusGeneration: { probe: Promise<AccountCenterStatus | undefined>; result: Promise<AccountCenterStatus | undefined> } | undefined;
+  // A routing-pool read runs one discovery plus two parallel exact reads. Keep
+  // one global generation in flight: alternating otherwise-valid public scopes
+  // must not multiply the fixed official CLI process sequence.
+  let routingPoolGeneration: { scope: string; probe: Promise<OpenClawRoutingPool>; result: Promise<OpenClawRoutingPool | undefined> } | undefined;
+  let routingPoolAgentsGeneration: Promise<string[] | undefined> | undefined;
+  const routingPoolProbeDeadlineMs = 12_500;
+  const serverRoutingPool = (scope: string) => {
+    if (routingPoolGeneration) return routingPoolGeneration.scope === scope ? routingPoolGeneration.result : undefined;
+    {
+      let deadline: NodeJS.Timeout | undefined;
+      const probe = Promise.resolve().then(() => options.routingPoolReader ? options.routingPoolReader(scope) : readOfficialRoutingPool(scope));
+      const result = Promise.race([probe, new Promise<undefined>((resolve) => { deadline = setTimeout(() => resolve(undefined), routingPoolProbeDeadlineMs); })]).finally(() => { if (deadline) clearTimeout(deadline); });
+      const generation = { scope, probe, result };
+      routingPoolGeneration = generation;
+      void probe.catch(() => undefined).finally(() => { if (routingPoolGeneration === generation) routingPoolGeneration = undefined; });
+    }
+    return routingPoolGeneration.result;
+  };
+  const serverRoutingPoolAgents = () => {
+    if (!routingPoolAgentsGeneration) {
+      const probe = Promise.resolve().then(() => options.routingPoolAgentReader ? options.routingPoolAgentReader() : new OpenClawRuntimeAdapter().listRoutingPoolAgents());
+      routingPoolAgentsGeneration = probe.then((agentIds) =>
+        Array.isArray(agentIds) && agentIds.length <= 64 && new Set(agentIds).size === agentIds.length && agentIds.every((agentId) => /^[a-z][a-z0-9_-]{0,63}$/.test(agentId))
+          ? agentIds
+          : undefined,
+      () => undefined).finally(() => { routingPoolAgentsGeneration = undefined; });
+    }
+    return routingPoolAgentsGeneration;
+  };
   // The local OpenClaw router's measured cold status reads can exceed the
   // generic listener budget. Keep every other source at 250 ms and grant only
   // the explicit OpenClaw source a still-bounded read window.
@@ -100,6 +131,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // fixed result after its twelve-second probe; every generic socket stays at
   // the one-second listener deadline.
   const statusResponseDeadlineMs = 13_000;
+  // Routing-pool inventory first proves current status and then runs a bounded
+  // discovery/read sequence. Its socket allowance covers that whole one-shot
+  // sequence only; no unrelated protected endpoint inherits it.
+  const routingPoolResponseDeadlineMs = 26_000;
   const clearConnectionDeadline = (socket: Socket) => {
     const deadline = connectionDeadlines.get(socket);
     if (deadline) clearTimeout(deadline);
@@ -199,7 +234,10 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     // allowance before its normal rejection. Native handoffs receive it only
     // after their stricter origin, framing, and canonical-body guards below.
     if (source === "openclaw" && request.method === "GET" && !hasRequestBody(request) &&
-      (request.url === "/api/status" || (requestUrl.pathname === "/api/limits" && !!runtimeInventoryQuery(request.url ?? "/")))) {
+      requestUrl.pathname === "/api/routing-pools" && !!exactRuntimeInventoryQuery(request.url ?? "/")) {
+      connection.setTimeout(routingPoolResponseDeadlineMs);
+    } else if (source === "openclaw" && request.method === "GET" && !hasRequestBody(request) &&
+      (request.url === "/api/status" || request.url === "/api/scopes" || (requestUrl.pathname === "/api/limits" && !!runtimeInventoryQuery(request.url ?? "/")))) {
       allowValidatedOpenClawStatusResponse();
     }
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-handoffs/openclaw/preflight") {
@@ -394,13 +432,23 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 413, { error: "request_body_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
-    if (request.url === "/api/routing-pools") {
+    if (requestUrl.pathname === "/api/routing-pools") {
       const unavailable = () => send(response, 503, publicRoutingPoolsUnavailableView());
+      const query = exactRuntimeInventoryQuery(request.url ?? "/");
+      if (!query || query.runtime !== "openclaw") return send(response, 400, { error: "invalid_query" });
       if (source !== "openclaw") return unavailable();
+      const status = await serverStatus();
+      if (!status) return unavailable();
+      if (!status.runtimes.some((runtime) => runtime.key === "openclaw")) return send(response, 400, { error: "unknown_runtime_scope" });
+      const requestedAgentRef = /^agent:(agent-[a-f0-9]{16})$/.exec(query.scope)?.[1];
+      if (!requestedAgentRef) return send(response, 400, { error: "unknown_runtime_scope" });
+      const discoveredAgents = await serverRoutingPoolAgents();
+      if (!discoveredAgents) return unavailable();
+      if (!discoveredAgents.some((agentId) => opaqueAgentRef(agentId) === requestedAgentRef)) return send(response, 400, { error: "unknown_runtime_scope" });
       try {
-        const pools = options.routingPoolReader ? await options.routingPoolReader() : await readOfficialRoutingPools();
-        if (!isExactRoutingPoolSnapshotSet(pools)) return unavailable();
-        return send(response, 200, publicRoutingPoolsView(pools));
+        const pool = await serverRoutingPool(query.scope);
+        if (!isExactRoutingPoolSnapshot(pool) || opaqueAgentRef(pool.agentId) !== requestedAgentRef) return unavailable();
+        return send(response, 200, publicRoutingPoolsView([pool]));
       } catch { return unavailable(); }
     }
     // Capability discovery is itself an authority-dependent protected read:
@@ -500,7 +548,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     }
     if (request.url === "/api/scopes") {
       const status = await serverStatus();
-      return status ? send(response, 200, publicRuntimeScopeCatalogView(status)) : send(response, 503, { error: "status_unavailable" });
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      // Agent availability is an independent official discovery. A failed
+      // discovery merely withholds agent scopes; it never falls back to the
+      // status route or exposes private discovery identifiers.
+      const agentRefs = source === "openclaw"
+        ? (await serverRoutingPoolAgents() ?? []).map(opaqueAgentRef)
+        : [];
+      return send(response, 200, publicRuntimeScopeCatalogView(status, agentRefs));
     }
     if (pathname === "/api/auth-challenges") {
       // Lifecycle history is durable local state. Do not turn an unavailable
@@ -804,7 +859,8 @@ function isObservedRuntimeScope(status: AccountCenterStatus, query: RuntimeInven
   if (!observed) return false;
   if (!query.scope) return true;
   // The current authoritative catalog declares only each runtime's default
-  // scope. Named scopes remain unavailable until runtime evidence is added.
+  // scope for global inventory. An opaque OpenClaw agent scope is eligible only
+  // for the separately agent-bound routing-pool projection.
   return query.scope === "default";
 }
 
@@ -832,22 +888,19 @@ async function authoritativeStatus(source: unknown): Promise<AccountCenterStatus
   }
 }
 
-/** This independent read deliberately does not use legacy status/Sentinel evidence. */
-async function readOfficialRoutingPools(): Promise<OpenClawRoutingPool[]> {
-  const adapter = new OpenClawRuntimeAdapter();
-  const agents = await adapter.listRoutingPoolAgents();
-  return Promise.all(agents.map((agentId) => adapter.readRoutingPool(agentId)));
+/** One authoritative public scope maps to at most one discovery and two parallel exact reads. */
+async function readOfficialRoutingPool(scope: string): Promise<OpenClawRoutingPool> {
+  return new OpenClawRuntimeAdapter().readRoutingPoolForPublicScope(scope);
 }
 
-function isExactRoutingPoolSnapshotSet(value: unknown): value is OpenClawRoutingPool[] {
-  if (!Array.isArray(value) || value.length > 64) return false;
-  const agents = new Set<string>();
-  return value.every((pool) => !!pool && typeof pool.agentId === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(pool.agentId) &&
-    !agents.has(pool.agentId) && (agents.add(pool.agentId), true) && pool.provider === "openai" &&
-    Array.isArray(pool.profiles) && Array.isArray(pool.order) && pool.profiles.length <= 256 && pool.order.length <= 256 &&
-    new Set(pool.profiles).size === pool.profiles.length && new Set(pool.order).size === pool.order.length &&
-    pool.profiles.every((profile: string) => /^openai:[a-z0-9][a-z0-9._-]{0,127}$/i.test(profile)) &&
-    pool.order.every((profile: string) => pool.profiles.includes(profile)));
+function isExactRoutingPoolSnapshot(pool: unknown): pool is OpenClawRoutingPool {
+  if (!pool || typeof pool !== "object") return false;
+  const { agentId, provider, profiles, order } = pool as OpenClawRoutingPool;
+  return typeof agentId === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(agentId) && provider === "openai" &&
+    Array.isArray(profiles) && Array.isArray(order) && profiles.length <= 256 && order.length <= 256 &&
+    new Set(profiles).size === profiles.length && new Set(order).size === order.length &&
+    profiles.every((profile) => /^openai:[a-z0-9][a-z0-9._-]{0,127}$/i.test(profile)) &&
+    order.every((profile) => profiles.includes(profile));
 }
 
 function publicRoutingPoolsView(pools: OpenClawRoutingPool[]) {
@@ -995,6 +1048,7 @@ function hasUnexpectedQuery(url: URL, rawPath: string | undefined, method: strin
   // query vocabulary below. POST challenge creation deliberately has no query
   // contract even though the collection supports filtered GET reads.
   if (url.pathname === "/api/agent-connections") return !exactRuntimeInventoryQuery(rawPath ?? url.pathname);
+  if (url.pathname === "/api/routing-pools") return !exactRuntimeInventoryQuery(rawPath ?? url.pathname);
   if (["/api/models", "/api/limits", "/api/audit", "/api/mutation-operations", "/api/account-ui-preferences"].includes(url.pathname)) return false;
   if (method === "GET" && (auditRecordId(url.pathname) || mutationOperationId(url.pathname))) return !durableDetailQuery(rawPath ?? url.pathname);
   if (method === "GET" && authChallengeId(url.pathname)) return !authChallengeDetailQuery(rawPath ?? url.pathname);
@@ -1373,7 +1427,7 @@ function controlPanelHtml(): string {
       function contextOption(item) { return '<option value="' + escapeHtml(contextValue(item)) + '">' + escapeHtml(item.runtime + ' / ' + scopeLabel(item.scope)) + '</option>'; }
       function contextCapabilityLabel(capabilities) { if (!capabilities || capabilities.readStatus !== true) return 'UNPROVEN'; return capabilities.mutateRoutes || capabilities.startReauth || capabilities.mutateModels ? 'Declared actions' : 'Read-only'; }
       function contextCapabilityDetail(item) { var capabilities = item && item.capabilities || {}; if (capabilities.readStatus !== true) return 'This scope has no verified readable status capability.'; var actions = []; if (capabilities.mutateRoutes) actions.push('routing'); if (capabilities.startReauth) actions.push('guided authentication'); if (capabilities.mutateModels) actions.push('model policy'); return actions.length ? 'Readable status; declared ' + actions.join(', ') + ' capability. Each action remains gated by its protected API result.' : 'Readable status only. Routing, guided authentication, and model changes are not declared for this scope.'; }
-      function isRuntimeScope(item) { var scope = item && item.scope; var capabilities = item && item.capabilities; var observedRuntimes = latestStatus && Array.isArray(latestStatus.runtimes) ? latestStatus.runtimes.map(function (runtime) { return runtime && runtime.key; }) : []; return item && typeof item === 'object' && Object.keys(item).every(function (key) { return ['runtime', 'scope', 'capabilities'].indexOf(key) !== -1; }) && typeof item.runtime === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(item.runtime) && observedRuntimes.indexOf(item.runtime) !== -1 && scope && typeof scope === 'object' && Object.keys(scope).every(function (key) { return ['kind', 'id'].indexOf(key) !== -1; }) && scope.kind === 'default' && scope.id === 'default' && capabilities && typeof capabilities === 'object' && Object.keys(capabilities).length === 4 && ['readStatus', 'mutateRoutes', 'startReauth', 'mutateModels'].every(function (key) { return typeof capabilities[key] === 'boolean'; }); }
+      function isRuntimeScope(item) { var scope = item && item.scope; var capabilities = item && item.capabilities; var observedRuntimes = latestStatus && Array.isArray(latestStatus.runtimes) ? latestStatus.runtimes.map(function (runtime) { return runtime && runtime.key; }) : []; var validScope = scope && typeof scope === 'object' && Object.keys(scope).every(function (key) { return ['kind', 'id'].indexOf(key) !== -1; }) && ((scope.kind === 'default' && scope.id === 'default') || (item.runtime === 'openclaw' && scope.kind === 'agent' && /^agent-[a-f0-9]{16}$/.test(scope.id))); return item && typeof item === 'object' && Object.keys(item).every(function (key) { return ['runtime', 'scope', 'capabilities'].indexOf(key) !== -1; }) && typeof item.runtime === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(item.runtime) && observedRuntimes.indexOf(item.runtime) !== -1 && validScope && capabilities && typeof capabilities === 'object' && Object.keys(capabilities).length === 4 && ['readStatus', 'mutateRoutes', 'startReauth', 'mutateModels'].every(function (key) { return typeof capabilities[key] === 'boolean'; }); }
       function isScopeCatalog(data) { return data && typeof data === 'object' && Object.keys(data).every(function (key) { return ['schemaVersion', 'generatedAt', 'scopes'].indexOf(key) !== -1; }) && data.schemaVersion === 'account-center.runtime-scopes.v1' && isCanonicalTimestamp(data.generatedAt) && Array.isArray(data.scopes) && data.scopes.every(isRuntimeScope); }
       function renderContextSelector(scopeData, scopesUnavailable) { var scopes = scopeData && Array.isArray(scopeData.scopes) ? scopeData.scopes.filter(function (item) { return item && typeof item.runtime === 'string' && item.scope && item.capabilities && item.capabilities.readStatus === true; }) : []; if (scopesUnavailable || !scopes.length) { clearNativeHandoffUnavailable(); runtimeScope.disabled = true; runtimeScope.hidden = false; contextChip.hidden = true; runtimeScope.innerHTML = '<option>No readable scopes are available.</option>'; selectedContext = ''; contextCapability.textContent = scopesUnavailable ? 'UNPROVEN' : 'Unavailable'; contextHelp.textContent = scopesUnavailable ? 'The protected scope catalog could not be verified. Scoped actions remain unavailable.' : 'No readable scopes were supplied by the protected API. Scoped actions remain unavailable.'; contextSelector.dataset.state = scopesUnavailable ? 'unproven' : 'empty'; return; } var selectedContextStillAvailable = scopes.some(function (item) { return contextValue(item) === selectedContext; }); var prior = selectedContextStillAvailable ? selectedContext : contextValue(scopes[0]); runtimeScope.innerHTML = scopes.map(contextOption).join(''); runtimeScope.value = prior; selectedContext = runtimeScope.value; if (!selectedContextStillAvailable || selectedRuntime() !== 'openclaw') clearNativeHandoffUnavailable(); else { nativePreflight.disabled = false; nativeStatus.textContent = 'Native sign-in required — UNPROVEN. Preflight is instruction-only.'; } var selected = scopes.filter(function (item) { return contextValue(item) === selectedContext; })[0]; contextCapability.textContent = contextCapabilityLabel(selected.capabilities); contextHelp.textContent = contextCapabilityDetail(selected); runtimeScope.disabled = false; runtimeScope.hidden = scopes.length === 1; contextChip.hidden = scopes.length !== 1; if (scopes.length === 1) { contextChip.textContent = selected.runtime + ' / ' + scopeLabel(selected.scope); contextChip.setAttribute('aria-label', 'Runtime and scope: ' + contextChip.textContent); } contextSelector.dataset.state = scopes.length === 1 ? 'single' : 'multiple'; }
       function challengeFreshness(challengeData) { var generatedAt = challengeData && typeof challengeData.generatedAt === 'string' ? challengeData.generatedAt : ''; var timestamp = generatedAt && !Number.isNaN(Date.parse(generatedAt)) ? generatedAt : ''; var detail = document.getElementById('guided-freshness-detail'); if (timestamp) { var checkedAt = new Date(timestamp).toLocaleString(); guidedFreshness.textContent = 'Records checked'; guidedFreshness.setAttribute('aria-label', 'Guided-auth records checked'); detail.textContent = 'Guided-auth records were available in a server snapshot from ' + checkedAt + '. This does not confirm that sign-in was completed.'; guidedFreshness.className = 'pill good'; return; } guidedFreshness.textContent = 'Status unavailable'; guidedFreshness.setAttribute('aria-label', 'Guided-auth status unavailable'); detail.textContent = 'Guided-auth records could not be verified. No sign-in result is shown.'; guidedFreshness.className = 'pill warn'; }
@@ -1424,9 +1478,9 @@ function controlPanelHtml(): string {
       async function loadModels() { return api('/api/models' + selectedScopeQuery()); }
       async function loadLimits() { return api('/api/limits' + selectedScopeQuery()); }
       async function loadChallenges(cursor) { var parameters = new URLSearchParams(selectedScopeQuery().slice(1)); if (cursor) parameters.set('cursor', cursor); var suffix = parameters.toString(); return api('/api/auth-challenges' + (suffix ? '?' + suffix : '')); }
-      function isRoutingPools(value) { return value && typeof value === 'object' && Object.keys(value).every(function (key) { return ['schemaVersion', 'verificationState', 'state', 'pools'].indexOf(key) !== -1; }) && value.schemaVersion === 'account-center.openclaw-routing-pools.v1' && value.verificationState === 'UNPROVEN' && value.state === 'read-only' && Array.isArray(value.pools) && value.pools.length <= 64 && value.pools.every(function (pool) { return pool && typeof pool === 'object' && Object.keys(pool).every(function (key) { return ['schemaVersion', 'agentRef', 'provider', 'verificationState', 'candidates', 'explicitOverrideOrder', 'overrideState'].indexOf(key) !== -1; }) && pool.schemaVersion === 'account-center.openclaw-routing-pool.v1' && /^agent-[a-f0-9]{16}$/.test(pool.agentRef) && pool.provider === 'openai' && pool.verificationState === 'UNPROVEN' && Array.isArray(pool.candidates) && pool.candidates.length <= 256 && pool.candidates.every(function (candidate) { return candidate && /^pool-account-[1-9][0-9]*$/.test(candidate.accountRef) && candidate.state === 'saved-unverified'; }) && Array.isArray(pool.explicitOverrideOrder) && pool.explicitOverrideOrder.every(function (ref) { return /^pool-account-[1-9][0-9]*$/.test(ref) && pool.candidates.some(function (candidate) { return candidate.accountRef === ref; }); }) && ['explicit', 'none'].indexOf(pool.overrideState) !== -1; }); }
+      function isRoutingPools(value) { return value && typeof value === 'object' && Object.keys(value).every(function (key) { return ['schemaVersion', 'verificationState', 'state', 'pools'].indexOf(key) !== -1; }) && value.schemaVersion === 'account-center.openclaw-routing-pools.v1' && value.verificationState === 'UNPROVEN' && value.state === 'read-only' && Array.isArray(value.pools) && value.pools.length === 1 && value.pools.every(function (pool) { return pool && typeof pool === 'object' && Object.keys(pool).every(function (key) { return ['schemaVersion', 'agentRef', 'provider', 'verificationState', 'candidates', 'explicitOverrideOrder', 'overrideState'].indexOf(key) !== -1; }) && pool.schemaVersion === 'account-center.openclaw-routing-pool.v1' && /^agent-[a-f0-9]{16}$/.test(pool.agentRef) && pool.provider === 'openai' && pool.verificationState === 'UNPROVEN' && Array.isArray(pool.candidates) && pool.candidates.length <= 256 && new Set(pool.candidates.map(function (candidate) { return candidate && candidate.accountRef; })).size === pool.candidates.length && pool.candidates.every(function (candidate) { return candidate && /^pool-account-[1-9][0-9]*$/.test(candidate.accountRef) && candidate.state === 'saved-unverified'; }) && Array.isArray(pool.explicitOverrideOrder) && new Set(pool.explicitOverrideOrder).size === pool.explicitOverrideOrder.length && pool.explicitOverrideOrder.every(function (ref) { return /^pool-account-[1-9][0-9]*$/.test(ref) && pool.candidates.some(function (candidate) { return candidate.accountRef === ref; }); }) && ((pool.overrideState === 'explicit' && pool.explicitOverrideOrder.length > 0) || (pool.overrideState === 'none' && pool.explicitOverrideOrder.length === 0)); }); }
       function renderRoutingPool(data) { if (!isRoutingPools(data) || !data.pools.length) { routingPoolState.innerHTML = '<div><dt>State</dt><dd>UNPROVEN/read-only</dd></div><div><dt>Saved/unverified candidates</dt><dd>Not checked</dd></div><div><dt>Explicit override order</dt><dd>Not checked</dd></div>'; return; } routingPoolState.innerHTML = data.pools.map(function (pool) { var candidates = pool.candidates.map(function (candidate) { return escapeHtml(candidate.accountRef); }).join(', ') || 'None observed'; var order = pool.explicitOverrideOrder.map(escapeHtml).join(', ') || 'No explicit override observed'; return '<div><dt>Observed opaque agent</dt><dd>' + escapeHtml(pool.agentRef) + '</dd></div><div><dt>Saved/unverified candidates</dt><dd>' + candidates + '</dd></div><div><dt>Explicit override order</dt><dd>' + order + '</dd></div>'; }).join(''); }
-      async function loadWorkspace() { var scopeResult = (await Promise.allSettled([api('/api/scopes')]))[0]; var values = {}; var unavailable = {}; if (scopeResult.status === 'fulfilled' && isScopeCatalog(scopeResult.value)) values.scopes = scopeResult.value; else unavailable.scopes = true; renderContextSelector(values.scopes, unavailable.scopes); var results = await Promise.allSettled([api('/api/capabilities'), loadChallenges(), loadModels(), loadLimits(), loadAudit(), loadOperations(), api('/api/agent-connections' + selectedScopeQuery()), api('/api/account-ui-preferences' + selectedScopeQuery()), api('/api/routing-pools')]); var keys = ['capabilities', 'challenges', 'models', 'limits', 'audit', 'operations', 'connections', 'preferences', 'routingPools']; results.forEach(function (result, index) { var key = keys[index]; var field = key === 'capabilities' ? 'actions' : key === 'challenges' ? 'challenges' : key === 'models' ? 'models' : key === 'limits' ? 'accounts' : key === 'audit' ? 'records' : key === 'operations' ? 'operations' : key === 'connections' ? 'inventory' : key === 'preferences' ? 'hiddenAccountRefs' : 'pools'; var valid = result.status === 'fulfilled' && result.value && Array.isArray(result.value[field]); if (key === 'challenges') valid = valid && isChallengeInventory(result.value); if (key === 'models') valid = valid && isModelCatalog(result.value); if (key === 'limits') valid = valid && isLimitsInventory(result.value); if (key === 'audit') valid = valid && isAuditInventory(result.value); if (key === 'operations') valid = valid && isOperationInventory(result.value); if (key === 'connections') valid = valid && isAgentConnectionInventory(result.value); if (key === 'preferences') valid = valid && isAccountUiPreferences(result.value); if (key === 'routingPools') valid = valid && isRoutingPools(result.value); if (valid) values[key] = result.value; else if (key !== 'routingPools') unavailable[key] = true; }); renderRoutingPool(values.routingPools); renderWorkspace(values, unavailable); return Object.keys(unavailable).length > 0; }
+      async function loadWorkspace() { var scopeResult = (await Promise.allSettled([api('/api/scopes')]))[0]; var values = {}; var unavailable = {}; if (scopeResult.status === 'fulfilled' && isScopeCatalog(scopeResult.value)) values.scopes = scopeResult.value; else unavailable.scopes = true; renderContextSelector(values.scopes, unavailable.scopes); var routingPools = selectedRuntime() === 'openclaw' ? api('/api/routing-pools' + selectedScopeQuery()) : Promise.reject(new Error('routing_pool_context_unavailable')); var results = await Promise.allSettled([api('/api/capabilities'), loadChallenges(), loadModels(), loadLimits(), loadAudit(), loadOperations(), api('/api/agent-connections' + selectedScopeQuery()), api('/api/account-ui-preferences' + selectedScopeQuery()), routingPools]); var keys = ['capabilities', 'challenges', 'models', 'limits', 'audit', 'operations', 'connections', 'preferences', 'routingPools']; results.forEach(function (result, index) { var key = keys[index]; var field = key === 'capabilities' ? 'actions' : key === 'challenges' ? 'challenges' : key === 'models' ? 'models' : key === 'limits' ? 'accounts' : key === 'audit' ? 'records' : key === 'operations' ? 'operations' : key === 'connections' ? 'inventory' : key === 'preferences' ? 'hiddenAccountRefs' : 'pools'; var valid = result.status === 'fulfilled' && result.value && Array.isArray(result.value[field]); if (key === 'challenges') valid = valid && isChallengeInventory(result.value); if (key === 'models') valid = valid && isModelCatalog(result.value); if (key === 'limits') valid = valid && isLimitsInventory(result.value); if (key === 'audit') valid = valid && isAuditInventory(result.value); if (key === 'operations') valid = valid && isOperationInventory(result.value); if (key === 'connections') valid = valid && isAgentConnectionInventory(result.value); if (key === 'preferences') valid = valid && isAccountUiPreferences(result.value); if (key === 'routingPools') valid = valid && isRoutingPools(result.value); if (valid) values[key] = result.value; else if (key !== 'routingPools') unavailable[key] = true; }); renderRoutingPool(values.routingPools); renderWorkspace(values, unavailable); return Object.keys(unavailable).length > 0; }
       runtimeScope.addEventListener('change', async function () { if (runtimeScope.disabled) return; selectedContext = runtimeScope.value; if (selectedRuntime() !== 'openclaw') clearNativeHandoffUnavailable(); detailEpoch++; clearAuditDetail(); clearOperationDetail(); clearChallengeDetail(); setNotice('Context changed. Refreshing protected scoped runtime data.', 'loading'); var incomplete = await loadWorkspace(); setNotice(incomplete ? 'Context refreshed; some evidence is UNPROVEN. Retry unavailable sections.' : 'Observed scoped runtime data refreshed.', incomplete ? 'error' : 'ready'); });
       auditFilter.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to filter audit history.', 'error'); return; } clearAuditDetail(); auditFilterSubmit.disabled = true; auditFilterSubmit.textContent = 'Filtering…'; setNotice('Loading filtered audit history…', 'loading'); try { var data = await loadAudit(); if (!isAuditInventory(data)) throw new Error('malformed_audit_history'); auditFreshness(data); var records = data.records; auditCursor = typeof data.nextCursor === 'string' ? data.nextCursor : ''; auditLoadMore.hidden = !auditCursor; auditRecords.innerHTML = records.length ? records.map(auditRecord).join('') : '<p class="empty">No Account Center audit records match this outcome.</p>'; setNotice('Filtered audit history is current.', 'ready'); } catch (_) { auditFreshness(undefined); auditCursor = ''; auditLoadMore.hidden = true; auditRecords.innerHTML = unavailableRecord('Audit history'); setNotice('Audit history could not be filtered. Retry to verify current evidence.', 'error'); } finally { auditFilterSubmit.disabled = false; auditFilterSubmit.textContent = 'Filter audit history'; } });
       operationFilter.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to filter operation history.', 'error'); return; } clearOperationDetail(); operationFilterSubmit.disabled = true; operationFilterSubmit.textContent = 'Filtering…'; setNotice('Loading filtered operation history…', 'loading'); try { var data = await loadOperations(); if (!isOperationInventory(data)) throw new Error('malformed_operation_history'); operationFreshness(data); var operations = data.operations; operationCursor = typeof data.nextCursor === 'string' ? data.nextCursor : ''; operationLoadMore.hidden = !operationCursor; operationRecords.innerHTML = operations.length ? operations.map(operationRecord).join('') : '<p class="empty">No protected operations match these filters.</p>'; setNotice('Filtered operation history is current.', 'ready'); } catch (_) { operationFreshness(undefined); operationCursor = ''; operationLoadMore.hidden = true; operationRecords.innerHTML = unavailableRecord('Operation history'); setNotice('Operation history could not be filtered. Retry to verify current evidence.', 'error'); } finally { operationFilterSubmit.disabled = false; operationFilterSubmit.textContent = 'Filter operation history'; } });

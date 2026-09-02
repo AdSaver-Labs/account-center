@@ -2,6 +2,7 @@ import type { AccountCenterStatus, HealthState, ProfileRole } from "./schemas.js
 import type { RuntimeSource } from "./runtime-adapters.js";
 import { isPublicModelId } from "./model-catalog-policy.js";
 
+
 type PublicProvider = "anthropic" | "github-copilot" | "openai" | "openrouter" | "custom";
 type PublicRuntime = "codex" | "hermes" | "openclaw" | "custom";
 export type PublicSource = "fixture" | "generic-command" | "openclaw" | "unknown";
@@ -201,7 +202,12 @@ export function publicLimitsInventoryView(status: AccountCenterStatus, runtime?:
   };
 }
 
-export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unknown {
+/**
+ * `openClawAgentRefs` is supplied only by the server's current official
+ * `openclaw agents list --json` discovery. Status routes are not inventory
+ * authority and must never publish an agent selection handle.
+ */
+export function publicRuntimeScopeCatalogView(status: AccountCenterStatus, openClawAgentRefs: readonly string[] = []): unknown {
   const scopes = new Map<Exclude<PublicRuntime, "custom">, { readStatus: boolean; mutateRoutes: boolean; startReauth: boolean; mutateModels: boolean }>();
   // A generic command can report schema-valid status, but it is not a trusted
   // runtime capability authority. Preserve its observable read-status signal
@@ -225,11 +231,12 @@ export function publicRuntimeScopeCatalogView(status: AccountCenterStatus): unkn
   return {
     schemaVersion: "account-center.runtime-scopes.v1",
     ...publicGeneratedAt(status.generatedAt),
-    scopes: Array.from(scopes.entries()).sort(([left], [right]) => left.localeCompare(right)).map(([runtime, capabilities]) => ({
-      runtime,
-      scope: { kind: "default", id: "default" },
-      capabilities
-    }))
+    scopes: Array.from(scopes.entries()).sort(([left], [right]) => left.localeCompare(right)).flatMap(([runtime, capabilities]) => {
+      const openClawAgentScopes = runtime === "openclaw" ? Array.from(new Set(openClawAgentRefs.filter((agentRef) => /^agent-[a-f0-9]{16}$/.test(agentRef))))
+        .sort()
+        .map((agentRef) => ({ runtime, scope: { kind: "agent", id: agentRef }, capabilities: { readStatus: capabilities.readStatus, mutateRoutes: false, startReauth: false, mutateModels: false } })) : [];
+      return openClawAgentScopes.length ? [...openClawAgentScopes, { runtime, scope: { kind: "default", id: "default" }, capabilities }] : [{ runtime, scope: { kind: "default", id: "default" }, capabilities }];
+    })
   };
 }
 
