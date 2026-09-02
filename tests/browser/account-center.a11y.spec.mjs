@@ -289,6 +289,34 @@ gate("renders accounts/routing and settings as truthful protected states", async
   await expect(settings).toContainText(/blocked/i);
 });
 
+gate("renders only fetched redacted routing-pool inventory and clears it when evidence becomes unavailable", async ({ panel }) => {
+  let available = true;
+  await panel.page.route("**/api/routing-pools", async (route) => {
+    if (!available) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ schemaVersion: "account-center.openclaw-routing-pools.v1", verificationState: "UNPROVEN", state: "read-only", error: "UNPROVEN", pools: [] }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ schemaVersion: "account-center.openclaw-routing-pools.v1", verificationState: "UNPROVEN", state: "read-only", pools: [{ schemaVersion: "account-center.openclaw-routing-pool.v1", agentRef: "agent-0123456789abcdef", provider: "openai", verificationState: "UNPROVEN", candidates: [{ accountRef: "pool-account-1", state: "saved-unverified" }], explicitOverrideOrder: ["pool-account-1"], overrideState: "explicit" }, { schemaVersion: "account-center.openclaw-routing-pool.v1", agentRef: "agent-fedcba9876543210", provider: "openai", verificationState: "UNPROVEN", candidates: [{ accountRef: "pool-account-2", state: "saved-unverified" }], explicitOverrideOrder: [], overrideState: "none" }] }) });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const routingPool = accountsPanel(panel).locator("#routing-pool-state");
+  await expect(routingPool).toContainText("agent-0123456789abcdef");
+  await expect(routingPool).toContainText("pool-account-1");
+  await expect(routingPool).toContainText("agent-fedcba9876543210");
+  await expect(routingPool).toContainText("pool-account-2");
+  await expect(routingPool).not.toContainText("private-agent");
+
+  available = false;
+  await panel.page.getByRole("button", { name: "Refresh status" }).click();
+  await expect(routingPool).toContainText("Not checked");
+  await expect(routingPool).not.toContainText("agent-0123456789abcdef");
+  await expect(routingPool).not.toContainText("pool-account-1");
+  await expect(routingPool).not.toContainText("agent-fedcba9876543210");
+  await expect(routingPool).not.toContainText("pool-account-2");
+});
+
 gate("labels the selected fixture account Active while non-selected accounts remain Saved", async ({ panel }) => {
   await open(panel);
   await connect(panel);

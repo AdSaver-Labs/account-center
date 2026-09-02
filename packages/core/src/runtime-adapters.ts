@@ -101,6 +101,8 @@ export interface OpenClawRoutingPool {
 
 const OPENCLAW_ROUTING_POOL_TIMEOUT_MS = 12_000;
 const OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES = 64 * 1024;
+const OFFICIAL_OPENCLAW_NODE = "/home/linuxbrew/.linuxbrew/opt/node@24/bin/node";
+const OFFICIAL_OPENCLAW_CLI = "/home/Alej/.npm-global/bin/openclaw";
 
 export interface GenericCommandAdapterConfig {
   command?: string;
@@ -228,7 +230,7 @@ export class OpenClawRuntimeAdapter implements RuntimeAdapter {
   private async runOfficialRoutingPoolCommand(args: string[]): Promise<CommandResult> {
     let result: CommandResult;
     try {
-      result = await this.runner("openclaw", args, { timeoutMs: OPENCLAW_ROUTING_POOL_TIMEOUT_MS, maxOutputBytes: OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES });
+      result = await this.runner(OFFICIAL_OPENCLAW_NODE, [OFFICIAL_OPENCLAW_CLI, ...args], { timeoutMs: OPENCLAW_ROUTING_POOL_TIMEOUT_MS, maxOutputBytes: OPENCLAW_ROUTING_POOL_MAX_OUTPUT_BYTES });
     } catch {
       throw new Error("routing_pool_unproven");
     }
@@ -691,8 +693,8 @@ function hasExactRoutingPoolIdentity(value: unknown, agentId: string): boolean {
 }
 function profileIdsFrom(value: unknown): string[] | undefined {
   if (!isRecord(value) || !Array.isArray(value.profiles)) return undefined;
-  const ids = value.profiles.map((profile) => isRecord(profile) ? profile.id : undefined);
-  return ids.every((id): id is string => typeof id === "string") ? ids : undefined;
+  const profiles = value.profiles.map((profile) => isRecord(profile) && profile.provider === "openai" && typeof profile.id === "string" ? profile.id : undefined);
+  return profiles.every((id): id is string => typeof id === "string") ? profiles : undefined;
 }
 function orderIdsFrom(value: unknown): string[] | undefined {
   if (!isRecord(value) || !Array.isArray(value.order)) return undefined;

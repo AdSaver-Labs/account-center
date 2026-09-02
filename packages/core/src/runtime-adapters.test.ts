@@ -13,20 +13,42 @@ test("OpenClaw routing-pool inventory uses only exact official scoped read comma
   const calls: Array<{ command: string; args: string[]; options?: { timeoutMs?: number; maxOutputBytes?: number } }> = [];
   const adapter = new OpenClawRuntimeAdapter({ runner: async (command, args, options) => {
     calls.push({ command, args, options });
-    if (args.join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
-    if (args.join(" ") === "models auth list --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile" }] }), stderr: "" };
-    if (args.join(" ") === "models auth order get --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: ["openai:private-profile"] }), stderr: "" };
+    if (args.slice(1).join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
+    if (args.slice(1).join(" ") === "models auth list --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }] }), stderr: "" };
+    if (args.slice(1).join(" ") === "models auth order get --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: ["openai:private-profile"] }), stderr: "" };
     throw new Error("unexpected command");
   } });
 
   const pool = await adapter.readRoutingPool("private-agent");
   assert.deepEqual(pool, { agentId: "private-agent", provider: "openai", profiles: ["openai:private-profile"], order: ["openai:private-profile"] });
   assert.deepEqual(calls.map(({ command, args }) => [command, args]), [
-    ["openclaw", ["agents", "list", "--json"]],
-    ["openclaw", ["models", "auth", "list", "--agent", "private-agent", "--provider", "openai", "--json"]],
-    ["openclaw", ["models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]]
+    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "agents", "list", "--json"]],
+    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "models", "auth", "list", "--agent", "private-agent", "--provider", "openai", "--json"]],
+    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]]
   ]);
   assert.ok(calls.every(({ options }) => options?.timeoutMs === 12_000 && options.maxOutputBytes === 64 * 1024));
+});
+
+test("routing-pool rejects a non-OpenAI profile even when its id looks OpenAI-shaped", async () => {
+  const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
+    if (args.join(" ").endsWith("agents list --json")) return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
+    if (args.join(" ").includes("models auth list")) return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "anthropic" }] }), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: [] }), stderr: "" };
+  } });
+  await assert.rejects(adapter.readRoutingPool("private-agent"), /routing_pool_unproven/);
+});
+
+test("routing-pool fails closed on malformed, mismatched, duplicate, timeout, and capped official output", async () => {
+  for (const failure of ["malformed", "mismatch", "duplicate", "timeout", "cap"]) {
+    const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
+      if (failure === "timeout") return { code: 0, stdout: "{}", stderr: "", timeoutExceeded: true };
+      if (failure === "cap") return { code: 0, stdout: "{}", stderr: "", outputLimitExceeded: true };
+      if (args.slice(1).join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: failure === "duplicate" ? [{ id: "private-agent" }, { id: "private-agent" }] : [{ id: "private-agent" }] }), stderr: "" };
+      if (failure === "malformed") return { code: 0, stdout: "not-json", stderr: "" };
+      return { code: 0, stdout: JSON.stringify({ agentId: failure === "mismatch" ? "other-agent" : "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }], order: [] }), stderr: "" };
+    } });
+    await assert.rejects(adapter.readRoutingPool("private-agent"), /unproven/);
+  }
 });
 
 const routerStatus = {
