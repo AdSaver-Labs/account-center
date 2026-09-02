@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import type { OpenClawRoutingPool } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 
 test("local control panel serves a calm accessible shell without weakening safety boundaries", async () => {
@@ -52,4 +54,103 @@ test("local control panel serves a calm accessible shell without weakening safet
   } finally {
     await app.close();
   }
+});
+
+test("routing-pool panel copy separates saved candidates from an explicit override", async () => {
+  const app = createAccountCenterServer({ token: "test-token" });
+  const address = await app.listen();
+  try {
+    const html = await (await fetch(`http://127.0.0.1:${address.port}/`)).text();
+    assert.match(html, /Routing Pool/);
+    assert.match(html, /Saved\/unverified candidates/);
+    assert.match(html, /Explicit override order/);
+    assert.match(html, /UNPROVEN\/read-only/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("protected routing pools expose only opaque redacted snapshots and reject malformed readers", async () => {
+  const privatePool: OpenClawRoutingPool = { agentId: "private-agent", provider: "openai", profiles: ["openai:private-profile"], order: ["openai:private-profile"] };
+  const status = JSON.parse(await readFile(new URL("../../../tests/fixtures/status.fixture.json", import.meta.url), "utf8"));
+  status.routes = [{ ...status.routes[0], runtime: "openclaw", scope: "agent:private-agent" }];
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => status, routingPoolAgentReader: async () => ["private-agent"], routingPoolReader: async () => privatePool });
+  const address = await app.listen();
+  try {
+    const origin = `http://127.0.0.1:${address.port}`;
+    const unauthorized = await fetch(`${origin}/api/routing-pools`);
+    assert.equal(unauthorized.status, 401);
+    const methodRejected = await fetch(`${origin}/api/routing-pools`, { method: "POST", headers: { authorization: "Bearer test-token" } });
+    assert.equal(methodRejected.status, 405);
+    const accepted = await fetch(`${origin}/api/routing-pools?runtime=openclaw&scope=agent%3Aagent-20cee3d10892329d`, { headers: { authorization: "Bearer test-token" } });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.headers.get("cache-control"), "no-store");
+    const text = await accepted.text();
+    assert.doesNotMatch(text, /private-agent|private-profile|openai:/);
+    const payload = JSON.parse(text);
+    assert.deepEqual(Object.keys(payload).sort(), ["pools", "schemaVersion", "state", "verificationState"]);
+    assert.equal(payload.schemaVersion, "account-center.openclaw-routing-pools.v1");
+    assert.equal(payload.verificationState, "UNPROVEN");
+    assert.equal(payload.state, "read-only");
+    assert.equal(payload.pools.length, 1);
+    assert.match(payload.pools[0].agentRef, /^agent-[a-f0-9]{16}$/);
+  } finally { await app.close(); }
+});
+
+test("routing-pool failures and missing selectors fail closed before a reader can run", async () => {
+  for (const source of ["fixture", "openclaw"] as const) {
+    let reads = 0;
+    const app = createAccountCenterServer({ token: "test-token", source, routingPoolReader: async () => { reads++; throw new Error("private path and profile"); } });
+    const address = await app.listen();
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/routing-pools`, { headers: { authorization: "Bearer test-token" } });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "invalid_query" });
+      assert.equal(reads, 0);
+    } finally { await app.close(); }
+  }
+});
+
+test("routing pools fail closed when the returned private agent does not bind to the selected opaque scope", async () => {
+  const requestedScope = "agent:agent-20cee3d10892329d";
+  const status = JSON.parse(await readFile(new URL("../../../tests/fixtures/status.fixture.json", import.meta.url), "utf8"));
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => status,
+    routingPoolAgentReader: async () => ["private-agent"],
+    routingPoolReader: async () => ({ agentId: "other-private-agent", provider: "openai", profiles: ["openai:private-profile"], order: [] })
+  });
+  const address = await app.listen();
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/routing-pools?runtime=openclaw&scope=${encodeURIComponent(requestedScope)}`, { headers: { authorization: "Bearer test-token" } });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { schemaVersion: "account-center.openclaw-routing-pools.v1", verificationState: "UNPROVEN", state: "read-only", error: "UNPROVEN", pools: [] });
+  } finally { await app.close(); }
+});
+
+test("routing pools require the authoritative selected opaque OpenClaw agent scope before one scoped read", async () => {
+  const privateAgent = "private-agent";
+  const publicScope = "agent:agent-20cee3d10892329d";
+  const status = JSON.parse(await readFile(new URL("../../../tests/fixtures/status.fixture.json", import.meta.url), "utf8"));
+  status.routes = [{ ...status.routes[0], runtime: "openclaw", scope: `agent:${privateAgent}` }];
+  let reads = 0;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => status, routingPoolAgentReader: async () => [privateAgent], routingPoolReader: async (scope) => {
+    reads++;
+    assert.equal(scope, publicScope);
+    return { agentId: privateAgent, provider: "openai", profiles: ["openai:private-profile"], order: [] };
+  } });
+  const address = await app.listen();
+  try {
+    const origin = `http://127.0.0.1:${address.port}`;
+    for (const suffix of ["", "?runtime=hermes&scope=" + publicScope, "?runtime=openclaw&scope=agent:agent-not-the-selected-agent"]) {
+      const response = await fetch(`${origin}/api/routing-pools${suffix}`, { headers: { authorization: "Bearer test-token" } });
+      assert.equal(response.status, 400);
+    }
+    assert.equal(reads, 0);
+    const selected = await fetch(`${origin}/api/routing-pools?runtime=openclaw&scope=${encodeURIComponent(publicScope)}`, { headers: { authorization: "Bearer test-token" } });
+    assert.equal(selected.status, 200);
+    assert.equal(reads, 1);
+    assert.doesNotMatch(await selected.text(), /private-agent|private-profile/);
+  } finally { await app.close(); }
 });

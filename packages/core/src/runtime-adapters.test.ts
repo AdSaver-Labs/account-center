@@ -7,6 +7,68 @@ import { CommandRunner, execFileRunner, GenericCommandRuntimeAdapter, MAX_GENERI
 import { executeAccountCenterCommand } from "./command-executor.js";
 import { createActiveScopeWarning, createMutationReview } from "./mutation-contract.js";
 import { MutationRepository } from "./mutation-repository.js";
+import { publicStatusView } from "./public-views.js";
+
+test("OpenClaw routing-pool inventory uses only exact official scoped read commands", async () => {
+  const calls: Array<{ command: string; args: string[]; options?: { timeoutMs?: number; maxOutputBytes?: number } }> = [];
+  const adapter = new OpenClawRuntimeAdapter({ runner: async (command, args, options) => {
+    calls.push({ command, args, options });
+    if (args.slice(1).join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
+    if (args.slice(1).join(" ") === "models auth list --agent private-agent --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }] }), stderr: "" };
+    if (args.slice(1).join(" ") === "models auth order get --agent private-agent --provider openai --json") return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: ["openai:private-profile"] }), stderr: "" };
+    throw new Error("unexpected command");
+  } });
+
+  const pool = await adapter.readRoutingPool("private-agent");
+  assert.deepEqual(pool, { agentId: "private-agent", provider: "openai", profiles: ["openai:private-profile"], order: ["openai:private-profile"] });
+  assert.deepEqual(calls.map(({ command, args }) => [command, args]), [
+    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "agents", "list", "--json"]],
+    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "models", "auth", "list", "--agent", "private-agent", "--json"]],
+    ["/home/linuxbrew/.linuxbrew/opt/node@24/bin/node", ["/home/Alej/.npm-global/bin/openclaw", "models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]]
+  ]);
+  assert.ok(calls.every(({ options }) => options?.timeoutMs === 12_000 && options.maxOutputBytes === 64 * 1024));
+});
+
+test("OpenClaw routing-pool public scope resolves one discovered agent without a second discovery", async () => {
+  const calls: string[][] = [];
+  const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
+    calls.push(args);
+    if (args.slice(1).join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }, { id: "other-agent" }] }), stderr: "" };
+    if (args.includes("private-agent") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }] }), stderr: "" };
+    if (args.includes("private-agent") && args.includes("order")) return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: [] }), stderr: "" };
+    throw new Error("unexpected command");
+  } });
+
+  const pool = await adapter.readRoutingPoolForPublicScope("agent:agent-20cee3d10892329d");
+  assert.equal(pool.agentId, "private-agent");
+  assert.deepEqual(calls.map((args) => args.slice(1)), [
+    ["agents", "list", "--json"],
+    ["models", "auth", "list", "--agent", "private-agent", "--json"],
+    ["models", "auth", "order", "get", "--agent", "private-agent", "--provider", "openai", "--json"]
+  ]);
+});
+
+test("routing-pool rejects a non-OpenAI profile even when its id looks OpenAI-shaped", async () => {
+  const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
+    if (args.join(" ").endsWith("agents list --json")) return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
+    if (args.join(" ").includes("models auth list")) return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "anthropic" }] }), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: [] }), stderr: "" };
+  } });
+  await assert.rejects(adapter.readRoutingPool("private-agent"), /routing_pool_unproven/);
+});
+
+test("routing-pool fails closed on malformed, mismatched, duplicate, timeout, and capped official output", async () => {
+  for (const failure of ["malformed", "mismatch", "duplicate", "timeout", "cap"]) {
+    const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
+      if (failure === "timeout") return { code: 0, stdout: "{}", stderr: "", timeoutExceeded: true };
+      if (failure === "cap") return { code: 0, stdout: "{}", stderr: "", outputLimitExceeded: true };
+      if (args.slice(1).join(" ") === "agents list --json") return { code: 0, stdout: JSON.stringify({ agents: failure === "duplicate" ? [{ id: "private-agent" }, { id: "private-agent" }] : [{ id: "private-agent" }] }), stderr: "" };
+      if (failure === "malformed") return { code: 0, stdout: "not-json", stderr: "" };
+      return { code: 0, stdout: JSON.stringify({ agentId: failure === "mismatch" ? "other-agent" : "private-agent", provider: "openai", profiles: [{ id: "openai:private-profile", provider: "openai" }], order: [] }), stderr: "" };
+    } });
+    await assert.rejects(adapter.readRoutingPool("private-agent"), /unproven/);
+  }
+});
 
 const routerStatus = {
   at: "2026-07-09T10:55:50.721Z",
@@ -106,6 +168,96 @@ test("OpenClaw adapter reads status through configured CLI with mocked runner", 
   assert.equal(status.source, "openclaw");
   assert.equal(calls[0]?.command, "python3");
   assert.deepEqual(calls[0]?.args, [cli, "status", "--workspace", workspace, "--json"]);
+});
+
+test("OpenClaw falls through an empty Sentinel snapshot to the existing read-only CLI inventory", async () => {
+  const workspace = await openClawWorkspace();
+  const emptySentinel = { ...routerStatus, accounts: {}, effectiveAuthOrder: [] };
+  const cliStatus = {
+    ...routerStatus,
+    accounts: {
+      ...routerStatus.accounts,
+      "openai:helper-3": { profileId: "openai:helper-3", enabled: true, health: { healthy: true, expired: false }, usage: { available: true, fiveHourRemaining: 72, weekRemaining: 44 } },
+      "openai:helper-4": { profileId: "openai:helper-4", enabled: true, health: { healthy: true, expired: false }, usage: { available: true, fiveHourRemaining: 61, weekRemaining: 32 } }
+    },
+    effectiveAuthOrder: ["openai:helper-1", "openai:helper-2", "openai:helper-3", "openai:helper-4"]
+  };
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(emptySentinel), "utf8");
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (command, args) => {
+    calls.push({ command, args });
+    return { code: 0, stdout: JSON.stringify(cliStatus), stderr: "" };
+  } });
+
+  const status = await adapter.readStatus();
+  assert.equal(status.profiles.length, 4);
+  assert.deepEqual(calls, [{ command: "python3", args: [workspace.cli, "status", "--workspace", workspace.root, "--json"] }]);
+  assert.deepEqual(publicStatusView(status).profiles.map((profile) => profile.id), ["account-1", "account-2", "account-3", "account-4"]);
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the read-only CLI exits nonzero", async () => {
+  const workspace = await openClawWorkspace();
+  const emptySnapshot = {
+    at: "2026-07-10T00:00:00.000Z", provider: "openai", accounts: {}, effectiveAuthOrder: [],
+    lastAccountId: "openai:raw-empty-account", email: "empty-snapshot@example.test", access_token: "sk-empty-snapshot-token"
+  };
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify(emptySnapshot), "utf8");
+  await mkdir(join(workspace.root, "3-Resources", "codex-account-ops", "state"), { recursive: true });
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "state", "sentinel-state.json"), JSON.stringify(routerStatus), "utf8");
+  let cliOptions: { timeoutMs?: number; maxOutputBytes?: number } | undefined;
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async (_command, _args, options) => {
+    cliOptions = options;
+    return { code: 1, stdout: "", stderr: "empty-snapshot@example.test sk-empty-snapshot-token" };
+  } });
+
+  const status = await adapter.readStatus();
+  const publicStatus = publicStatusView(status);
+  const serialized = JSON.stringify(publicStatus);
+  assert.equal(status.profiles.length, 0);
+  assert.ok(status.warnings.includes("source=CODEX-ACCOUNT-STATUS.json"));
+  assert.equal(publicStatus.verificationState, "UNPROVEN");
+  assert.equal(publicStatus.routes[0]?.activeProfileId, "account-redacted");
+  assert.equal(cliOptions?.timeoutMs, 60_000);
+  assert.ok((cliOptions?.maxOutputBytes ?? 0) > 0);
+  for (const privateValue of ["openai:raw-empty-account", "empty-snapshot@example.test", "sk-empty-snapshot-token"]) assert.equal(serialized.includes(privateValue), false);
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the CLI emits malformed JSON", async () => {
+  const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: "{not-json", stderr: "" }) });
+
+  await assert.doesNotReject(adapter.readStatus());
+  assert.equal((await adapter.readStatus()).profiles.length, 0);
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the CLI emits blank output", async () => {
+  const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: " \n\t", stderr: "" }) });
+
+  assert.equal((await adapter.readStatus()).profiles.length, 0);
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when the CLI times out or exceeds its output limit", async () => {
+  for (const failure of [{ timeoutExceeded: true }, { outputLimitExceeded: true }]) {
+    const workspace = await openClawWorkspace();
+    await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+    const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: JSON.stringify(routerStatus), stderr: "", ...failure }) });
+
+    assert.equal((await adapter.readStatus()).profiles.length, 0);
+  }
+});
+
+test("OpenClaw preserves a parseable empty Sentinel snapshot when successful CLI output normalizes to no profiles", async () => {
+  const workspace = await openClawWorkspace();
+  await writeFile(join(workspace.root, "3-Resources", "codex-account-ops", "CODEX-ACCOUNT-STATUS.json"), JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), "utf8");
+  const adapter = new OpenClawRuntimeAdapter({ workspace: workspace.root, cli: workspace.cli, runner: async () => ({ code: 0, stdout: JSON.stringify({ ...routerStatus, accounts: {}, effectiveAuthOrder: [] }), stderr: "" }) });
+
+  const status = await adapter.readStatus();
+  assert.equal(status.profiles.length, 0);
+  assert.ok(status.warnings.includes("source=CODEX-ACCOUNT-STATUS.json"));
+  assert.equal(publicStatusView(status).verificationState, "UNPROVEN");
 });
 
 test("OpenClaw dry-run mutations do not call runner", async () => {

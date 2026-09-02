@@ -2,12 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
+import { createRequire } from "node:module";
 import { AddressInfo, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository } from "@account-center/core";
+import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository, opaqueAgentRef } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
+
+const require = createRequire(import.meta.url);
 
 async function request(port: number, path: string, token?: string): Promise<Response> {
   return fetch(`http://127.0.0.1:${port}${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
@@ -320,7 +323,7 @@ async function rawKeepAliveStatusRequests(port: number): Promise<string> {
   });
 }
 
-async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incomplete" | "drip"): Promise<{ elapsedMs: number; response: string }> {
+async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incomplete" | "drip", safetyDeadlineMs = 3_000): Promise<{ elapsedMs: number; response: string }> {
   return new Promise((resolve, reject) => {
     const socket = connect(port, "127.0.0.1");
     const startedAt = Date.now();
@@ -329,7 +332,7 @@ async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incom
     const safetyTimeout = setTimeout(() => {
       socket.destroy();
       reject(new Error(`keep_alive_${followUp}_phase_did_not_terminate`));
-    }, 3_000);
+    }, safetyDeadlineMs);
     socket.setEncoding("utf8");
     socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
     socket.on("data", (chunk: string) => {
@@ -343,6 +346,69 @@ async function rawKeepAliveFollowUpPhase(port: number, followUp: "idle" | "incom
     });
     socket.on("end", () => { clearTimeout(safetyTimeout); resolve({ elapsedMs: Date.now() - startedAt, response }); });
     socket.on("connect", () => socket.write(`GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: keep-alive\r\n\r\n`));
+  });
+}
+
+async function rawSlowProtectedRead(port: number, path: string): Promise<{ elapsedMs: number; response: string }> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`slow_protected_read_did_not_terminate: ${path}`));
+    }, 7_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.once("close", () => {
+      clearTimeout(safetyTimeout);
+      resolve({ elapsedMs: Date.now() - startedAt, response });
+    });
+    socket.on("connect", () => socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: close\r\n\r\n`));
+  });
+}
+
+async function rawPipelinedNativeHandoffAndProtectedRead(port: number): Promise<{ elapsedMs: number; response: string }> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const body = JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" });
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("pipelined_native_handoff_did_not_terminate"));
+    }, 4_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.once("close", () => {
+      clearTimeout(safetyTimeout);
+      resolve({ elapsedMs: Date.now() - startedAt, response });
+    });
+    socket.on("connect", () => socket.write(
+      `POST /api/auth-handoffs/openclaw/preflight HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nOrigin: http://127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}` +
+      `GET /api/models?runtime=openclaw&scope=default HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: close\r\n\r\n`
+    ));
+  });
+}
+
+async function rawPipelinedInvalidNativeHandoffAndProtectedRead(port: number, primary: { headers: string; body: string }): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    const safetyTimeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("pipelined_invalid_native_handoff_did_not_terminate"));
+    }, 4_000);
+    socket.setEncoding("utf8");
+    socket.once("error", (error) => { clearTimeout(safetyTimeout); reject(error); });
+    socket.on("data", (chunk: string) => { response += chunk; });
+    socket.once("close", () => { clearTimeout(safetyTimeout); resolve(response); });
+    socket.on("connect", () => socket.write(
+      `POST /api/auth-handoffs/openclaw/preflight HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n${primary.headers}Content-Length: ${Buffer.byteLength(primary.body)}\r\n\r\n${primary.body}` +
+      `GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer test-token\r\nConnection: close\r\n\r\n`
+    ));
   });
 }
 
@@ -368,6 +434,245 @@ function assertHardenedJsonError(response: Response, expectedStatus: number, exp
     assert.equal(body.includes(suppliedText), false);
   });
 }
+
+test("OpenClaw native sign-in preflight is same-origin, redacted, and remains UNPROVEN", async () => {
+  let reads = 0;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => { reads++; const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus; return { ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] }; } });
+  const address = await app.listen(); const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const malformed = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: JSON.stringify({ runtime: "codex", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(malformed.status, 400); assert.equal(reads, 0);
+    const denied = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { method: "POST", headers: { authorization: "Bearer test-token", "content-type": "application/json" }, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(denied.status, 403);
+    const preflight = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(preflight.status, 200); const payload = await preflight.json() as { state: string; verificationState: string; handoffId: string };
+    assert.equal(payload.state, "handoff_required"); assert.equal(payload.verificationState, "UNPROVEN"); assert.match(payload.handoffId, /^handoff_[A-Za-z0-9_-]{32}$/);
+    assert.equal(JSON.stringify(payload).includes("@"), false); assert.equal(JSON.stringify(payload).includes("--force"), false); assert.equal(JSON.stringify(payload).includes("login"), false);
+    const recheck = await fetch(`${origin}/api/auth-handoffs/openclaw/${payload.handoffId}/recheck`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: "{}" });
+    assert.equal(recheck.status, 200); assert.deepEqual(await recheck.json(), { schemaVersion: "account-center.native-auth-handoff-recheck.v1", handoffId: payload.handoffId, state: "postflight_unproven", verificationState: "UNPROVEN" });
+    const replay = await fetch(`${origin}/api/auth-handoffs/openclaw/${payload.handoffId}/recheck`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: "{}" });
+    assert.equal(replay.status, 400);
+    const secondPreflight = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" }, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(secondPreflight.status, 200);
+    assert.notEqual((await secondPreflight.json() as { handoffId: string }).handoffId, payload.handoffId);
+    const html = await (await fetch(`${origin}/`)).text();
+    assert.match(html, /Native sign-in required/); assert.match(html, /Preflight native sign-in/); assert.match(html, /UNPROVEN/); assert.equal(html.includes("--force"), false); assert.equal(html.includes("models auth login"), false);
+    assert.match(html, /function clearNativeHandoffUnavailable\(\) \{ nativeHandoffId = ''; nativePreflight\.disabled = true; nativeRecheck\.disabled = true; nativeStatus\.textContent = 'UNPROVEN — native handoff is unavailable for the current context\.'; \}/);
+    assert.match(html, /if \(scopesUnavailable \|\| !scopes\.length\) \{ clearNativeHandoffUnavailable\(\);/);
+    assert.match(html, /function isNativeHandoffDefaultScope\(\) \{ return selectedContext === 'openclaw\|default'; \}/);
+    assert.match(html, /if \(!selectedContextStillAvailable \|\| !isNativeHandoffDefaultScope\(\)\) clearNativeHandoffUnavailable\(\);/);
+  } finally { await app.close(); }
+});
+
+test("status refresh failure clears a previously actionable native handoff", async () => {
+  let failStatusRefresh = false;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    routingPoolAgentReader: async () => [],
+    statusReader: async () => {
+      if (failStatusRefresh) throw new Error("status_refresh_failed");
+      const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+      return { ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] };
+    }
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const { chromium } = require("playwright") as { chromium: any };
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(origin);
+    await page.locator("#onboarding-skip").click();
+    await page.locator("#token").fill("test-token");
+    await page.locator("#refresh").click();
+    await page.locator("#more-tab").click();
+    await page.locator("#runtime-scope").selectOption("openclaw|default");
+    await page.locator("#native-handoff-preflight:not([disabled])").waitFor();
+    await page.locator("#native-handoff-preflight").click();
+    await page.locator("#native-handoff-recheck:not([disabled])").waitFor();
+
+    failStatusRefresh = true;
+    await page.locator("#refresh").click();
+    await page.locator("#notice[data-state='error']").waitFor();
+
+    assert.equal(await page.locator("#native-handoff-preflight").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-recheck").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-status").textContent(), "UNPROVEN — native handoff is unavailable for the current context.");
+  } finally {
+    await browser.close();
+    await app.close();
+  }
+});
+
+test("opaque OpenClaw agent scope keeps routing-pool inventory read-only and disables native handoff", async () => {
+  const privateAgent = "private-agent";
+  const agentScope = `agent:${opaqueAgentRef(privateAgent)}`;
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => ({ ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] }),
+    routingPoolAgentReader: async () => [privateAgent],
+    routingPoolReader: async () => ({ agentId: privateAgent, provider: "openai", profiles: ["openai:private-profile"], order: [] })
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const { chromium } = require("playwright") as { chromium: any };
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(origin);
+    await page.locator("#onboarding-skip").click();
+    await page.locator("#token").fill("test-token");
+    await page.locator("#refresh").click();
+    await page.locator("#more-tab").click();
+    await page.locator("#runtime-scope").selectOption("openclaw|default");
+    await page.locator("#native-handoff-preflight:not([disabled])").waitFor();
+    await page.locator("#native-handoff-preflight").click();
+    await page.locator("#native-handoff-recheck:not([disabled])").waitFor();
+
+    await page.locator("#runtime-scope").selectOption(`openclaw|${agentScope}`);
+    await page.locator("#native-handoff-preflight[disabled]").waitFor();
+
+    assert.equal(await page.locator("#native-handoff-preflight").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-recheck").isDisabled(), true);
+    assert.equal(await page.locator("#native-handoff-status").textContent(), "UNPROVEN — native handoff is unavailable for the current context.");
+    await page.locator("#accounts-tab").click();
+    await page.locator("#routing-pool-state").getByText("Observed opaque agent").waitFor();
+    assert.match(await page.locator("#routing-pool-state").textContent() ?? "", new RegExp(opaqueAgentRef(privateAgent)));
+  } finally {
+    await browser.close();
+    await app.close();
+  }
+});
+
+test("native handoff preflight reports missing OpenAI evidence as redacted UNPROVEN without issuing an ID", async () => {
+  let reads = 0;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    statusReader: async () => {
+      reads++;
+      const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+      return { ...status, providers: status.providers.filter((provider) => provider.key !== "openai") };
+    }
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const response = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" },
+      body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" })
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "native_handoff_unavailable", verificationState: "UNPROVEN" });
+    assert.equal(reads, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("native handoff preflight rejects retained OpenAI evidence when OpenClaw needs auth", async () => {
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+      return { ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "needs-auth" }] };
+    }
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const response = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" },
+      body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" })
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "native_handoff_unavailable", verificationState: "UNPROVEN" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("native handoff preflight rejects retained OpenAI evidence when OpenClaw is unavailable", async () => {
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+      return { ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "unavailable" }] };
+    }
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const response = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" },
+      body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" })
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "native_handoff_unavailable", verificationState: "UNPROVEN" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("native handoff preflight reports unavailable status as redacted UNPROVEN", async () => {
+  const app = createAccountCenterServer({ token: "test-token", statusReader: async () => undefined });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const response = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" },
+      body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" })
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "status_unavailable", verificationState: "UNPROVEN" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("native handoff recheck retains its ID after transient status loss and consumes it after a terminal postflight", async () => {
+  let reads = 0;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => {
+    reads++;
+    if (reads === 2) return undefined;
+    const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+    return { ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] };
+  } });
+  const address = await app.listen(); const origin = `http://127.0.0.1:${address.port}`;
+  const requestOptions = { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" } };
+  try {
+    const preflight = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    const handoffId = (await preflight.json() as { handoffId: string }).handoffId;
+    const transient = await fetch(`${origin}/api/auth-handoffs/openclaw/${handoffId}/recheck`, { ...requestOptions, body: "{}" });
+    assert.equal(transient.status, 503); assert.deepEqual(await transient.json(), { error: "status_unavailable", verificationState: "UNPROVEN" });
+    const retry = await fetch(`${origin}/api/auth-handoffs/openclaw/${handoffId}/recheck`, { ...requestOptions, body: "{}" });
+    assert.equal(retry.status, 200); assert.equal((await retry.json() as { state: string }).state, "postflight_unproven");
+  } finally { await app.close(); }
+});
+
+test("concurrent native handoff rechecks produce at most one terminal postflight", async () => {
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => {
+    const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+    return { ...status, agentConnections: [...(status.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] };
+  } });
+  const address = await app.listen(); const origin = `http://127.0.0.1:${address.port}`;
+  const requestOptions = { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" } };
+  try {
+    const preflight = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    const handoffId = (await preflight.json() as { handoffId: string }).handoffId;
+    const responses = await Promise.all([1, 2].map(() => fetch(`${origin}/api/auth-handoffs/openclaw/${handoffId}/recheck`, { ...requestOptions, body: "{}" })));
+    assert.equal(responses.filter((response) => response.status === 200).length, 1);
+    assert.equal(responses.filter((response) => response.status === 400).length, 1);
+  } finally { await app.close(); }
+});
 
 test("a loopback port conflict rejects startup without leaving the control plane unusable", async () => {
   const occupier = createServer();
@@ -495,6 +800,225 @@ test("concurrent protected status reads share one authoritative probe and recove
     assert.equal((await next).status, 200);
   } finally {
     release?.();
+    await app.close();
+  }
+});
+
+test("OpenClaw status reads complete within the measured bounded deadline", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as AccountCenterStatus).source, "fixture");
+  } finally {
+    await app.close();
+  }
+});
+
+test("validated OpenClaw native handoff status reads receive the bounded socket allowance", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let reads = 0;
+  const evidenceStatus = () => ({ ...fixture, agentConnections: [...(fixture.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] } as AccountCenterStatus);
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      reads++;
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return evidenceStatus();
+    }
+  });
+  const address = await app.listen();
+  const origin = `http://127.0.0.1:${address.port}`;
+  const requestOptions = { method: "POST", headers: { authorization: "Bearer test-token", origin, "content-type": "application/json" } };
+  try {
+    const rejectedAt = Date.now();
+    const malformed = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, body: JSON.stringify({ runtime: "codex", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(malformed.status, 400);
+    const wrongOrigin = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, headers: { ...requestOptions.headers, origin: "http://untrusted.invalid" }, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(wrongOrigin.status, 403);
+    assert.equal(reads, 0, "invalid and wrong-origin preflights must not read status");
+    assert.equal(Date.now() - rejectedAt < 1_000, true, "invalid preflights must retain the strict socket path");
+
+    const preflight = await fetch(`${origin}/api/auth-handoffs/openclaw/preflight`, { ...requestOptions, body: JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) });
+    assert.equal(preflight.status, 200);
+    const payload = await preflight.json() as { handoffId: string; verificationState: string };
+    assert.match(payload.handoffId, /^handoff_[A-Za-z0-9_-]{32}$/);
+    assert.equal(payload.verificationState, "UNPROVEN");
+
+    const recheck = await fetch(`${origin}/api/auth-handoffs/openclaw/${payload.handoffId}/recheck`, { ...requestOptions, body: "{}" });
+    assert.equal(recheck.status, 200);
+    assert.deepEqual(await recheck.json(), { schemaVersion: "account-center.native-auth-handoff-recheck.v1", handoffId: payload.handoffId, state: "postflight_unproven", verificationState: "UNPROVEN" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("invalid native handoff requests do not reserve a pipelined protected read socket", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let reads = 0;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => { reads++; return fixture; }
+  });
+  const address = await app.listen();
+  const validBody = JSON.stringify({ runtime: "openclaw", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" });
+  try {
+    for (const invalidPrimary of [
+      { expectedStatus: 401, headers: "Origin: http://127.0.0.1\r\nContent-Type: application/json\r\n", body: validBody },
+      { expectedStatus: 403, headers: "Authorization: Bearer test-token\r\nOrigin: http://untrusted.invalid\r\nContent-Type: application/json\r\n", body: validBody },
+      { expectedStatus: 400, headers: `Authorization: Bearer test-token\r\nOrigin: http://127.0.0.1:${address.port}\r\nContent-Type: application/json\r\n`, body: JSON.stringify({ runtime: "codex", provider: "openai", scope: "default", idempotencyKey: "handoff-test-key-0001" }) }
+    ]) {
+      const response = await rawPipelinedInvalidNativeHandoffAndProtectedRead(address.port, invalidPrimary);
+      assert.match(response, new RegExp(`HTTP/1\\.1 ${invalidPrimary.expectedStatus}`), response);
+      assert.equal((response.match(/HTTP\/1\.1 200/g) ?? []).length, 1, response);
+      assert.equal(response.includes("HTTP/1.1 409"), false, response);
+    }
+    assert.equal(reads, 3, "only the three eligible pipelined status reads may run");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a pipelined protected read cannot inherit a native handoff socket allowance", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  let reads = 0;
+  let closedConnections = 0;
+  const evidenceStatus = () => ({ ...fixture, agentConnections: [...(fixture.agentConnections ?? []), { id: "native_handoff_default", runtime: "openclaw", scope: "default", profileIds: ["openai:helper-1"], verifiedProfileIds: ["openai:helper-1"], state: "connected" }] } as AccountCenterStatus);
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      reads++;
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return evidenceStatus();
+    },
+    onConnectionClosedForTest: () => { closedConnections++; }
+  });
+  const address = await app.listen();
+  try {
+    const result = await rawPipelinedNativeHandoffAndProtectedRead(address.port);
+    assert.equal(result.elapsedMs >= 1_100, true, `valid handoff was destroyed after ${result.elapsedMs}ms`);
+    assert.equal((result.response.match(/HTTP\/1\.1 200/g) ?? []).length, 1, result.response);
+    assert.match(result.response, /HTTP\/1\.1 409/);
+    assert.equal(result.response.includes('"schemaVersion":"account-center.models'), false, result.response);
+    assert.equal(reads, 1, "the denied peer must not start a status read");
+    assert.equal(closedConnections, 1, "the isolated socket must close after the denied peer");
+  } finally {
+    await app.close();
+  }
+});
+
+test("OpenClaw status and limits reads completing after five seconds succeed within the bounded deadline", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const [status, limits] = await Promise.all([
+      request(address.port, "/api/status", "test-token"),
+      request(address.port, "/api/limits?runtime=openclaw&scope=default", "test-token")
+    ]);
+    assert.equal(status.status, 200);
+    assert.equal((await status.json() as AccountCenterStatus).source, "fixture");
+    assert.equal(limits.status, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a completed OpenClaw status read restores the generic keep-alive deadline", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const result = await rawKeepAliveFollowUpPhase(address.port, "idle", 7_000);
+    assert.equal(result.elapsedMs < 7_000, true, `completed status connection remained open for ${result.elapsedMs}ms`);
+    assert.equal((result.response.match(/HTTP\/1\.1 200/g) ?? []).length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("unrelated OpenClaw protected reads retain the generic one-second socket timeout", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const result = await rawSlowProtectedRead(address.port, "/api/models?runtime=openclaw&scope=default");
+    assert.equal(result.elapsedMs < 1_800, true, `non-status read remained open for ${result.elapsedMs}ms`);
+    assert.equal(result.response, "");
+  } finally {
+    await app.close();
+  }
+});
+
+test("OpenClaw status reads exceeding twelve seconds return an HTTP redacted failure", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "openclaw",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 12_100));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "status_unavailable" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("non-OpenClaw status reads retain the strict generic deadline", async () => {
+  const fixture = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const app = createAccountCenterServer({
+    token: "test-token",
+    source: "fixture",
+    statusReader: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return fixture;
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, "/api/status", "test-token");
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "status_unavailable" });
+  } finally {
     await app.close();
   }
 });
@@ -1855,6 +2379,92 @@ test("selected default-scope inventory reads require an exact observed runtime s
   }
 });
 
+test("opaque OpenClaw agent scope cannot make global models or limits look agent-bound", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const privateAgent = "private-agent";
+  status.routes = [{ ...status.routes[0]!, runtime: "openclaw", scope: `agent:${privateAgent}` }];
+  const opaqueScope = `agent:${opaqueAgentRef(privateAgent)}`;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => status });
+  const address = await app.listen();
+  try {
+    for (const path of [`/api/models?runtime=openclaw&scope=${opaqueScope}`, `/api/limits?runtime=openclaw&scope=${opaqueScope}`]) {
+      const response = await request(address.port, path, "test-token");
+      assert.equal(response.status, 400, path);
+      assert.deepEqual(await response.json(), { error: "invalid_query" });
+    }
+  } finally { await app.close(); }
+});
+
+test("routing-pool status and scoped pool sequence receive an end-to-end bounded response deadline", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const privateAgent = "private-agent";
+  status.routes = [{ ...status.routes[0]!, runtime: "openclaw", scope: `agent:${privateAgent}` }];
+  const app = createAccountCenterServer({
+    token: "test-token", source: "openclaw",
+    statusReader: async () => { await new Promise((resolve) => setTimeout(resolve, 11_500)); return status; },
+    routingPoolAgentReader: async () => [privateAgent],
+    routingPoolReader: async () => { await new Promise((resolve) => setTimeout(resolve, 1_600)); return { agentId: privateAgent, provider: "openai", profiles: ["openai:private-profile"], order: [] }; }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, `/api/routing-pools?runtime=openclaw&scope=agent%3A${opaqueAgentRef(privateAgent)}`, "test-token");
+    assert.equal(response.status, 200);
+  } finally { await app.close(); }
+});
+
+test("routing-pool endpoint performs one authoritative discovery and passes that exact evidence to its pool reader", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const privateAgent = "private-agent";
+  const discoveredAgents = [privateAgent];
+  let discoveries = 0;
+  let receivedEvidence: readonly string[] | undefined;
+  status.routes = [{ ...status.routes[0]!, runtime: "openclaw", scope: `agent:${privateAgent}` }];
+  const app = createAccountCenterServer({
+    token: "test-token", source: "openclaw", statusReader: async () => status,
+    routingPoolAgentReader: async () => { discoveries++; return discoveredAgents; },
+    routingPoolReader: async function (scope: string) {
+      receivedEvidence = arguments[1] as readonly string[];
+      assert.equal(scope, `agent:${opaqueAgentRef(privateAgent)}`);
+      return { agentId: privateAgent, provider: "openai", profiles: ["openai:private-profile"], order: [] };
+    }
+  });
+  const address = await app.listen();
+  try {
+    const response = await request(address.port, `/api/routing-pools?runtime=openclaw&scope=agent%3A${opaqueAgentRef(privateAgent)}`, "test-token");
+    assert.equal(response.status, 200);
+    assert.equal(discoveries, 1);
+    assert.equal(receivedEvidence, discoveredAgents);
+    assert.deepEqual(await response.json(), {
+      schemaVersion: "account-center.openclaw-routing-pools.v1", verificationState: "UNPROVEN", state: "read-only",
+      pools: [{ schemaVersion: "account-center.openclaw-routing-pool.v1", agentRef: opaqueAgentRef(privateAgent), provider: "openai", verificationState: "UNPROVEN", candidates: [{ accountRef: "pool-account-1", state: "saved-unverified" }], explicitOverrideOrder: [], overrideState: "none" }]
+    });
+  } finally { await app.close(); }
+});
+
+test("routing-pool discovery has one global in-flight generation across alternating valid scopes", async () => {
+  const status = JSON.parse(await readFile(join(process.cwd(), "tests/fixtures/status.fixture.json"), "utf8")) as AccountCenterStatus;
+  const agents = ["private-agent-a", "private-agent-b", "private-agent-c"];
+  status.routes = agents.map((agent, index) => ({ ...status.routes[index % status.routes.length]!, runtime: "openclaw", scope: `agent:${agent}` }));
+  let reads = 0;
+  let release: (() => void) | undefined;
+  const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => status, routingPoolAgentReader: async () => agents, routingPoolReader: async () => {
+    reads++;
+    await new Promise<void>((resolve) => { release = resolve; });
+    return { agentId: "private-agent-a", provider: "openai", profiles: ["openai:private-profile"], order: [] };
+  } });
+  const address = await app.listen();
+  try {
+    const paths = agents.map((agent) => `/api/routing-pools?runtime=openclaw&scope=agent%3A${opaqueAgentRef(agent)}`);
+    const first = request(address.port, paths[0]!, "test-token");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const alternating = await Promise.all(paths.slice(1).map((path) => request(address.port, path, "test-token")));
+    assert.equal(reads, 1);
+    for (const response of alternating) assert.equal(response.status, 503);
+    release?.();
+    assert.equal((await first).status, 200);
+  } finally { release?.(); await app.close(); }
+});
+
 test("protected inventories fail closed on unavailable status without reflecting adapter failures or opening challenge state", async () => {
   const hostile = "private@example.test adapter failure";
   const inventoryPaths = [
@@ -1915,9 +2525,10 @@ test("read-only runtime scope catalog is bearer-protected, versioned, and expose
     assert.match(body.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.deepEqual(body.scopes, [
       { runtime: "hermes", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } },
+
       { runtime: "openclaw", scope: { kind: "default", id: "default" }, capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }
     ]);
-    assert.equal(JSON.stringify(body).match(/profileId|email|token|secret|password/i), null);
+    assert.equal(JSON.stringify(body).match(/profileId|email|token|secret|password|private-agent/i), null);
   } finally {
     await app.close();
   }

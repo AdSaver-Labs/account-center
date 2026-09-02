@@ -118,6 +118,33 @@ test("Codex capability declarations remain read-only in public status and scope 
   });
 });
 
+test("opaque OpenClaw agent scopes do not advertise unsupported generic status authority", () => {
+  const status = {
+    schemaVersion: "account-center.status.v1", generatedAt: "2026-07-17T12:00:00.000Z", noSecrets: true, source: "openclaw",
+    providers: [], profiles: [], leases: [], reauth: [], audit: [], warnings: [],
+    policy: { minFiveHourRemainingPct: 0, minWeeklyRemainingPct: 0, allowBackupWhenNormalAvailable: false, disabledModels: [], staleAfterSeconds: 60 },
+    runtimes: [{ key: "openclaw", displayName: "private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }],
+    routes: [{ runtime: "openclaw", scope: "agent:private-agent" }]
+  } as unknown as AccountCenterStatus;
+  const catalog = publicRuntimeScopeCatalogView(status, ["agent-20cee3d10892329d"]) as { scopes: Array<{ scope: { kind: string }; capabilities: unknown }> };
+  assert.deepEqual(catalog.scopes.find((entry) => entry.scope.kind === "agent")?.capabilities, {
+    readStatus: false, mutateRoutes: false, startReauth: false, mutateModels: false
+  });
+});
+
+test("legacy OpenClaw status routes cannot publish opaque agent scope availability", () => {
+  const status = {
+    schemaVersion: "account-center.status.v1", generatedAt: "2026-07-17T12:00:00.000Z", noSecrets: true, source: "openclaw",
+    providers: [], profiles: [], leases: [], reauth: [], audit: [], warnings: [],
+    policy: { minFiveHourRemainingPct: 0, minWeeklyRemainingPct: 0, allowBackupWhenNormalAvailable: false, disabledModels: [], staleAfterSeconds: 60 },
+    runtimes: [{ key: "openclaw", displayName: "private", capabilities: { readStatus: true, mutateRoutes: true, startReauth: true, mutateModels: true } }],
+    routes: [{ runtime: "openclaw", scope: "agent:legacy-private-agent" }]
+  } as unknown as AccountCenterStatus;
+
+  const catalog = publicRuntimeScopeCatalogView(status) as { scopes: Array<{ scope: { kind: string } }> };
+  assert.equal(catalog.scopes.some((entry) => entry.scope.kind === "agent"), false);
+});
+
 test("model truth remains bounded when catalog evidence is missing, malformed, stale, contradictory, or cross-runtime", () => {
   const status = {
     schemaVersion: "account-center.status.v1",

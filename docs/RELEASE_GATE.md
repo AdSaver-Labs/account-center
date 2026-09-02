@@ -29,6 +29,7 @@ Account Center is ready for Alej to install and test only when every gate below 
 - [ ] Active OpenClaw agent scope changes require a warning/confirmation flow.
 - [x] Model catalog, requested policy, effective runtime model, fallback, eligibility, and verification state are distinct.
 - [x] Unsupported, unentitled, read-only, unknown, and `UNPROVEN` states are rendered honestly, terminal where unavailable, and fixture-tested to fail closed on malformed or absent evidence.
+- [ ] OC-01 limitation: OpenClaw routing-pool inventory is read-only, `UNPROVEN`, and never claims a selected route, active account, or healthy/usable capacity; route set/clear remains out of scope.
 - [ ] Codex chat/session mutation remains read-only unless a supported safe write surface is detected.
 
 ### 3. Secure local control plane

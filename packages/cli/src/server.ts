@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { AddressInfo, Socket } from "node:net";
-import { AccountCenterStatus, assertAccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isPublicGuidedAuthRuntime, MutationRepository, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
+import { AccountCenterStatus, assertAccountCenterStatus, AuditRecord, AuditStore, AuthChallengeStore, createRuntimeAdapter, executeAccountCenterCommand, executeGuidedAuthLifecycle, honestOperationState, isNativeAuthHandoffPreflightInput, isPublicGuidedAuthRuntime, MutationRepository, NativeAuthHandoffRegistry, nativeAuthHandoffPreflightView, opaqueAgentRef, OpenClawRuntimeAdapter, OpenClawRoutingPool, projectRedactedDurableChallenge, publicAgentConnectionInventoryView, publicLimitsInventoryView, publicModelCatalogView, publicRoutingPoolView, publicRuntimeScopeCatalogView, publicStatusView, RuntimeSource } from "@account-center/core";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
 export interface AccountCenterServerOptions {
@@ -9,6 +9,10 @@ export interface AccountCenterServerOptions {
   source?: unknown;
   /** Test seam for proving the listener bounds concurrent authoritative reads. */
   statusReader?: () => Promise<AccountCenterStatus | undefined>;
+  /** Test seam for fixed-command, read-only routing-pool snapshots. */
+  routingPoolReader?: (scope: string, discoveredAgents: readonly string[]) => Promise<OpenClawRoutingPool>;
+  /** Test seam for authoritative, read-only official OpenClaw agent discovery. */
+  routingPoolAgentReader?: () => Promise<string[]>;
   /** Test seam for ordering a peer abort before delayed protected completion. */
   onConnectionClosedForTest?: () => void;
   auditStore?: AuditStore;
@@ -18,6 +22,9 @@ export interface AccountCenterServerOptions {
 }
 
 export function createAccountCenterServer(options: AccountCenterServerOptions) {
+  // Recheck accepts only a handoff that this listener returned. It has no native
+  // command, credential, route, or audit mutation authority.
+  const issuedHandoffs = new NativeAuthHandoffRegistry();
   // Only an omitted source selects the fixture adapter. Any explicit value,
   // including undefined or null, remains untrusted input for the adapter to reject.
   const source = Object.prototype.hasOwnProperty.call(options, "source") ? options.source : "fixture";
@@ -31,7 +38,42 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // probes. All callers during that containment window receive the same fixed,
   // redacted unavailable result.
   let statusGeneration: { probe: Promise<AccountCenterStatus | undefined>; result: Promise<AccountCenterStatus | undefined> } | undefined;
-  const statusProbeDeadlineMs = 250;
+  // A routing-pool read runs one discovery plus two parallel exact reads. Keep
+  // one global generation in flight: alternating otherwise-valid public scopes
+  // must not multiply the fixed official CLI process sequence.
+  let routingPoolGeneration: { scope: string; probe: Promise<OpenClawRoutingPool>; result: Promise<OpenClawRoutingPool | undefined> } | undefined;
+  let routingPoolAgentsGeneration: Promise<string[] | undefined> | undefined;
+  // Exact pool reads run in parallel after the server's single discovery.
+  const routingPoolProbeDeadlineMs = 12_500;
+  const serverRoutingPool = (scope: string, discoveredAgents: readonly string[]) => {
+    if (routingPoolGeneration) return routingPoolGeneration.scope === scope ? routingPoolGeneration.result : undefined;
+    {
+      let deadline: NodeJS.Timeout | undefined;
+      const probe = Promise.resolve().then(() => options.routingPoolReader ? options.routingPoolReader(scope, discoveredAgents) : readOfficialRoutingPool(scope, discoveredAgents));
+      const result = Promise.race([probe, new Promise<undefined>((resolve) => { deadline = setTimeout(() => resolve(undefined), routingPoolProbeDeadlineMs); })]).finally(() => { if (deadline) clearTimeout(deadline); });
+      const generation = { scope, probe, result };
+      routingPoolGeneration = generation;
+      void probe.catch(() => undefined).finally(() => { if (routingPoolGeneration === generation) routingPoolGeneration = undefined; });
+    }
+    return routingPoolGeneration.result;
+  };
+  const serverRoutingPoolAgents = () => {
+    if (!routingPoolAgentsGeneration) {
+      const probe = Promise.resolve().then(() => options.routingPoolAgentReader ? options.routingPoolAgentReader() : new OpenClawRuntimeAdapter().listRoutingPoolAgents());
+      routingPoolAgentsGeneration = probe.then((agentIds) =>
+        Array.isArray(agentIds) && agentIds.length <= 64 && new Set(agentIds).size === agentIds.length && agentIds.every((agentId) => /^[a-z][a-z0-9_-]{0,63}$/.test(agentId))
+          ? agentIds
+          : undefined,
+      () => undefined).finally(() => { routingPoolAgentsGeneration = undefined; });
+    }
+    return routingPoolAgentsGeneration;
+  };
+  // The local OpenClaw router's measured cold status reads can exceed the
+  // generic listener budget. Keep every other source at 250 ms and grant only
+  // the explicit OpenClaw source a still-bounded read window.
+  const statusProbeDeadlineMs = source === "openclaw" ? 12_000 : 250;
+  // The socket inactivity timer is set below with headroom beyond this probe deadline,
+  // so the handler can emit a fixed redacted result rather than racing a close.
   const serverStatus = () => {
     if (!statusGeneration) {
       let deadline: NodeJS.Timeout | undefined;
@@ -78,7 +120,23 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // listener ownership of that terminal socket state so a late `finish` cannot
   // recreate a deadline for a connection the listener has already released.
   const closedConnections = new WeakSet<Socket>();
+  // HTTP/1.1 may parse a later request before an earlier asynchronous handler
+  // has answered. Serialize each connection so a peer cannot run while the
+  // first request reaches its canonical validation boundary.
+  const connectionRequestTails = new WeakMap<Socket, Promise<void>>();
+  // Only a fully validated native handoff owns this marker. A queued peer sees
+  // it before routing and is rejected rather than inheriting the status window.
+  const nativeHandoffSockets = new WeakSet<Socket>();
   const connectionPhaseDeadlineMs = 1_000;
+  // A validated OpenClaw status response gets bounded headroom to emit the
+  // fixed result after its twelve-second probe; every generic socket stays at
+  // the one-second listener deadline.
+  const statusResponseDeadlineMs = 13_000;
+  // Routing-pool inventory first proves current status, then performs one
+  // discovery followed by parallel exact pool reads. Its socket allowance
+  // covers that entire bounded sequence only; no unrelated protected endpoint
+  // inherits it.
+  const routingPoolResponseDeadlineMs = 38_000;
   const clearConnectionDeadline = (socket: Socket) => {
     const deadline = connectionDeadlines.get(socket);
     if (deadline) clearTimeout(deadline);
@@ -98,14 +156,46 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // Node's version-dependent 16 KiB default. Headers are only transport
   // metadata for this loopback bearer API; no public endpoint needs more than
   // a small, bounded representation.
-  const server = createServer({ maxHeaderSize: 12_288 }, async (request, response) => {
+  const handleRequest = async (request: IncomingMessage, response: ServerResponse) => {
     clearConnectionDeadline(request.socket);
+    const connection = request.socket;
+    // A fully validated native handoff has claimed this connection while its
+    // bounded status read is active. This executes only after any earlier
+    // request on the connection completes its validation, so invalid candidates
+    // cannot reserve or affect their pipelined peer.
+    if (nativeHandoffSockets.has(connection)) {
+      setSafetyHeaders(response);
+      response.setHeader("Connection", "close");
+      return send(response, 409, { error: "pipelined_request_not_allowed" });
+    }
     // Once this request has produced its response, the same socket enters a
     // new bounded keep-alive/header phase. A subsequent parsed request clears
     // this deadline; a silent or dripped next request cannot retain the socket.
-    const connection = request.socket;
-    response.once("finish", () => armConnectionDeadline(connection));
-    const markResponseClosed = () => closedResponses.add(response);
+    let ownsNativeHandoffSocket = false;
+    const restoreConnectionPhase = () => {
+      if (nativeHandoffSockets.has(connection)) return;
+      connection.setTimeout(connectionPhaseDeadlineMs);
+      armConnectionDeadline(connection);
+    };
+    const releaseNativeHandoffSocket = () => {
+      if (!ownsNativeHandoffSocket) return restoreConnectionPhase();
+      ownsNativeHandoffSocket = false;
+      // Let an already-parsed HTTP/1.1 peer observe the validated claim before
+      // the next event-loop turn releases it. Without this boundary, a peer can
+      // race the first response's finish event into the extended socket window.
+      setImmediate(() => {
+        nativeHandoffSockets.delete(connection);
+        restoreConnectionPhase();
+      });
+    };
+    const allowValidatedOpenClawStatusResponse = () => {
+      if (source === "openclaw") connection.setTimeout(statusResponseDeadlineMs);
+    };
+    response.once("finish", releaseNativeHandoffSocket);
+    const markResponseClosed = () => {
+      closedResponses.add(response);
+      releaseNativeHandoffSocket();
+    };
     request.once("aborted", markResponseClosed);
     response.once("close", markResponseClosed);
     try {
@@ -139,6 +229,51 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     if (hasUnexpectedQuery(requestUrl, request.url, request.method)) {
       request.resume();
       return send(response, 400, { error: "invalid_query" });
+    }
+    // Only validated status reads can wait for OpenClaw's bounded authoritative
+    // probe. This runs after bearer, method, and query validation, and a
+    // body-bearing GET is excluded, so request shape cannot obtain the
+    // allowance before its normal rejection. Native handoffs receive it only
+    // after their stricter origin, framing, and canonical-body guards below.
+    if (source === "openclaw" && request.method === "GET" && !hasRequestBody(request) &&
+      requestUrl.pathname === "/api/routing-pools" && !!exactRuntimeInventoryQuery(request.url ?? "/")) {
+      connection.setTimeout(routingPoolResponseDeadlineMs);
+    } else if (source === "openclaw" && request.method === "GET" && !hasRequestBody(request) &&
+      (request.url === "/api/status" || request.url === "/api/scopes" || (requestUrl.pathname === "/api/limits" && !!runtimeInventoryQuery(request.url ?? "/")))) {
+      allowValidatedOpenClawStatusResponse();
+    }
+    if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-handoffs/openclaw/preflight") {
+      if (!sameOrigin(request, listenerOrigin)) { request.resume(); return send(response, 403, { error: "origin_forbidden" }); }
+      if (!isJsonContentType(request)) { request.resume(); return send(response, 415, { error: "json_content_type_required" }); }
+      if (!hasCanonicalJsonMutationFraming(request)) { request.resume(); return send(response, 413, { error: "invalid_request_framing" }); }
+      let body: unknown;
+      try { body = await readJsonBody(request); } catch (error) { return error instanceof RequestBodyError ? send(response, error.status, { error: error.code }) : send(response, 400, { error: "invalid_native_auth_handoff_request" }); }
+      if (!isNativeAuthHandoffPreflightInput(body)) return send(response, 400, { error: "invalid_native_auth_handoff_request" });
+      ownsNativeHandoffSocket = true;
+      nativeHandoffSockets.add(connection);
+      allowValidatedOpenClawStatusResponse();
+      const status = await serverStatus();
+      if (!status) return send(response, 503, { error: "status_unavailable", verificationState: "UNPROVEN" });
+      if (!hasNativeOpenAiHandoffEvidence(status)) return send(response, 400, { error: "native_handoff_unavailable", verificationState: "UNPROVEN" });
+      const view = nativeAuthHandoffPreflightView(issuedHandoffs.issue());
+      return send(response, 200, view);
+    }
+    const nativeHandoffId = request.method === "POST" ? nativeAuthHandoffRecheckId(requestUrl.pathname) : undefined;
+    if (nativeHandoffId) {
+      if (!sameOrigin(request, listenerOrigin)) { request.resume(); return send(response, 403, { error: "origin_forbidden" }); }
+      if (!isJsonContentType(request)) { request.resume(); return send(response, 415, { error: "json_content_type_required" }); }
+      if (!hasCanonicalJsonMutationFraming(request)) { request.resume(); return send(response, 413, { error: "invalid_request_framing" }); }
+      let body: unknown;
+      try { body = await readJsonBody(request); } catch (error) { return error instanceof RequestBodyError ? send(response, error.status, { error: error.code }) : send(response, 400, { error: "invalid_native_auth_handoff_recheck" }); }
+      if (!isEmptyRecord(body)) return send(response, 400, { error: "invalid_native_auth_handoff_recheck" });
+      ownsNativeHandoffSocket = true;
+      nativeHandoffSockets.add(connection);
+      allowValidatedOpenClawStatusResponse();
+      const status = await serverStatus();
+      if (!status) return send(response, 503, { error: "status_unavailable", verificationState: "UNPROVEN" });
+      if (!hasNativeOpenAiHandoffEvidence(status)) return send(response, 400, { error: "native_handoff_unavailable", verificationState: "UNPROVEN" });
+      if (!issuedHandoffs.consume(nativeHandoffId)) return send(response, 400, { error: "invalid_native_auth_handoff_recheck" });
+      return send(response, 200, { schemaVersion: "account-center.native-auth-handoff-recheck.v1", handoffId: nativeHandoffId, state: "postflight_unproven", verificationState: "UNPROVEN" });
     }
     if (request.method === "POST" && new URL(request.url ?? "/", "http://account-center.local").pathname === "/api/auth-challenges") {
       if (!sameOrigin(request, listenerOrigin)) {
@@ -299,6 +434,25 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
       return send(response, 413, { error: "request_body_not_allowed" });
     }
     if (request.method !== "GET") return send(response, 405, { error: "method_not_allowed" });
+    if (requestUrl.pathname === "/api/routing-pools") {
+      const unavailable = () => send(response, 503, publicRoutingPoolsUnavailableView());
+      const query = exactRuntimeInventoryQuery(request.url ?? "/");
+      if (!query || query.runtime !== "openclaw") return send(response, 400, { error: "invalid_query" });
+      if (source !== "openclaw") return unavailable();
+      const status = await serverStatus();
+      if (!status) return unavailable();
+      if (!status.runtimes.some((runtime) => runtime.key === "openclaw")) return send(response, 400, { error: "unknown_runtime_scope" });
+      const requestedAgentRef = /^agent:(agent-[a-f0-9]{16})$/.exec(query.scope)?.[1];
+      if (!requestedAgentRef) return send(response, 400, { error: "unknown_runtime_scope" });
+      const discoveredAgents = await serverRoutingPoolAgents();
+      if (!discoveredAgents) return unavailable();
+      if (!discoveredAgents.some((agentId) => opaqueAgentRef(agentId) === requestedAgentRef)) return send(response, 400, { error: "unknown_runtime_scope" });
+      try {
+        const pool = await serverRoutingPool(query.scope, discoveredAgents);
+        if (!isExactRoutingPoolSnapshot(pool) || opaqueAgentRef(pool.agentId) !== requestedAgentRef) return unavailable();
+        return send(response, 200, publicRoutingPoolsView([pool]));
+      } catch { return unavailable(); }
+    }
     // Capability discovery is itself an authority-dependent protected read:
     // advertising a local action while the current runtime cannot be verified
     // would let a panel mistake stale store presence for an executable action.
@@ -396,7 +550,14 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     }
     if (request.url === "/api/scopes") {
       const status = await serverStatus();
-      return status ? send(response, 200, publicRuntimeScopeCatalogView(status)) : send(response, 503, { error: "status_unavailable" });
+      if (!status) return send(response, 503, { error: "status_unavailable" });
+      // Agent availability is an independent official discovery. A failed
+      // discovery merely withholds agent scopes; it never falls back to the
+      // status route or exposes private discovery identifiers.
+      const agentRefs = source === "openclaw"
+        ? (await serverRoutingPoolAgents() ?? []).map(opaqueAgentRef)
+        : [];
+      return send(response, 200, publicRuntimeScopeCatalogView(status, agentRefs));
     }
     if (pathname === "/api/auth-challenges") {
       // Lifecycle history is durable local state. Do not turn an unavailable
@@ -444,6 +605,17 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     } catch {
       if (!closedResponses.has(response) && canWriteResponse(response)) send(response, 500, { error: "internal_error" });
     }
+  };
+  const server = createServer({ maxHeaderSize: 12_288 }, (request, response) => {
+    const connection = request.socket;
+    const previous = connectionRequestTails.get(connection);
+    // Start the first handler synchronously so its canonical-body deadline is
+    // armed in the same parser turn; later parsed peers wait for it to finish.
+    const current = previous ? previous.then(() => handleRequest(request, response)) : handleRequest(request, response);
+    connectionRequestTails.set(connection, current);
+    void current.finally(() => {
+      if (connectionRequestTails.get(connection) === current) connectionRequestTails.delete(connection);
+    });
   });
   // Own the parser-level deadlines rather than inheriting Node-version defaults.
   // Header-incomplete peers never create an IncomingMessage and therefore cannot
@@ -452,6 +624,8 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
   // after a canonical mutation has reached the handler.
   server.headersTimeout = connectionPhaseDeadlineMs;
   server.requestTimeout = connectionPhaseDeadlineMs;
+  // Keep Node's generic socket timeout strict. Eligible OpenClaw status reads
+  // receive their bounded request-local allowance only after validation above.
   server.timeout = connectionPhaseDeadlineMs;
   server.keepAliveTimeout = connectionPhaseDeadlineMs;
   server.on("checkExpectation", (request, response) => {
@@ -491,6 +665,8 @@ export function createAccountCenterServer(options: AccountCenterServerOptions) {
     armConnectionDeadline(socket);
     socket.once("close", () => {
       closedConnections.add(socket);
+      nativeHandoffSockets.delete(socket);
+      connectionRequestTails.delete(socket);
       clearConnectionDeadline(socket);
       options.onConnectionClosedForTest?.();
     });
@@ -669,6 +845,14 @@ function exactRuntimeInventoryQuery(path: string): { runtime: string; scope: str
   return query?.runtime && query.scope ? { runtime: query.runtime, scope: query.scope } : undefined;
 }
 
+function hasNativeOpenAiHandoffEvidence(status: AccountCenterStatus): boolean {
+  if (!status.providers.some((provider) => provider.key === "openai")) return false;
+  const openAiProfiles = new Set(status.profiles.filter((profile) => profile.provider === "openai" && profile.runtimeCompatibility.includes("openclaw")).map((profile) => profile.id));
+  return status.runtimes.some((runtime) => runtime.key === "openclaw") &&
+    (status.agentConnections ?? []).some((connection) => connection.runtime === "openclaw" && connection.scope === "default" && connection.state === "connected" &&
+      connection.verifiedProfileIds.some((profileId) => openAiProfiles.has(profileId)));
+}
+
 function isObservedRuntimeScope(status: AccountCenterStatus, query: RuntimeInventoryQuery): boolean {
   if (!query.runtime) return true;
   // A selected runtime must be observed by the authoritative status snapshot.
@@ -677,7 +861,8 @@ function isObservedRuntimeScope(status: AccountCenterStatus, query: RuntimeInven
   if (!observed) return false;
   if (!query.scope) return true;
   // The current authoritative catalog declares only each runtime's default
-  // scope. Named scopes remain unavailable until runtime evidence is added.
+  // scope for global inventory. An opaque OpenClaw agent scope is eligible only
+  // for the separately agent-bound routing-pool projection.
   return query.scope === "default";
 }
 
@@ -703,6 +888,28 @@ async function authoritativeStatus(source: unknown): Promise<AccountCenterStatus
   } catch {
     return undefined;
   }
+}
+
+/** One authoritative public scope maps to one supplied discovery and two parallel exact reads. */
+async function readOfficialRoutingPool(scope: string, discoveredAgents: readonly string[]): Promise<OpenClawRoutingPool> {
+  return new OpenClawRuntimeAdapter().readRoutingPoolForPublicScope(scope, discoveredAgents);
+}
+
+function isExactRoutingPoolSnapshot(pool: unknown): pool is OpenClawRoutingPool {
+  if (!pool || typeof pool !== "object") return false;
+  const { agentId, provider, profiles, order } = pool as OpenClawRoutingPool;
+  return typeof agentId === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(agentId) && provider === "openai" &&
+    Array.isArray(profiles) && Array.isArray(order) && profiles.length <= 256 && order.length <= 256 &&
+    new Set(profiles).size === profiles.length && new Set(order).size === order.length &&
+    profiles.every((profile) => /^openai:[a-z0-9][a-z0-9._-]{0,127}$/i.test(profile)) &&
+    order.every((profile) => profiles.includes(profile));
+}
+
+function publicRoutingPoolsView(pools: OpenClawRoutingPool[]) {
+  return { schemaVersion: "account-center.openclaw-routing-pools.v1" as const, verificationState: "UNPROVEN" as const, state: "read-only" as const, pools: pools.map(publicRoutingPoolView) };
+}
+function publicRoutingPoolsUnavailableView() {
+  return { schemaVersion: "account-center.openclaw-routing-pools.v1" as const, verificationState: "UNPROVEN" as const, state: "read-only" as const, error: "UNPROVEN" as const, pools: [] as ReturnType<typeof publicRoutingPoolView>[] };
 }
 
 function authChallengeInventoryQuery(path: string): AuthChallengeInventoryQuery | undefined {
@@ -820,11 +1027,14 @@ function auditScopeKind(scope: string): AuditRecord["scopeKind"] | undefined {
 function authChallengeView(challenge: Awaited<ReturnType<AuthChallengeStore["create"]>>) {
   return projectRedactedDurableChallenge(challenge);
 }
+function nativeAuthHandoffRecheckId(path: string | undefined): string | undefined { return path?.match(/^\/api\/auth-handoffs\/openclaw\/(handoff_[A-Za-z0-9_-]{32})\/recheck$/)?.[1]; }
+function isEmptyRecord(value: unknown): value is Record<string, never> { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0; }
 
 function endpointMethods(path: string | undefined): string[] | undefined {
   const pathname = path ? new URL(path, "http://account-center.local").pathname : undefined;
   if (pathname === "/api/auth-challenges") return ["GET", "POST"];
-  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/agent-connections", "/api/scopes", "/api/status"].includes(pathname ?? "")) return ["GET"];
+  if (pathname === "/api/auth-handoffs/openclaw/preflight" || nativeAuthHandoffRecheckId(pathname)) return ["POST"];
+  if (["/api/capabilities", "/api/audit", "/api/mutation-operations", "/api/models", "/api/limits", "/api/agent-connections", "/api/routing-pools", "/api/scopes", "/api/status"].includes(pathname ?? "")) return ["GET"];
   if (pathname === "/api/account-ui-preferences") return ["GET", "POST"];
   if (mutationOperationId(pathname) || auditRecordId(pathname)) return ["GET"];
   if (authChallengeCancelId(pathname)) return ["POST"];
@@ -840,6 +1050,7 @@ function hasUnexpectedQuery(url: URL, rawPath: string | undefined, method: strin
   // query vocabulary below. POST challenge creation deliberately has no query
   // contract even though the collection supports filtered GET reads.
   if (url.pathname === "/api/agent-connections") return !exactRuntimeInventoryQuery(rawPath ?? url.pathname);
+  if (url.pathname === "/api/routing-pools") return !exactRuntimeInventoryQuery(rawPath ?? url.pathname);
   if (["/api/models", "/api/limits", "/api/audit", "/api/mutation-operations", "/api/account-ui-preferences"].includes(url.pathname)) return false;
   if (method === "GET" && (auditRecordId(url.pathname) || mutationOperationId(url.pathname))) return !durableDetailQuery(rawPath ?? url.pathname);
   if (method === "GET" && authChallengeId(url.pathname)) return !authChallengeDetailQuery(rawPath ?? url.pathname);
@@ -1131,8 +1342,8 @@ function controlPanelHtml(): string {
       <article class="panel"><div class="panel-header"><div class="section-title"><h2>Attention &amp; pending work</h2><span class="count" id="attention-count">No signals</span></div><span class="pill warn">Review</span></div><div class="panel-body"><div class="record-list" id="attention"><p class="empty">Load status to identify recovery work.</p></div></div></article>
       <article class="panel wide"><div class="panel-header"><div class="section-title"><h2>Visible accounts</h2><span class="count" id="account-count">No accounts</span></div><span class="pill">Weekly availability</span></div><div class="panel-body"><p class="scope-notice" id="home-account-scope" aria-live="polite">Select a readable runtime and scope to verify visible accounts.</p><div class="account-records" id="accounts" role="list" aria-label="Visible accounts"><p class="empty">Load status to inspect visible accounts.</p></div></div></article>
     </section>
-    <section class="view secondary" id="accounts-view" data-view="accounts" role="tabpanel" aria-labelledby="accounts-tab" tabindex="-1" hidden><header class="view-heading"><div><h2>Accounts</h2><p>Active — selected for use now. Saved — available, but not selected now. Hidden — out of everyday lists, but still available. Hide removes an account from everyday lists. Restore shows it there again.</p></div><span class="pill" id="accounts-routing-badge">Loading</span></header><div class="catalog-grid"><article class="panel"><div class="panel-header"><div class="section-title"><h2>Selected route</h2></div><span class="pill">Observed</span></div><div class="panel-body record-list" id="routing-route-state"></div></article><article class="panel"><div class="panel-header"><div class="section-title"><h2>Route controls</h2></div><span class="pill warn">Capability gated</span></div><div class="panel-body record-list" id="routing-action-state"></div></article></div><article class="panel secondary"><div class="panel-header"><div class="section-title"><h2>Account visibility</h2></div><span class="pill">Local preference</span></div><div class="panel-body record-list" id="account-visibility-state"><p class="empty">Load status to inspect active, saved, and hidden accounts.</p></div></article><article class="panel secondary"><div class="panel-header"><div class="section-title"><h2>Connected accounts</h2></div><span class="pill">Status data</span></div><div class="panel-body record-list" id="routing-accounts-state"></div></article><article class="panel secondary"><div class="panel-header"><div class="section-title"><h2>Connect an agent</h2></div><span class="pill">Redacted inventory</span></div><div class="panel-body record-list" id="agent-connection-state"><p class="empty">Load status to verify Hermes and OpenClaw connections.</p></div></article></section>
-    <section class="view secondary" id="more-view" data-view="more" role="tabpanel" aria-labelledby="more-tab" tabindex="-1" hidden><header class="view-heading"><div><h2>Settings</h2><p>Local connection and help. Advanced tools remain separate from everyday account controls.</p></div></header><section class="more-basics" aria-label="Everyday settings help"><article><h2>Local connection</h2><p>Enter the launch token above, then refresh status. It is used only for this local request and is never displayed.</p></article><article><h2>Need to sign in?</h2><p>Review Guided auth below. It keeps local challenge history; it does not complete sign-in without runtime proof.</p></article><article><h2>Getting started</h2><p>Review what this local panel can safely show and what remains unavailable.</p><button class="quiet secondary" id="replay-onboarding" type="button">Replay welcome</button></article></section><h2 class="view-heading">Advanced</h2><div hidden id="sentinel-runtimes"></div><div hidden id="route-count"></div><div hidden id="routes"></div><div hidden id="models"></div><div hidden id="model-count"></div><div hidden id="operator-actions"></div><section id="guided-view" tabindex="-1"><header class="view-heading"><div><h2>Guided auth</h2><p>Durable local challenge history. Starting or completing authentication is not available until runtime proof exists.</p></div><span class="pill warn" id="guided-freshness" aria-describedby="guided-freshness-detail">Status unavailable</span></header><p class="caption" id="guided-freshness-detail" aria-live="polite">Guided-auth records have not been checked. No sign-in result is shown.</p><div class="record-list" id="guided-records"><p class="empty">Load status to inspect local challenges.</p></div><section class="record-list secondary" id="guided-detail" aria-live="polite" aria-label="Guided-auth challenge detail"></section><button class="quiet secondary" id="guided-load-more" type="button" hidden>Load older guided-auth challenges</button></section>
+    <section class="view secondary" id="accounts-view" data-view="accounts" role="tabpanel" aria-labelledby="accounts-tab" tabindex="-1" hidden><header class="view-heading"><div><h2>Accounts</h2><p>Active — selected for use now. Saved — available, but not selected now. Hidden — out of everyday lists, but still available. Hide removes an account from everyday lists. Restore shows it there again.</p></div><span class="pill" id="accounts-routing-badge">Loading</span></header><article class="panel"><div class="panel-header"><div class="section-title"><h2>Routing Pool</h2><span class="pill warn">UNPROVEN/read-only</span></div></div><div class="panel-body"><p class="subtle">Saved/unverified candidates and explicit override order are shown only when the selected OpenClaw agent is read through its official scoped commands. This view does not identify a selected route or usable capacity.</p><dl class="account-details" id="routing-pool-state"><div><dt>Saved/unverified candidates</dt><dd>Not checked</dd></div><div><dt>Explicit override order</dt><dd>Not checked</dd></div></dl></div></article><div class="catalog-grid"><article class="panel"><div class="panel-header"><div class="section-title"><h2>Selected route</h2></div><span class="pill">Observed</span></div><div class="panel-body record-list" id="routing-route-state"></div></article><article class="panel"><div class="panel-header"><div class="section-title"><h2>Route controls</h2></div><span class="pill warn">Capability gated</span></div><div class="panel-body record-list" id="routing-action-state"></div></article></div><article class="panel secondary"><div class="panel-header"><div class="section-title"><h2>Account visibility</h2></div><span class="pill">Local preference</span></div><div class="panel-body record-list" id="account-visibility-state"><p class="empty">Load status to inspect active, saved, and hidden accounts.</p></div></article><article class="panel secondary"><div class="panel-header"><div class="section-title"><h2>Connected accounts</h2></div><span class="pill">Status data</span></div><div class="panel-body record-list" id="routing-accounts-state"></div></article><article class="panel secondary"><div class="panel-header"><div class="section-title"><h2>Connect an agent</h2></div><span class="pill">Redacted inventory</span></div><div class="panel-body record-list" id="agent-connection-state"><p class="empty">Load status to verify Hermes and OpenClaw connections.</p></div></article></section>
+    <section class="view secondary" id="more-view" data-view="more" role="tabpanel" aria-labelledby="more-tab" tabindex="-1" hidden><header class="view-heading"><div><h2>Settings</h2><p>Local connection and help. Advanced tools remain separate from everyday account controls.</p></div></header><section class="more-basics" aria-label="Everyday settings help"><article><h2>Local connection</h2><p>Enter the launch token above, then refresh status. It is used only for this local request and is never displayed.</p></article><article><h2>Need to sign in?</h2><p>Review Guided auth below. It keeps local challenge history; it does not complete sign-in without runtime proof.</p></article><article><h2>Getting started</h2><p>Review what this local panel can safely show and what remains unavailable.</p><button class="quiet secondary" id="replay-onboarding" type="button">Replay welcome</button></article></section><h2 class="view-heading">Advanced</h2><div hidden id="sentinel-runtimes"></div><div hidden id="route-count"></div><div hidden id="routes"></div><div hidden id="models"></div><div hidden id="model-count"></div><div hidden id="operator-actions"></div><section id="guided-view" tabindex="-1"><header class="view-heading"><div><h2>Guided auth</h2><p>Durable local challenge history. Starting or completing authentication is not available until runtime proof exists.</p></div><span class="pill warn" id="guided-freshness" aria-describedby="guided-freshness-detail">Status unavailable</span></header><section class="record state" aria-labelledby="native-handoff-heading"><h3 id="native-handoff-heading">Native sign-in required</h3><p id="native-handoff-status" role="status" aria-live="polite">UNPROVEN — select the observed OpenClaw default scope to preflight an instruction-only handoff.</p><button class="quiet" id="native-handoff-preflight" type="button" disabled>Preflight native sign-in</button><button class="quiet" id="native-handoff-recheck" type="button" disabled>Recheck native sign-in</button></section><p class="caption" id="guided-freshness-detail" aria-live="polite">Guided-auth records have not been checked. No sign-in result is shown.</p><div class="record-list" id="guided-records"><p class="empty">Load status to inspect local challenges.</p></div><section class="record-list secondary" id="guided-detail" aria-live="polite" aria-label="Guided-auth challenge detail"></section><button class="quiet secondary" id="guided-load-more" type="button" hidden>Load older guided-auth challenges</button></section>
     <details class="advanced-disclosure secondary" id="advanced-diagnostics"><summary><strong>Advanced diagnostics</strong><span>Technical catalogs and redacted records</span></summary><div class="advanced-content"><section class="view" id="catalogs-view"><header class="view-heading"><div><h2>Runtime catalogs</h2><p>Observed scopes and models. Catalog visibility does not grant mutation permission.</p></div><span class="pill">Observed</span></header><div class="catalog-grid"><article class="panel"><div class="panel-header"><div class="section-title"><h2>Scopes</h2></div><span class="pill">Read-only</span></div><div class="panel-body record-list" id="scope-records"><p class="empty">Load status to inspect available scopes.</p></div></article><article class="panel"><div class="panel-header"><div class="section-title"><h2>Models</h2></div><span class="pill">Read-only</span></div><div class="panel-body record-list" id="catalog-models"><p class="empty">Load status to inspect observed models.</p></div></article></div></section>
     <section class="view secondary" id="models-fallbacks-view"><header class="view-heading"><div><h2>Models &amp; fallbacks</h2><p>Observed catalog evidence for the selected runtime. Policy and fallback changes remain unavailable until a protected scoped mutation contract and runtime proof exist.</p></div><span class="pill" id="models-fallbacks-badge" aria-describedby="models-fallbacks-detail">Status unavailable</span></header><p class="caption" id="models-fallbacks-detail" aria-live="polite">Model-policy evidence has not been checked. No model setting or fallback is shown as current.</p><div class="catalog-grid"><article class="panel"><div class="panel-header"><div class="section-title"><h2>Current selection</h2></div><span class="pill">Read-only</span></div><div class="panel-body record-list" id="model-policy-state"><article class="record state" data-ui-state="loading" role="status"><strong>Loading model evidence</strong><p>Loading the protected model catalog for the selected runtime.</p><span class="pill">Loading</span></article></div></article><article class="panel"><div class="panel-header"><div class="section-title"><h2>Model controls</h2></div><span class="pill warn">Capability gated</span></div><div class="panel-body record-list" id="model-action-state"><article class="record state" data-ui-state="loading" role="status"><strong>Checking model capability</strong><p>No model action is available until protected capability discovery completes.</p><span class="pill">Loading</span></article></div></article></div><article class="panel secondary"><div class="panel-header"><div class="section-title"><h2>Observed model catalog</h2></div><span class="pill">Read-only</span></div><div class="panel-body record-list" id="model-catalog-state"><p class="empty">Load status to inspect observed models.</p></div></article></section>
     <section class="view secondary" id="audit-view"><header class="view-heading"><div><h2>Receipts &amp; audit</h2><p>Redacted Account Center evidence only. This is not a raw runtime log.</p></div><span class="pill">Local evidence</span></header><div class="catalog-grid"><article class="panel"><div class="panel-header"><div class="section-title"><h2>Audit history</h2></div><span class="pill warn" id="audit-freshness" aria-describedby="audit-freshness-detail">Status unavailable</span></div><p class="caption" id="audit-freshness-detail" aria-live="polite">Audit records have not been checked. Previously loaded evidence is not shown as current.</p><form class="token-form" id="audit-filter"><div class="field"><label for="audit-outcome">Outcome</label><select id="audit-outcome" name="outcome"><option value="">All outcomes</option><option value="started">Started</option><option value="applied">Applied</option><option value="dry_run">Dry run</option><option value="blocked">Blocked</option><option value="failed_no_change_verified">Failed, no change verified</option><option value="unproven">UNPROVEN</option><option value="recovery_required">Recovery required</option></select></div><div class="field"><label for="audit-action">Action category</label><input id="audit-action" name="action" type="text" autocomplete="off" spellcheck="false" pattern="[a-z][a-z0-9._-]{0,63}" placeholder="For example: route.use"></div><div class="field"><label for="audit-from">Recorded from (UTC)</label><input id="audit-from" name="from" type="date"></div><div class="field"><label for="audit-to">Recorded through (UTC)</label><input id="audit-to" name="to" type="date"></div><button class="quiet" id="audit-filter-submit" type="submit">Filter audit history</button></form><div class="panel-body record-list" id="audit-records"><p class="empty">Load status to inspect recorded actions.</p></div><section class="record-list secondary" id="audit-detail" aria-live="polite" aria-label="Audit evidence detail"><p class="empty" role="status">No audit evidence detail selected for this context.</p></section><button class="quiet secondary" id="audit-load-more" type="button" hidden>Load older audit records</button></article><article class="panel"><div class="panel-header"><div class="section-title"><h2>Operation history</h2></div><span class="pill warn" id="operation-freshness" aria-describedby="operation-freshness-detail">Status unavailable</span></div><p class="caption" id="operation-freshness-detail" aria-live="polite">Operation records have not been checked. Previously loaded evidence is not shown as current.</p><p class="caption">Filtered to the selected runtime and scope kind when a readable context is available.</p><form class="token-form" id="operation-filter"><div class="field"><label for="operation-outcome">Outcome</label><select id="operation-outcome" name="outcome"><option value="">All outcomes</option><option value="applied">Applied</option><option value="not_applied">Not applied</option><option value="blocked">Blocked</option><option value="failed">Failed</option></select></div><div class="field"><label for="operation-action">Action category</label><input id="operation-action" name="action" type="text" autocomplete="off" spellcheck="false" pattern="[a-z][a-z0-9._-]{0,63}" placeholder="For example: route.use"></div><div class="field"><label for="operation-from">Recorded from (UTC)</label><input id="operation-from" name="from" type="date"></div><div class="field"><label for="operation-to">Recorded through (UTC)</label><input id="operation-to" name="to" type="date"></div><button class="quiet" id="operation-filter-submit" type="submit">Filter operation history</button></form><div class="panel-body record-list" id="operation-records"><p class="empty">Load status to inspect protected operations.</p></div><button class="quiet secondary" id="operation-load-more" type="button" hidden>Load older protected operations</button><section class="record-list secondary" id="operation-detail" aria-live="polite" aria-label="Protected operation detail"></section></article></div></section>
@@ -1144,7 +1355,7 @@ function controlPanelHtml(): string {
     (function () {
       var form = document.getElementById('token-form'); var token = document.getElementById('token'); var refresh = document.getElementById('refresh'); var notice = document.getElementById('notice');
       var source = document.getElementById('source'); var freshness = document.getElementById('freshness'); var metrics = document.getElementById('metrics'); var runtimes = document.getElementById('runtimes'); var routes = document.getElementById('routes'); var accounts = document.getElementById('accounts'); var homeAccountScope = document.getElementById('home-account-scope'); var sentinelRuntimes = document.getElementById('sentinel-runtimes'); var models = document.getElementById('models'); var attention = document.getElementById('attention'); var attentionCount = document.getElementById('attention-count'); var operatorActions = document.getElementById('operator-actions'); var contextSelector = document.getElementById('context-selector'); var contextHelp = document.getElementById('context-help'); var contextCapability = document.getElementById('context-capability'); var contextChip = document.getElementById('context-chip'); var runtimeScope = document.getElementById('runtime-scope'); var selectedContext = ''; var detailEpoch = 0; var latestStatus;
-      var guidedRecords = document.getElementById('guided-records'); var guidedDetail = document.getElementById('guided-detail'); var guidedFreshness = document.getElementById('guided-freshness'); var guidedLoadMore = document.getElementById('guided-load-more'); var challengeCursor = ''; var cancelChallengeCapability; var scopeRecords = document.getElementById('scope-records'); var catalogModels = document.getElementById('catalog-models'); var modelsFallbacksBadge = document.getElementById('models-fallbacks-badge'); var modelPolicyState = document.getElementById('model-policy-state'); var modelActionState = document.getElementById('model-action-state'); var modelCatalogState = document.getElementById('model-catalog-state'); var accountVisibilityState = document.getElementById('account-visibility-state'); var auditRecords = document.getElementById('audit-records'); var auditDetail = document.getElementById('audit-detail'); var auditFreshnessBadge = document.getElementById('audit-freshness'); var auditLoadMore = document.getElementById('audit-load-more'); var auditCursor = ''; var operationRecords = document.getElementById('operation-records'); var operationDetail = document.getElementById('operation-detail'); var operationFreshnessBadge = document.getElementById('operation-freshness'); var operationLoadMore = document.getElementById('operation-load-more'); var operationCursor = ''; var auditFilter = document.getElementById('audit-filter'); var auditOutcome = document.getElementById('audit-outcome'); var auditAction = document.getElementById('audit-action'); var auditFrom = document.getElementById('audit-from'); var auditTo = document.getElementById('audit-to'); var auditFilterSubmit = document.getElementById('audit-filter-submit'); var operationFilter = document.getElementById('operation-filter'); var operationOutcome = document.getElementById('operation-outcome'); var operationAction = document.getElementById('operation-action'); var operationFrom = document.getElementById('operation-from'); var operationTo = document.getElementById('operation-to'); var operationFilterSubmit = document.getElementById('operation-filter-submit'); var accountsRoutingBadge = document.getElementById('accounts-routing-badge'); var routingRouteState = document.getElementById('routing-route-state'); var routingActionState = document.getElementById('routing-action-state'); var routingAccountsState = document.getElementById('routing-accounts-state'); var agentConnectionState = document.getElementById('agent-connection-state'); var updateReleaseState = document.getElementById('update-release-state'); var updateActionState = document.getElementById('update-action-state'); var cancelChallengeDialog = document.getElementById('cancel-challenge-dialog'); var cancelChallengeHeading = document.getElementById('cancel-challenge-heading'); var cancelChallengeDismiss = document.getElementById('cancel-challenge-dismiss'); var cancelChallengeConfirm = document.getElementById('cancel-challenge-confirm'); var cancelChallengeStatus = document.getElementById('cancel-challenge-status'); var cancelChallengeId = ''; var cancelChallengeTrigger; var cancellationInFlight = false;
+      var guidedRecords = document.getElementById('guided-records'); var guidedDetail = document.getElementById('guided-detail'); var guidedFreshness = document.getElementById('guided-freshness'); var guidedLoadMore = document.getElementById('guided-load-more'); var challengeCursor = ''; var cancelChallengeCapability; var scopeRecords = document.getElementById('scope-records'); var catalogModels = document.getElementById('catalog-models'); var modelsFallbacksBadge = document.getElementById('models-fallbacks-badge'); var modelPolicyState = document.getElementById('model-policy-state'); var modelActionState = document.getElementById('model-action-state'); var modelCatalogState = document.getElementById('model-catalog-state'); var accountVisibilityState = document.getElementById('account-visibility-state'); var routingPoolState = document.getElementById('routing-pool-state'); var auditRecords = document.getElementById('audit-records'); var auditDetail = document.getElementById('audit-detail'); var auditFreshnessBadge = document.getElementById('audit-freshness'); var auditLoadMore = document.getElementById('audit-load-more'); var auditCursor = ''; var operationRecords = document.getElementById('operation-records'); var operationDetail = document.getElementById('operation-detail'); var operationFreshnessBadge = document.getElementById('operation-freshness'); var operationLoadMore = document.getElementById('operation-load-more'); var operationCursor = ''; var auditFilter = document.getElementById('audit-filter'); var auditOutcome = document.getElementById('audit-outcome'); var auditAction = document.getElementById('audit-action'); var auditFrom = document.getElementById('audit-from'); var auditTo = document.getElementById('audit-to'); var auditFilterSubmit = document.getElementById('audit-filter-submit'); var operationFilter = document.getElementById('operation-filter'); var operationOutcome = document.getElementById('operation-outcome'); var operationAction = document.getElementById('operation-action'); var operationFrom = document.getElementById('operation-from'); var operationTo = document.getElementById('operation-to'); var operationFilterSubmit = document.getElementById('operation-filter-submit'); var accountsRoutingBadge = document.getElementById('accounts-routing-badge'); var routingRouteState = document.getElementById('routing-route-state'); var routingActionState = document.getElementById('routing-action-state'); var routingAccountsState = document.getElementById('routing-accounts-state'); var agentConnectionState = document.getElementById('agent-connection-state'); var updateReleaseState = document.getElementById('update-release-state'); var updateActionState = document.getElementById('update-action-state'); var cancelChallengeDialog = document.getElementById('cancel-challenge-dialog'); var cancelChallengeHeading = document.getElementById('cancel-challenge-heading'); var cancelChallengeDismiss = document.getElementById('cancel-challenge-dismiss'); var cancelChallengeConfirm = document.getElementById('cancel-challenge-confirm'); var cancelChallengeStatus = document.getElementById('cancel-challenge-status'); var cancelChallengeId = ''; var cancelChallengeTrigger; var cancellationInFlight = false;
       var tabs = Array.prototype.slice.call(document.querySelectorAll('[data-tab]')); var views = Array.prototype.slice.call(document.querySelectorAll('[data-view]')); var onboardingDialog = document.getElementById('onboarding-dialog'); var onboardingHeading = document.getElementById('onboarding-heading'); var onboardingDescription = document.getElementById('onboarding-description'); var onboardingStep = document.getElementById('onboarding-step'); var onboardingNext = document.getElementById('onboarding-next'); var onboardingSkip = document.getElementById('onboarding-skip'); var replayOnboarding = document.getElementById('replay-onboarding'); var onboardingIndex = 0; var onboardingSteps = [{ title: 'A local, redacted control panel', detail: 'Account Center helps you inspect protected local account evidence. It does not connect to a runtime until you enter the current launch token.' }, { title: 'Your token stays in this request', detail: 'The launch token is used only for protected local requests. It is never displayed or saved by this panel.' }, { title: 'Only supported actions are offered', detail: 'Read status and redacted local history are available only when the protected API proves them. Routing, model changes, and runtime sign-in changes remain unavailable without proof.' }, { title: 'Finish with a safe starting point', detail: 'Optional discovery is read-only: a listed account is not proof that it is usable. You can reopen this welcome from Settings at any time.' }];
       function selectView(name, focusPanel) { tabs.forEach(function (tab) { var selected = tab.dataset.tab === name; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; }); views.forEach(function (view) { view.hidden = view.dataset.view !== name; }); if (focusPanel !== false) document.getElementById(name + '-view').focus({ preventScroll: true }); }
       tabs.forEach(function (tab, index) { tab.addEventListener('click', function () { selectView(tab.dataset.tab); }); tab.addEventListener('keydown', function (event) { var targetIndex = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1; if (targetIndex < 0) return; event.preventDefault(); var target = tabs[targetIndex]; selectView(target.dataset.tab, false); target.focus(); }); });
@@ -1173,6 +1384,7 @@ function controlPanelHtml(): string {
       // from protected data; it never upgrades unavailable evidence to success.
       function renderViewState(target, state, title, detail, actionLabel) { var allowed = ['loading', 'empty', 'error', 'blocked', 'read-only', 'unproven']; var safeState = allowed.indexOf(state) === -1 ? 'unproven' : state; var badge = safeState === 'unproven' ? 'UNPROVEN' : safeState === 'read-only' ? 'Read-only' : safeState.charAt(0).toUpperCase() + safeState.slice(1); target.innerHTML = '<article class="record state" data-ui-state="' + safeState + '" role="status"><strong>' + escapeHtml(title) + '</strong><p>' + escapeHtml(detail) + '</p><span class="pill ' + (safeState === 'blocked' || safeState === 'unproven' ? 'warn' : '') + '">' + escapeHtml(badge) + '</span>' + (actionLabel ? '<button class="quiet retry-workspace" type="button">' + escapeHtml(actionLabel) + '</button>' : '') + '</article>'; }
       function selectedRuntime() { return selectedContext ? selectedContext.split('|')[0] : ''; }
+      function isNativeHandoffDefaultScope() { return selectedContext === 'openclaw|default'; }
       function selectedRuntimeQuery() { var runtime = selectedRuntime(); return runtime ? '?runtime=' + encodeURIComponent(runtime) : ''; }
       function selectedScopeQuery() { var runtime = selectedRuntime(); var scope = selectedContext ? selectedContext.split('|').slice(1).join('|') : ''; var parameters = new URLSearchParams(); if (runtime) parameters.set('runtime', runtime); if (scope) parameters.set('scope', scope); var query = parameters.toString(); return query ? '?' + query : ''; }
       function selectedScopeKind() { return selectedContext ? selectedContext.split('|')[1].split(':')[0] : ''; }
@@ -1218,9 +1430,9 @@ function controlPanelHtml(): string {
       function contextOption(item) { return '<option value="' + escapeHtml(contextValue(item)) + '">' + escapeHtml(item.runtime + ' / ' + scopeLabel(item.scope)) + '</option>'; }
       function contextCapabilityLabel(capabilities) { if (!capabilities || capabilities.readStatus !== true) return 'UNPROVEN'; return capabilities.mutateRoutes || capabilities.startReauth || capabilities.mutateModels ? 'Declared actions' : 'Read-only'; }
       function contextCapabilityDetail(item) { var capabilities = item && item.capabilities || {}; if (capabilities.readStatus !== true) return 'This scope has no verified readable status capability.'; var actions = []; if (capabilities.mutateRoutes) actions.push('routing'); if (capabilities.startReauth) actions.push('guided authentication'); if (capabilities.mutateModels) actions.push('model policy'); return actions.length ? 'Readable status; declared ' + actions.join(', ') + ' capability. Each action remains gated by its protected API result.' : 'Readable status only. Routing, guided authentication, and model changes are not declared for this scope.'; }
-      function isRuntimeScope(item) { var scope = item && item.scope; var capabilities = item && item.capabilities; var observedRuntimes = latestStatus && Array.isArray(latestStatus.runtimes) ? latestStatus.runtimes.map(function (runtime) { return runtime && runtime.key; }) : []; return item && typeof item === 'object' && Object.keys(item).every(function (key) { return ['runtime', 'scope', 'capabilities'].indexOf(key) !== -1; }) && typeof item.runtime === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(item.runtime) && observedRuntimes.indexOf(item.runtime) !== -1 && scope && typeof scope === 'object' && Object.keys(scope).every(function (key) { return ['kind', 'id'].indexOf(key) !== -1; }) && scope.kind === 'default' && scope.id === 'default' && capabilities && typeof capabilities === 'object' && Object.keys(capabilities).length === 4 && ['readStatus', 'mutateRoutes', 'startReauth', 'mutateModels'].every(function (key) { return typeof capabilities[key] === 'boolean'; }); }
+      function isRuntimeScope(item) { var scope = item && item.scope; var capabilities = item && item.capabilities; var observedRuntimes = latestStatus && Array.isArray(latestStatus.runtimes) ? latestStatus.runtimes.map(function (runtime) { return runtime && runtime.key; }) : []; var validScope = scope && typeof scope === 'object' && Object.keys(scope).every(function (key) { return ['kind', 'id'].indexOf(key) !== -1; }) && ((scope.kind === 'default' && scope.id === 'default') || (item.runtime === 'openclaw' && scope.kind === 'agent' && /^agent-[a-f0-9]{16}$/.test(scope.id))); return item && typeof item === 'object' && Object.keys(item).every(function (key) { return ['runtime', 'scope', 'capabilities'].indexOf(key) !== -1; }) && typeof item.runtime === 'string' && /^[a-z][a-z0-9._-]{0,63}$/.test(item.runtime) && observedRuntimes.indexOf(item.runtime) !== -1 && validScope && capabilities && typeof capabilities === 'object' && Object.keys(capabilities).length === 4 && ['readStatus', 'mutateRoutes', 'startReauth', 'mutateModels'].every(function (key) { return typeof capabilities[key] === 'boolean'; }); }
       function isScopeCatalog(data) { return data && typeof data === 'object' && Object.keys(data).every(function (key) { return ['schemaVersion', 'generatedAt', 'scopes'].indexOf(key) !== -1; }) && data.schemaVersion === 'account-center.runtime-scopes.v1' && isCanonicalTimestamp(data.generatedAt) && Array.isArray(data.scopes) && data.scopes.every(isRuntimeScope); }
-      function renderContextSelector(scopeData, scopesUnavailable) { var scopes = scopeData && Array.isArray(scopeData.scopes) ? scopeData.scopes.filter(function (item) { return item && typeof item.runtime === 'string' && item.scope && item.capabilities && item.capabilities.readStatus === true; }) : []; if (scopesUnavailable || !scopes.length) { runtimeScope.disabled = true; runtimeScope.hidden = false; contextChip.hidden = true; runtimeScope.innerHTML = '<option>No readable scopes are available.</option>'; selectedContext = ''; contextCapability.textContent = scopesUnavailable ? 'UNPROVEN' : 'Unavailable'; contextHelp.textContent = scopesUnavailable ? 'The protected scope catalog could not be verified. Scoped actions remain unavailable.' : 'No readable scopes were supplied by the protected API. Scoped actions remain unavailable.'; contextSelector.dataset.state = scopesUnavailable ? 'unproven' : 'empty'; return; } var prior = scopes.some(function (item) { return contextValue(item) === selectedContext; }) ? selectedContext : contextValue(scopes[0]); runtimeScope.innerHTML = scopes.map(contextOption).join(''); runtimeScope.value = prior; selectedContext = runtimeScope.value; var selected = scopes.filter(function (item) { return contextValue(item) === selectedContext; })[0]; contextCapability.textContent = contextCapabilityLabel(selected.capabilities); contextHelp.textContent = contextCapabilityDetail(selected); runtimeScope.disabled = false; runtimeScope.hidden = scopes.length === 1; contextChip.hidden = scopes.length !== 1; if (scopes.length === 1) { contextChip.textContent = selected.runtime + ' / ' + scopeLabel(selected.scope); contextChip.setAttribute('aria-label', 'Runtime and scope: ' + contextChip.textContent); } contextSelector.dataset.state = scopes.length === 1 ? 'single' : 'multiple'; }
+      function renderContextSelector(scopeData, scopesUnavailable) { var scopes = scopeData && Array.isArray(scopeData.scopes) ? scopeData.scopes.filter(function (item) { return item && typeof item.runtime === 'string' && item.scope && item.capabilities && (item.capabilities.readStatus === true || item.runtime === 'openclaw' && item.scope.kind === 'agent' && /^agent-[a-f0-9]{16}$/.test(item.scope.id)); }) : []; if (scopesUnavailable || !scopes.length) { clearNativeHandoffUnavailable(); runtimeScope.disabled = true; runtimeScope.hidden = false; contextChip.hidden = true; runtimeScope.innerHTML = '<option>No readable scopes are available.</option>'; selectedContext = ''; contextCapability.textContent = scopesUnavailable ? 'UNPROVEN' : 'Unavailable'; contextHelp.textContent = scopesUnavailable ? 'The protected scope catalog could not be verified. Scoped actions remain unavailable.' : 'No readable scopes were supplied by the protected API. Scoped actions remain unavailable.'; contextSelector.dataset.state = scopesUnavailable ? 'unproven' : 'empty'; return; } var selectedContextStillAvailable = scopes.some(function (item) { return contextValue(item) === selectedContext; }); var prior = selectedContextStillAvailable ? selectedContext : contextValue(scopes[0]); runtimeScope.innerHTML = scopes.map(contextOption).join(''); runtimeScope.value = prior; selectedContext = runtimeScope.value; if (!selectedContextStillAvailable || !isNativeHandoffDefaultScope()) clearNativeHandoffUnavailable(); else { nativePreflight.disabled = false; nativeStatus.textContent = 'Native sign-in required — UNPROVEN. Preflight is instruction-only.'; } var selected = scopes.filter(function (item) { return contextValue(item) === selectedContext; })[0]; contextCapability.textContent = contextCapabilityLabel(selected.capabilities); contextHelp.textContent = contextCapabilityDetail(selected); runtimeScope.disabled = false; runtimeScope.hidden = scopes.length === 1; contextChip.hidden = scopes.length !== 1; if (scopes.length === 1) { contextChip.textContent = selected.runtime + ' / ' + scopeLabel(selected.scope); contextChip.setAttribute('aria-label', 'Runtime and scope: ' + contextChip.textContent); } contextSelector.dataset.state = scopes.length === 1 ? 'single' : 'multiple'; }
       function challengeFreshness(challengeData) { var generatedAt = challengeData && typeof challengeData.generatedAt === 'string' ? challengeData.generatedAt : ''; var timestamp = generatedAt && !Number.isNaN(Date.parse(generatedAt)) ? generatedAt : ''; var detail = document.getElementById('guided-freshness-detail'); if (timestamp) { var checkedAt = new Date(timestamp).toLocaleString(); guidedFreshness.textContent = 'Records checked'; guidedFreshness.setAttribute('aria-label', 'Guided-auth records checked'); detail.textContent = 'Guided-auth records were available in a server snapshot from ' + checkedAt + '. This does not confirm that sign-in was completed.'; guidedFreshness.className = 'pill good'; return; } guidedFreshness.textContent = 'Status unavailable'; guidedFreshness.setAttribute('aria-label', 'Guided-auth status unavailable'); detail.textContent = 'Guided-auth records could not be verified. No sign-in result is shown.'; guidedFreshness.className = 'pill warn'; }
       function auditFreshness(auditData) { var generatedAt = auditData && typeof auditData.generatedAt === 'string' ? auditData.generatedAt : ''; var timestamp = generatedAt && !Number.isNaN(Date.parse(generatedAt)) ? generatedAt : ''; var detail = document.getElementById('audit-freshness-detail'); if (timestamp) { auditFreshnessBadge.textContent = 'Records checked'; auditFreshnessBadge.setAttribute('aria-label', 'Audit records checked'); detail.textContent = 'Audit records were available in a server snapshot from ' + new Date(timestamp).toLocaleString() + '. This does not confirm the current runtime state.'; auditFreshnessBadge.className = 'pill good'; return; } auditFreshnessBadge.textContent = 'Status unavailable'; auditFreshnessBadge.setAttribute('aria-label', 'Audit status unavailable'); detail.textContent = 'Audit records could not be verified. Previously loaded evidence is not shown as current.'; auditFreshnessBadge.className = 'pill warn'; }
       function operationFreshness(operationData) { var generatedAt = operationData && typeof operationData.generatedAt === 'string' ? operationData.generatedAt : ''; var timestamp = generatedAt && !Number.isNaN(Date.parse(generatedAt)) ? generatedAt : ''; var detail = document.getElementById('operation-freshness-detail'); if (timestamp) { operationFreshnessBadge.textContent = 'Records checked'; operationFreshnessBadge.setAttribute('aria-label', 'Operation records checked'); detail.textContent = 'Operation records were available in a server snapshot from ' + new Date(timestamp).toLocaleString() + '. This does not confirm the current runtime state.'; operationFreshnessBadge.className = 'pill good'; return; } operationFreshnessBadge.textContent = 'Status unavailable'; operationFreshnessBadge.setAttribute('aria-label', 'Operation status unavailable'); detail.textContent = 'Operation records could not be verified. Previously loaded evidence is not shown as current.'; operationFreshnessBadge.className = 'pill warn'; }
@@ -1269,8 +1481,10 @@ function controlPanelHtml(): string {
       async function loadModels() { return api('/api/models' + selectedScopeQuery()); }
       async function loadLimits() { return api('/api/limits' + selectedScopeQuery()); }
       async function loadChallenges(cursor) { var parameters = new URLSearchParams(selectedScopeQuery().slice(1)); if (cursor) parameters.set('cursor', cursor); var suffix = parameters.toString(); return api('/api/auth-challenges' + (suffix ? '?' + suffix : '')); }
-      async function loadWorkspace() { var scopeResult = (await Promise.allSettled([api('/api/scopes')]))[0]; var values = {}; var unavailable = {}; if (scopeResult.status === 'fulfilled' && isScopeCatalog(scopeResult.value)) values.scopes = scopeResult.value; else unavailable.scopes = true; renderContextSelector(values.scopes, unavailable.scopes); var results = await Promise.allSettled([api('/api/capabilities'), loadChallenges(), loadModels(), loadLimits(), loadAudit(), loadOperations(), api('/api/agent-connections' + selectedScopeQuery()), api('/api/account-ui-preferences' + selectedScopeQuery())]); var keys = ['capabilities', 'challenges', 'models', 'limits', 'audit', 'operations', 'connections', 'preferences']; results.forEach(function (result, index) { var key = keys[index]; var field = key === 'capabilities' ? 'actions' : key === 'challenges' ? 'challenges' : key === 'models' ? 'models' : key === 'limits' ? 'accounts' : key === 'audit' ? 'records' : key === 'operations' ? 'operations' : key === 'connections' ? 'inventory' : 'hiddenAccountRefs'; var valid = result.status === 'fulfilled' && result.value && Array.isArray(result.value[field]); if (key === 'challenges') valid = valid && isChallengeInventory(result.value); if (key === 'models') valid = valid && isModelCatalog(result.value); if (key === 'limits') valid = valid && isLimitsInventory(result.value); if (key === 'audit') valid = valid && isAuditInventory(result.value); if (key === 'operations') valid = valid && isOperationInventory(result.value); if (key === 'connections') valid = valid && isAgentConnectionInventory(result.value); if (key === 'preferences') valid = valid && isAccountUiPreferences(result.value); if (valid) values[key] = result.value; else unavailable[key] = true; }); renderWorkspace(values, unavailable); return Object.keys(unavailable).length > 0; }
-      runtimeScope.addEventListener('change', async function () { if (runtimeScope.disabled) return; selectedContext = runtimeScope.value; detailEpoch++; clearAuditDetail(); clearOperationDetail(); clearChallengeDetail(); setNotice('Context changed. Refreshing protected scoped runtime data.', 'loading'); var incomplete = await loadWorkspace(); setNotice(incomplete ? 'Context refreshed; some evidence is UNPROVEN. Retry unavailable sections.' : 'Observed scoped runtime data refreshed.', incomplete ? 'error' : 'ready'); });
+      function isRoutingPools(value) { return value && typeof value === 'object' && Object.keys(value).every(function (key) { return ['schemaVersion', 'verificationState', 'state', 'pools'].indexOf(key) !== -1; }) && value.schemaVersion === 'account-center.openclaw-routing-pools.v1' && value.verificationState === 'UNPROVEN' && value.state === 'read-only' && Array.isArray(value.pools) && value.pools.length === 1 && value.pools.every(function (pool) { return pool && typeof pool === 'object' && Object.keys(pool).every(function (key) { return ['schemaVersion', 'agentRef', 'provider', 'verificationState', 'candidates', 'explicitOverrideOrder', 'overrideState'].indexOf(key) !== -1; }) && pool.schemaVersion === 'account-center.openclaw-routing-pool.v1' && /^agent-[a-f0-9]{16}$/.test(pool.agentRef) && pool.provider === 'openai' && pool.verificationState === 'UNPROVEN' && Array.isArray(pool.candidates) && pool.candidates.length <= 256 && new Set(pool.candidates.map(function (candidate) { return candidate && candidate.accountRef; })).size === pool.candidates.length && pool.candidates.every(function (candidate) { return candidate && /^pool-account-[1-9][0-9]*$/.test(candidate.accountRef) && candidate.state === 'saved-unverified'; }) && Array.isArray(pool.explicitOverrideOrder) && new Set(pool.explicitOverrideOrder).size === pool.explicitOverrideOrder.length && pool.explicitOverrideOrder.every(function (ref) { return /^pool-account-[1-9][0-9]*$/.test(ref) && pool.candidates.some(function (candidate) { return candidate.accountRef === ref; }); }) && ((pool.overrideState === 'explicit' && pool.explicitOverrideOrder.length > 0) || (pool.overrideState === 'none' && pool.explicitOverrideOrder.length === 0)); }); }
+      function renderRoutingPool(data) { if (!isRoutingPools(data) || !data.pools.length) { routingPoolState.innerHTML = '<div><dt>State</dt><dd>UNPROVEN/read-only</dd></div><div><dt>Saved/unverified candidates</dt><dd>Not checked</dd></div><div><dt>Explicit override order</dt><dd>Not checked</dd></div>'; return; } routingPoolState.innerHTML = data.pools.map(function (pool) { var candidates = pool.candidates.map(function (candidate) { return escapeHtml(candidate.accountRef); }).join(', ') || 'None observed'; var order = pool.explicitOverrideOrder.map(escapeHtml).join(', ') || 'No explicit override observed'; return '<div><dt>Observed opaque agent</dt><dd>' + escapeHtml(pool.agentRef) + '</dd></div><div><dt>Saved/unverified candidates</dt><dd>' + candidates + '</dd></div><div><dt>Explicit override order</dt><dd>' + order + '</dd></div>'; }).join(''); }
+      async function loadWorkspace() { var scopeResult = (await Promise.allSettled([api('/api/scopes')]))[0]; var values = {}; var unavailable = {}; if (scopeResult.status === 'fulfilled' && isScopeCatalog(scopeResult.value)) values.scopes = scopeResult.value; else unavailable.scopes = true; renderContextSelector(values.scopes, unavailable.scopes); var routingPools = selectedRuntime() === 'openclaw' ? api('/api/routing-pools' + selectedScopeQuery()) : Promise.reject(new Error('routing_pool_context_unavailable')); var results = await Promise.allSettled([api('/api/capabilities'), loadChallenges(), loadModels(), loadLimits(), loadAudit(), loadOperations(), api('/api/agent-connections' + selectedScopeQuery()), api('/api/account-ui-preferences' + selectedScopeQuery()), routingPools]); var keys = ['capabilities', 'challenges', 'models', 'limits', 'audit', 'operations', 'connections', 'preferences', 'routingPools']; results.forEach(function (result, index) { var key = keys[index]; var field = key === 'capabilities' ? 'actions' : key === 'challenges' ? 'challenges' : key === 'models' ? 'models' : key === 'limits' ? 'accounts' : key === 'audit' ? 'records' : key === 'operations' ? 'operations' : key === 'connections' ? 'inventory' : key === 'preferences' ? 'hiddenAccountRefs' : 'pools'; var valid = result.status === 'fulfilled' && result.value && Array.isArray(result.value[field]); if (key === 'challenges') valid = valid && isChallengeInventory(result.value); if (key === 'models') valid = valid && isModelCatalog(result.value); if (key === 'limits') valid = valid && isLimitsInventory(result.value); if (key === 'audit') valid = valid && isAuditInventory(result.value); if (key === 'operations') valid = valid && isOperationInventory(result.value); if (key === 'connections') valid = valid && isAgentConnectionInventory(result.value); if (key === 'preferences') valid = valid && isAccountUiPreferences(result.value); if (key === 'routingPools') valid = valid && isRoutingPools(result.value); if (valid) values[key] = result.value; else if (key !== 'routingPools') unavailable[key] = true; }); renderRoutingPool(values.routingPools); renderWorkspace(values, unavailable); return Object.keys(unavailable).length > 0; }
+      runtimeScope.addEventListener('change', async function () { if (runtimeScope.disabled) return; selectedContext = runtimeScope.value; if (!isNativeHandoffDefaultScope()) clearNativeHandoffUnavailable(); detailEpoch++; clearAuditDetail(); clearOperationDetail(); clearChallengeDetail(); setNotice('Context changed. Refreshing protected scoped runtime data.', 'loading'); var incomplete = await loadWorkspace(); setNotice(incomplete ? 'Context refreshed; some evidence is UNPROVEN. Retry unavailable sections.' : 'Observed scoped runtime data refreshed.', incomplete ? 'error' : 'ready'); });
       auditFilter.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to filter audit history.', 'error'); return; } clearAuditDetail(); auditFilterSubmit.disabled = true; auditFilterSubmit.textContent = 'Filtering…'; setNotice('Loading filtered audit history…', 'loading'); try { var data = await loadAudit(); if (!isAuditInventory(data)) throw new Error('malformed_audit_history'); auditFreshness(data); var records = data.records; auditCursor = typeof data.nextCursor === 'string' ? data.nextCursor : ''; auditLoadMore.hidden = !auditCursor; auditRecords.innerHTML = records.length ? records.map(auditRecord).join('') : '<p class="empty">No Account Center audit records match this outcome.</p>'; setNotice('Filtered audit history is current.', 'ready'); } catch (_) { auditFreshness(undefined); auditCursor = ''; auditLoadMore.hidden = true; auditRecords.innerHTML = unavailableRecord('Audit history'); setNotice('Audit history could not be filtered. Retry to verify current evidence.', 'error'); } finally { auditFilterSubmit.disabled = false; auditFilterSubmit.textContent = 'Filter audit history'; } });
       operationFilter.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to filter operation history.', 'error'); return; } clearOperationDetail(); operationFilterSubmit.disabled = true; operationFilterSubmit.textContent = 'Filtering…'; setNotice('Loading filtered operation history…', 'loading'); try { var data = await loadOperations(); if (!isOperationInventory(data)) throw new Error('malformed_operation_history'); operationFreshness(data); var operations = data.operations; operationCursor = typeof data.nextCursor === 'string' ? data.nextCursor : ''; operationLoadMore.hidden = !operationCursor; operationRecords.innerHTML = operations.length ? operations.map(operationRecord).join('') : '<p class="empty">No protected operations match these filters.</p>'; setNotice('Filtered operation history is current.', 'ready'); } catch (_) { operationFreshness(undefined); operationCursor = ''; operationLoadMore.hidden = true; operationRecords.innerHTML = unavailableRecord('Operation history'); setNotice('Operation history could not be filtered. Retry to verify current evidence.', 'error'); } finally { operationFilterSubmit.disabled = false; operationFilterSubmit.textContent = 'Filter operation history'; } });
       auditLoadMore.addEventListener('click', async function () { if (!auditCursor || auditLoadMore.disabled) return; auditLoadMore.disabled = true; auditLoadMore.textContent = 'Loading older records…'; setNotice('Loading older audit history…', 'loading'); try { var data = await loadAudit(auditCursor); if (!isAuditInventory(data)) throw new Error('malformed_audit_history'); auditFreshness(data); var records = data.records; auditCursor = typeof data.nextCursor === 'string' ? data.nextCursor : ''; auditLoadMore.hidden = !auditCursor; if (records.length) auditRecords.insertAdjacentHTML('beforeend', records.map(auditRecord).join('')); setNotice(records.length ? 'Older audit history is current.' : 'No older audit history is available.', 'ready'); } catch (_) { auditFreshness(undefined); setNotice('Older audit history could not be verified. Previously loaded evidence is retained.', 'error'); } finally { auditLoadMore.disabled = false; auditLoadMore.textContent = 'Load older audit records'; } });
@@ -1290,7 +1504,11 @@ function controlPanelHtml(): string {
         var modelSet = {}; profileList.forEach(function (p) { (p.models || []).forEach(function (m) { modelSet[m] = true; }); }); var modelNames = Object.keys(modelSet).sort(); var disabled = (status.policy && status.policy.disabledModels) || []; document.getElementById('model-count').textContent = modelNames.length + (modelNames.length === 1 ? ' model' : ' models'); models.innerHTML = modelNames.length ? modelNames.map(function (model) { var isDisabled = disabled.indexOf(model) !== -1; return '<span class="model' + (isDisabled ? ' disabled' : '') + '">' + escapeHtml(model) + (isDisabled ? ' · disabled' : '') + '</span>'; }).join('') : '<p class="empty">No model catalog was reported.</p>';
         document.getElementById('updated').textContent = 'Last successful request: ' + new Date().toLocaleString() + (status.noSecrets === true ? ' · no-secrets assertion present' : ' · no-secrets assertion unproven');
       }
-      form.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to request status.', 'error'); return; } refresh.disabled = true; refresh.textContent = 'Refreshing…'; setNotice('Requesting local runtime status…', 'loading'); try { var status = await api('/api/status'); render(status); var incomplete = await loadWorkspace(); setNotice(incomplete ? 'Workspace refreshed; some evidence is UNPROVEN. Retry unavailable sections.' : 'Local workspace refreshed. Read-only evidence is current.', incomplete ? 'error' : 'ready'); } catch (error) { if (error && error.status === 401) token.focus(); setNotice(error instanceof Error ? error.message : 'Status request could not be completed.', 'error'); } finally { refresh.disabled = false; refresh.textContent = 'Refresh status'; } });
+      form.addEventListener('submit', async function (event) { event.preventDefault(); if (!token.value) { token.focus(); setNotice('A launch token is required to request status.', 'error'); return; } refresh.disabled = true; refresh.textContent = 'Refreshing…'; setNotice('Requesting local runtime status…', 'loading'); try { var status = await api('/api/status'); render(status); var incomplete = await loadWorkspace(); setNotice(incomplete ? 'Workspace refreshed; some evidence is UNPROVEN. Retry unavailable sections.' : 'Local workspace refreshed. Read-only evidence is current.', incomplete ? 'error' : 'ready'); } catch (error) { if (error && error.status === 401) token.focus(); clearNativeHandoffUnavailable(); setNotice(error instanceof Error ? error.message : 'Status request could not be completed.', 'error'); } finally { refresh.disabled = false; refresh.textContent = 'Refresh status'; } });
+      var nativeHandoffId = ''; var nativePreflight = document.getElementById('native-handoff-preflight'); var nativeRecheck = document.getElementById('native-handoff-recheck'); var nativeStatus = document.getElementById('native-handoff-status');
+      function clearNativeHandoffUnavailable() { nativeHandoffId = ''; nativePreflight.disabled = true; nativeRecheck.disabled = true; nativeStatus.textContent = 'UNPROVEN — native handoff is unavailable for the current context.'; }
+      nativePreflight.addEventListener('click', async function () { if (!isNativeHandoffDefaultScope() || !token.value) return; nativePreflight.disabled = true; nativeStatus.textContent = 'Preflight running; result remains UNPROVEN.'; try { var result = await api('/api/auth-handoffs/openclaw/preflight', { method: 'POST', body: JSON.stringify({ runtime: 'openclaw', provider: 'openai', scope: 'default', idempotencyKey: 'panel_' + Date.now().toString(36) + Math.random().toString(36).slice(2) }) }); nativeHandoffId = result.handoffId || ''; nativeRecheck.disabled = !nativeHandoffId; nativeStatus.textContent = 'Native sign-in required — UNPROVEN. Complete native sign-in outside Account Center, then recheck.'; } catch (_) { nativeStatus.textContent = 'UNPROVEN — preflight could not be verified.'; } finally { nativePreflight.disabled = !isNativeHandoffDefaultScope(); } });
+      nativeRecheck.addEventListener('click', async function () { if (!nativeHandoffId || !isNativeHandoffDefaultScope()) return; nativeRecheck.disabled = true; nativeStatus.textContent = 'Rechecking read-only status…'; try { var result = await api('/api/auth-handoffs/openclaw/' + encodeURIComponent(nativeHandoffId) + '/recheck', { method: 'POST', body: '{}' }); nativeHandoffId = ''; nativeStatus.textContent = result.state === 'postflight_unproven' ? 'UNPROVEN — no sign-in change was verified.' : 'UNPROVEN — recheck response was not actionable.'; } catch (_) { nativeStatus.textContent = 'UNPROVEN — recheck could not be verified.'; } finally { nativeRecheck.disabled = !nativeHandoffId || !isNativeHandoffDefaultScope(); } });
       openOnboarding();
     }());
   </script>

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -33,9 +33,14 @@ const gate = test.extend({
     });
     if (claim.kind !== "execute") throw new Error("fixture operation must be executable");
     await mutationRepository.complete({ operationId: claim.operationId, outcome: "blocked", warningCodes: ["runtime_unavailable"] });
+    const status = JSON.parse(await readFile(new URL("../fixtures/status.fixture.json", import.meta.url), "utf8"));
+    status.routes = [{ ...status.routes[0], runtime: "openclaw", scope: "agent:private-agent" }];
     const app = createAccountCenterServer({
       token,
-      source: "fixture",
+      source: "openclaw",
+      statusReader: async () => status,
+      routingPoolAgentReader: async () => ["private-agent"],
+      routingPoolReader: async () => ({ agentId: "private-agent", provider: "openai", profiles: ["openai:private-profile"], order: ["openai:private-profile"] }),
       auditStore: new AuditStore(join(root, "audit.json")),
       challengeStore,
       mutationRepository,
@@ -287,6 +292,47 @@ gate("renders accounts/routing and settings as truthful protected states", async
   await expect(settings).toContainText(/No verified release status reported/i);
   await expect(settings).toContainText(/Update Center is unavailable/i);
   await expect(settings).toContainText(/blocked/i);
+});
+
+gate("selects the opaque OpenClaw agent scope and renders only its exact redacted routing-pool response", async ({ panel }) => {
+  let available = true;
+  let malformed = false;
+  let exactRoutingPoolRequest = false;
+  await panel.page.route("**/api/routing-pools?runtime=openclaw&scope=agent%3Aagent-20cee3d10892329d", async (route) => {
+    exactRoutingPoolRequest = true;
+    if (!available) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ schemaVersion: "account-center.openclaw-routing-pools.v1", verificationState: "UNPROVEN", state: "read-only", error: "UNPROVEN", pools: [] }) });
+      return;
+    }
+    const pool = malformed
+      ? { schemaVersion: "account-center.openclaw-routing-pool.v1", agentRef: "agent-20cee3d10892329d", provider: "openai", verificationState: "UNPROVEN", candidates: [{ accountRef: "pool-account-1", state: "saved-unverified" }, { accountRef: "pool-account-1", state: "saved-unverified" }], explicitOverrideOrder: [], overrideState: "explicit" }
+      : { schemaVersion: "account-center.openclaw-routing-pool.v1", agentRef: "agent-20cee3d10892329d", provider: "openai", verificationState: "UNPROVEN", candidates: [{ accountRef: "pool-account-1", state: "saved-unverified" }], explicitOverrideOrder: ["pool-account-1"], overrideState: "explicit" };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ schemaVersion: "account-center.openclaw-routing-pools.v1", verificationState: "UNPROVEN", state: "read-only", pools: [pool] }) });
+  });
+  await open(panel);
+  await connect(panel);
+  await panel.page.getByLabel("Runtime & scope").selectOption("openclaw|agent:agent-20cee3d10892329d");
+  await expect(panel.page.getByRole("status")).toContainText("Context refreshed; some evidence is UNPROVEN.");
+  await panel.page.getByRole("tab", { name: "Accounts" }).click();
+  const routingPool = accountsPanel(panel).locator("#routing-pool-state");
+  expect(exactRoutingPoolRequest).toBe(true);
+  await expect(routingPool).toContainText("agent-20cee3d10892329d");
+  await expect(routingPool).toContainText("pool-account-1");
+  await expect(routingPool).not.toContainText("private-agent");
+  await expect(routingPool).not.toContainText("private-profile");
+  await expect(routingPool).not.toContainText("openai:");
+
+  malformed = true;
+  await panel.page.getByRole("button", { name: "Refresh status" }).click();
+  await expect(routingPool).toContainText("Not checked");
+  await expect(routingPool).not.toContainText("pool-account-1");
+
+  malformed = false;
+  available = false;
+  await panel.page.getByRole("button", { name: "Refresh status" }).click();
+  await expect(routingPool).toContainText("Not checked");
+  await expect(routingPool).not.toContainText("agent-20cee3d10892329d");
+  await expect(routingPool).not.toContainText("pool-account-1");
 });
 
 gate("labels the selected fixture account Active while non-selected accounts remain Saved", async ({ panel }) => {
