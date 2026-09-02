@@ -140,6 +140,19 @@ gate("uses a calm Home, Accounts, and More navigation model", async ({ panel }) 
   await expect(morePanel(panel)).toContainText("Advanced");
 });
 
+gate("shows evidence-gated runtime coverage on Home without route or capacity claims", async ({ panel }) => {
+  await open(panel);
+  await connect(panel);
+  const coverage = homePanel(panel).locator("#sentinel-runtimes");
+  await expect(homePanel(panel)).toContainText("Runtime coverage");
+  await expect(coverage).toContainText("hermes");
+  await expect(coverage).toContainText("openclaw");
+  await expect(coverage).toContainText("codex");
+  await expect(coverage).toContainText("UNPROVEN");
+  await expect(coverage).not.toContainText("Active route");
+  await expect(coverage).not.toContainText("Weekly availability");
+});
+
 gate("offers a skippable, replayable first-run welcome without loading runtime data", async ({ panel }) => {
   await panel.page.goto(panel.baseURL, { waitUntil: "domcontentloaded" });
   const welcome = panel.page.locator("#onboarding-dialog");
@@ -2373,7 +2386,7 @@ gate("has no serious or critical axe violations and reports lower severities", a
   await assertNoSeriousOrCriticalAxeViolations(panel.page, testInfo);
 });
 
-gate("does not horizontally overflow at desktop, 760px, 430px, or 320px", async ({ panel }) => {
+gate("keeps connected runtime coverage accessible without horizontal overflow at desktop, 760px, 430px, or 320px", async ({ panel }, testInfo) => {
   for (const width of [1440, 760, 430, 320]) {
     await panel.page.setViewportSize({ width, height: 900 });
     await open(panel);
@@ -2383,5 +2396,9 @@ gate("does not horizontally overflow at desktop, 760px, 430px, or 320px", async 
       viewportWidth: window.innerWidth
     }));
     expect(overflow.documentWidth, `${width}px viewport must not horizontally overflow`).toBeLessThanOrEqual(overflow.viewportWidth);
+    if (width === 320) {
+      await expect(homePanel(panel).locator("#sentinel-runtimes")).toContainText("codex");
+      await assertNoSeriousOrCriticalAxeViolations(panel.page, testInfo);
+    }
   }
 });
