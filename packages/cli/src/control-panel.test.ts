@@ -64,7 +64,8 @@ test("Home labels runtime coverage UNPROVEN until protected status identifies it
     const initialShell = html.slice(0, html.indexOf("<script>"));
     assert.match(initialShell, /<h2>Runtime coverage<\/h2>/);
     assert.match(initialShell, /id="sentinel-runtimes"(?![^>]*hidden)/);
-    assert.match(initialShell, /id="runtime-coverage-explanation"/);
+    assert.match(initialShell, /id="runtime-coverage-explanation"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+    assert.doesNotMatch(initialShell, /id="runtime-coverage-explanation"[^>]*role="status"/);
     assert.match(initialShell, /Runtime coverage source is UNPROVEN\. Hermes, OpenClaw, and Codex are not shown as live discovery\./);
     assert.doesNotMatch(initialShell, /Example data from the fixture status/);
     assert.doesNotMatch(initialShell, /protected live OpenClaw evidence/);

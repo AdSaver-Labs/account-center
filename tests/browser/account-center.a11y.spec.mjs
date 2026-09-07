@@ -184,6 +184,11 @@ test("renders protected OpenClaw status evidence without claiming a current runt
     await page.goto(`http://127.0.0.1:${port}`, { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: "Skip for now" }).click();
     await page.getByLabel("Launch token").fill(token);
+    await page.evaluate(() => {
+      const explanation = document.getElementById("runtime-coverage-explanation");
+      window.__coverageAnnouncementMutations = 0;
+      new MutationObserver((records) => { window.__coverageAnnouncementMutations += records.length; }).observe(explanation, { childList: true, characterData: true, subtree: true });
+    });
     await page.getByRole("button", { name: "Refresh status" }).click();
     const explanation = page.locator("#runtime-coverage-explanation");
     const coverage = page.locator("#sentinel-runtimes");
@@ -194,6 +199,7 @@ test("renders protected OpenClaw status evidence without claiming a current runt
     await expect(openclaw.locator("dd").first()).toHaveText("Available");
     await expect(hermes.locator("dd").first()).toHaveText("UNPROVEN");
     await expect(codex.locator("dd").first()).toHaveText("UNPROVEN");
+    expect(await page.evaluate(() => window.__coverageAnnouncementMutations)).toBe(1);
   } finally {
     await page.goto("about:blank");
     await app.close();
