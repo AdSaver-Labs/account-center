@@ -160,6 +160,7 @@ export function assertAccountCenterStatus(value: unknown): asserts value is Acco
     if (!(key in value)) throw new Error(`status missing ${key}`);
   }
   if (value.noSecrets !== true) throw new Error("status must declare noSecrets=true");
+  if (!["fixture", "file-store", "openclaw", "generic-command"].includes(value.source as string)) throw new Error("unsupported status source");
   if (!Array.isArray(value.profiles)) throw new Error("profiles must be an array");
   if (!Array.isArray(value.routes)) throw new Error("routes must be an array");
 }

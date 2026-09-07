@@ -145,12 +145,39 @@ gate("shows evidence-gated runtime coverage on Home without route or capacity cl
   await connect(panel);
   const coverage = homePanel(panel).locator("#sentinel-runtimes");
   await expect(homePanel(panel)).toContainText("Runtime coverage");
+  await expect(homePanel(panel).locator("#runtime-coverage-explanation")).toHaveText("Example data from the fixture status; not live Hermes or OpenClaw discovery.");
+  await expect(homePanel(panel)).not.toContainText("protected live OpenClaw evidence");
   await expect(coverage).toContainText("hermes");
   await expect(coverage).toContainText("openclaw");
   await expect(coverage).toContainText("codex");
   await expect(coverage).toContainText("UNPROVEN");
   await expect(coverage).not.toContainText("Active route");
   await expect(coverage).not.toContainText("Weekly availability");
+});
+
+test("renders protected live OpenClaw wording only for a successful OpenClaw status source", async ({ page }) => {
+  const fixture = JSON.parse(await readFile(new URL("../fixtures/status.fixture.json", import.meta.url), "utf8"));
+  for (const source of ["openclaw", "generic-command"]) {
+    const token = randomBytes(32).toString("base64url");
+    const status = { ...fixture, source };
+    const app = createAccountCenterServer({ token, source, statusReader: async () => status });
+    const { port } = await app.listen();
+    try {
+      await page.goto(`http://127.0.0.1:${port}`, { waitUntil: "domcontentloaded" });
+      await page.getByRole("button", { name: "Skip for now" }).click();
+      await page.getByLabel("Launch token").fill(token);
+      await page.getByRole("button", { name: "Refresh status" }).click();
+      const explanation = page.locator("#runtime-coverage-explanation");
+      if (source === "openclaw") {
+        await expect(explanation).toHaveText("OpenClaw coverage is shown only from protected live OpenClaw evidence. Hermes and Codex remain UNPROVEN unless separately observed.");
+      } else {
+        await expect(explanation).toHaveText("Runtime coverage source is UNPROVEN. Hermes, OpenClaw, and Codex are not shown as live discovery.");
+      }
+    } finally {
+      await page.goto("about:blank");
+      await app.close();
+    }
+  }
 });
 
 gate("offers a skippable, replayable first-run welcome without loading runtime data", async ({ panel }) => {
