@@ -87,8 +87,8 @@ test("routing-pool panel copy separates saved candidates from an explicit overri
   }
 });
 
-test("protected routing pools expose only opaque redacted snapshots and reject malformed readers", async () => {
-  const privatePool: OpenClawRoutingPool = { agentId: "private-agent", provider: "openai", profiles: ["openai:private-profile"], order: ["openai:private-profile"] };
+test("protected routing pools accept provider-confirmed email-shaped IDs but expose only opaque redacted snapshots", async () => {
+  const privatePool: OpenClawRoutingPool = { agentId: "private-agent", provider: "openai", profiles: ["openai:private@example.test"], order: ["openai:private@example.test"] };
   const status = JSON.parse(await readFile(new URL("../../../tests/fixtures/status.fixture.json", import.meta.url), "utf8"));
   status.routes = [{ ...status.routes[0], runtime: "openclaw", scope: "agent:private-agent" }];
   const app = createAccountCenterServer({ token: "test-token", source: "openclaw", statusReader: async () => status, routingPoolAgentReader: async () => ["private-agent"], routingPoolReader: async () => privatePool });
@@ -103,7 +103,7 @@ test("protected routing pools expose only opaque redacted snapshots and reject m
     assert.equal(accepted.status, 200);
     assert.equal(accepted.headers.get("cache-control"), "no-store");
     const text = await accepted.text();
-    assert.doesNotMatch(text, /private-agent|private-profile|openai:/);
+    assert.doesNotMatch(text, /private-agent|private-profile|private@example\.test|openai:/);
     const payload = JSON.parse(text);
     assert.deepEqual(Object.keys(payload).sort(), ["pools", "schemaVersion", "state", "verificationState"]);
     assert.equal(payload.schemaVersion, "account-center.openclaw-routing-pools.v1");

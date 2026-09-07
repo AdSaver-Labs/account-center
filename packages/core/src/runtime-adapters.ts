@@ -705,7 +705,10 @@ function isExactOfficialAgentId(value: unknown): value is string {
   return typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value) && value !== "all";
 }
 function isOpenAiProfileId(value: unknown): value is string {
-  return typeof value === "string" && /^openai:[a-z0-9][a-z0-9._-]{0,127}$/i.test(value);
+  // OpenClaw's official `models auth list --provider openai` may identify a
+  // provider-confirmed profile with an email-shaped private suffix. It remains
+  // an opaque adapter-only value and is never projected by the public DTO.
+  return typeof value === "string" && /^openai:[a-z0-9][a-z0-9._@-]{0,127}$/i.test(value);
 }
 function hasExactRoutingPoolIdentity(value: unknown, agentId: string): boolean {
   return isRecord(value) && value.agentId === agentId && value.provider === "openai";

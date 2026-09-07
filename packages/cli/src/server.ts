@@ -901,7 +901,10 @@ function isExactRoutingPoolSnapshot(pool: unknown): pool is OpenClawRoutingPool 
   return typeof agentId === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(agentId) && provider === "openai" &&
     Array.isArray(profiles) && Array.isArray(order) && profiles.length <= 256 && order.length <= 256 &&
     new Set(profiles).size === profiles.length && new Set(order).size === order.length &&
-    profiles.every((profile) => /^openai:[a-z0-9][a-z0-9._-]{0,127}$/i.test(profile)) &&
+    // Official OpenClaw discovery can retain provider-confirmed native IDs with
+    // an email-shaped private suffix. The following public projection replaces
+    // every native value with an opaque reference before it leaves this boundary.
+    profiles.every((profile) => /^openai:[a-z0-9][a-z0-9._@-]{0,127}$/i.test(profile)) &&
     order.every((profile) => profiles.includes(profile));
 }
 

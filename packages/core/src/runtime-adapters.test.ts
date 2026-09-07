@@ -57,6 +57,18 @@ test("routing-pool rejects a non-OpenAI profile even when its id looks OpenAI-sh
   await assert.rejects(adapter.readRoutingPool("private-agent"), /routing_pool_unproven/);
 });
 
+test("routing-pool accepts an OpenAI-scoped opaque profile id with an email-shaped local segment", async () => {
+  const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
+    if (args.join(" ").endsWith("agents list --json")) return { code: 0, stdout: JSON.stringify({ agents: [{ id: "private-agent" }] }), stderr: "" };
+    if (args.join(" ").includes("models auth list")) return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", profiles: [{ id: "openai:private@example.test", provider: "openai" }] }), stderr: "" };
+    return { code: 0, stdout: JSON.stringify({ agentId: "private-agent", provider: "openai", order: ["openai:private@example.test"] }), stderr: "" };
+  } });
+
+  const pool = await adapter.readRoutingPool("private-agent");
+
+  assert.deepEqual(pool, { agentId: "private-agent", provider: "openai", profiles: ["openai:private@example.test"], order: ["openai:private@example.test"] });
+});
+
 test("routing-pool fails closed on malformed, mismatched, duplicate, timeout, and capped official output", async () => {
   for (const failure of ["malformed", "mismatch", "duplicate", "timeout", "cap"]) {
     const adapter = new OpenClawRuntimeAdapter({ runner: async (_command, args) => {
