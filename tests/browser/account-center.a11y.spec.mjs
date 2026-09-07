@@ -155,7 +155,7 @@ gate("shows evidence-gated runtime coverage on Home without route or capacity cl
   await expect(coverage).not.toContainText("Weekly availability");
 });
 
-test("renders protected live OpenClaw wording only from an OpenClaw adapter status", async ({ page }) => {
+test("renders protected OpenClaw status evidence without claiming a current runtime probe", async ({ page }) => {
   const token = randomBytes(32).toString("base64url");
   const status = /** @type {AccountCenterStatus} */ ({
     schemaVersion: "account-center.status.v1",
@@ -190,7 +190,7 @@ test("renders protected live OpenClaw wording only from an OpenClaw adapter stat
     const hermes = coverage.locator("article").filter({ hasText: /^hermes/ });
     const openclaw = coverage.locator("article").filter({ hasText: /^openclaw/ });
     const codex = coverage.locator("article").filter({ hasText: /^codex/ });
-    await expect(explanation).toHaveText("OpenClaw coverage is shown only from protected live OpenClaw evidence. Hermes and Codex remain UNPROVEN unless separately observed.");
+    await expect(homePanel({ page }).locator("#runtime-coverage-explanation")).toHaveText("OpenClaw coverage is shown only from protected OpenClaw status evidence; it may be a recorded snapshot, not a current runtime probe. Hermes and Codex remain UNPROVEN unless separately observed.");
     await expect(openclaw.locator("dd").first()).toHaveText("Available");
     await expect(hermes.locator("dd").first()).toHaveText("UNPROVEN");
     await expect(codex.locator("dd").first()).toHaveText("UNPROVEN");
