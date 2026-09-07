@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import type { OpenClawRoutingPool } from "@account-center/core";
+import type { HermesGatewayLivenessView, OpenClawRoutingPool } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 
 test("local control panel serves a calm accessible shell without weakening safety boundaries", async () => {
@@ -72,6 +72,34 @@ test("Home labels runtime coverage UNPROVEN until protected status identifies it
   } finally {
     await app.close();
   }
+});
+
+test("protected Hermes gateway liveness requires its exact read-only selector before its reader runs", async () => {
+  let reads = 0;
+  const liveness: HermesGatewayLivenessView = {
+    schemaVersion: "account-center.hermes-gateway-liveness.v1", runtime: "hermes", scope: "default", state: "running",
+    observedAt: "2026-09-07T12:00:00.000Z", verificationState: "UNPROVEN",
+    evidence: "Gateway service liveness observed 2026-09-07T12:00:00.000Z; provider/account capacity, inventory, route, and recovery are UNPROVEN."
+  };
+  const app = createAccountCenterServer({ token: "test-token", hermesGatewayLivenessReader: async () => { reads++; return liveness; } });
+  const address = await app.listen();
+  try {
+    const origin = `http://127.0.0.1:${address.port}`;
+    assert.equal((await fetch(`${origin}/api/hermes-gateway-liveness`)).status, 401);
+    for (const path of ["/api/hermes-gateway-liveness?runtime=hermes", "/api/hermes-gateway-liveness?runtime=hermes&scope=wrong", "/api/hermes-gateway-liveness?runtime=hermes&scope=default&extra=x"]) {
+      const response = await fetch(origin + path, { headers: { authorization: "Bearer test-token" } });
+      assert.equal(response.status, 400);
+    }
+    assert.equal(reads, 0);
+    const method = await fetch(`${origin}/api/hermes-gateway-liveness?runtime=hermes&scope=default`, { method: "POST", headers: { authorization: "Bearer test-token" } });
+    assert.equal(method.status, 405);
+    assert.equal(reads, 0);
+    const response = await fetch(`${origin}/api/hermes-gateway-liveness?runtime=hermes&scope=default`, { headers: { authorization: "Bearer test-token" } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), liveness);
+    assert.equal(reads, 1);
+  } finally { await app.close(); }
 });
 
 test("routing-pool panel copy separates saved candidates from an explicit override", async () => {

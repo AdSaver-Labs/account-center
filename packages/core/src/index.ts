@@ -6,6 +6,7 @@ export * from "./automation-capacity.js";
 export * from "./command-executor.js";
 export * from "./fixtures.js";
 export * from "./hermes-capacity-adapter.js";
+export * from "./hermes-gateway-liveness.js";
 export * from "./guided-auth.js";
 export * from "./guided-auth-lifecycle-executor.js";
 export * from "./idempotency-store.js";

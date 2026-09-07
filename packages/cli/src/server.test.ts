@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { AddressInfo, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AccountCenterStatus, AuditStore, AuthChallengeStore, MutationRepository, opaqueAgentRef } from "@account-center/core";
+import { AccountCenterStatus, AuditStore, AuthChallengeStore, HermesGatewayLivenessView, MutationRepository, opaqueAgentRef } from "@account-center/core";
 import { createAccountCenterServer } from "./server.js";
 import { AccountUiPreferencesStore } from "./account-preferences-store.js";
 
@@ -2034,6 +2034,27 @@ test("body-bearing API reads are rejected before status execution", async () => 
       status: 413,
       body: { error: "request_body_not_allowed" }
     });
+  } finally {
+    await app.close();
+  }
+});
+
+test("Hermes gateway liveness rejects body-bearing GETs and non-exact selectors before its reader", async () => {
+  let reads = 0;
+  const liveness: HermesGatewayLivenessView = {
+    schemaVersion: "account-center.hermes-gateway-liveness.v1", runtime: "hermes", scope: "default", state: "running",
+    observedAt: "2026-09-07T12:00:00.000Z", verificationState: "UNPROVEN",
+    evidence: "Gateway service liveness observed 2026-09-07T12:00:00.000Z; provider/account capacity, inventory, route, and recovery are UNPROVEN."
+  };
+  const app = createAccountCenterServer({ token: "test-token", hermesGatewayLivenessReader: async () => { reads++; return liveness; } });
+  const address = await app.listen();
+  try {
+    const body = await bodyRequest(address.port, "/api/hermes-gateway-liveness?runtime=hermes&scope=default", "test-token");
+    assert.deepEqual({ status: body.status, body: body.body }, { status: 413, body: { error: "request_body_not_allowed" } });
+    for (const path of ["/api/hermes-gateway-liveness", "/api/hermes-gateway-liveness?runtime=hermes", "/api/hermes-gateway-liveness?runtime=hermes&scope=default&extra=x"]) {
+      assert.equal((await request(address.port, path, "test-token")).status, 400);
+    }
+    assert.equal(reads, 0);
   } finally {
     await app.close();
   }
