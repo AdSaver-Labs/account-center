@@ -145,39 +145,30 @@ gate("shows evidence-gated runtime coverage on Home without route or capacity cl
   await connect(panel);
   const coverage = homePanel(panel).locator("#sentinel-runtimes");
   await expect(homePanel(panel)).toContainText("Runtime coverage");
-  await expect(homePanel(panel).locator("#runtime-coverage-explanation")).toHaveText("Example data from the fixture status; not live Hermes or OpenClaw discovery.");
-  await expect(homePanel(panel)).not.toContainText("protected live OpenClaw evidence");
+  const explanation = homePanel(panel).locator("#runtime-coverage-explanation");
+  await expect(explanation).toHaveText("Example data from the fixture status; not live Hermes or OpenClaw discovery. Codex remains UNPROVEN.");
+  await expect(explanation).not.toContainText("protected OpenClaw status evidence");
   await expect(coverage).toContainText("hermes");
   await expect(coverage).toContainText("openclaw");
   await expect(coverage).toContainText("codex");
   await expect(coverage).toContainText("UNPROVEN");
   await expect(coverage).not.toContainText("Active route");
   await expect(coverage).not.toContainText("Weekly availability");
+  await assertNoSeriousOrCriticalAxeViolations(panel.page, test.info());
 });
 
 test("renders protected OpenClaw status evidence without claiming a current runtime probe", async ({ page }) => {
+  const root = await mkdtemp(join(tmpdir(), "account-center-a11y-"));
   const token = randomBytes(32).toString("base64url");
-  const status = /** @type {AccountCenterStatus} */ ({
-    schemaVersion: "account-center.status.v1",
-    generatedAt: "2026-09-07T09:00:00.000Z",
-    noSecrets: true,
-    source: "openclaw",
-    providers: [],
-    runtimes: [{ key: "openclaw", displayName: "OpenClaw", capabilities: { readStatus: true, mutateRoutes: false, startReauth: false, mutateModels: false } }],
-    profiles: [],
-    routes: [],
-    policy: { minFiveHourRemainingPct: 0, minWeeklyRemainingPct: 0, allowBackupWhenNormalAvailable: false, disabledModels: [], staleAfterSeconds: 60 },
-    leases: [],
-    reauth: [],
-    audit: [],
-    warnings: []
-  });
+  const status = JSON.parse(await readFile(new URL("../fixtures/status.fixture.json", import.meta.url), "utf8"));
+  status.source = "openclaw";
   const app = createAccountCenterServer({
     token,
     source: "openclaw",
     statusReader: async () => status,
     routingPoolAgentReader: async () => [],
-    routingPoolReader: async () => ({ agentId: "fixture-agent", provider: "openai", profiles: [], order: [] })
+    routingPoolReader: async () => ({ agentId: "fixture-agent", provider: "openai", profiles: [], order: [] }),
+    accountUiPreferencesStore: new AccountUiPreferencesStore(root)
   });
   const { port } = await app.listen();
   try {
@@ -192,17 +183,19 @@ test("renders protected OpenClaw status evidence without claiming a current runt
     await page.getByRole("button", { name: "Refresh status" }).click();
     const explanation = page.locator("#runtime-coverage-explanation");
     const coverage = page.locator("#sentinel-runtimes");
-    const hermes = coverage.locator("article").filter({ hasText: /^hermes/ });
     const openclaw = coverage.locator("article").filter({ hasText: /^openclaw/ });
     const codex = coverage.locator("article").filter({ hasText: /^codex/ });
-    await expect(homePanel({ page }).locator("#runtime-coverage-explanation")).toHaveText("OpenClaw coverage is shown only from protected OpenClaw status evidence; it may be a recorded snapshot, not a current runtime probe. Hermes and Codex remain UNPROVEN unless separately observed.");
+    await expect(explanation).toHaveText("OpenClaw coverage is shown only from protected OpenClaw status evidence; it may be a recorded snapshot, not a current runtime probe. Codex remains UNPROVEN.");
     await expect(openclaw.locator("dd").first()).toHaveText("Available");
-    await expect(hermes.locator("dd").first()).toHaveText("UNPROVEN");
     await expect(codex.locator("dd").first()).toHaveText("UNPROVEN");
+    await expect(coverage).not.toContainText("Active route");
+    await expect(coverage).not.toContainText("Weekly availability");
     expect(await page.evaluate(() => window.__coverageAnnouncementMutations)).toBe(1);
+    await assertNoSeriousOrCriticalAxeViolations(page, test.info());
   } finally {
     await page.goto("about:blank");
     await app.close();
+    await rm(root, { recursive: true, force: true });
   }
 });
 
